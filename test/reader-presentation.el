@@ -207,4 +207,21 @@
           (should (< (point) body)))))
     (should shr-inhibit-images)))
 
+(ert-deftest reader-favorites-button-and-key-are-available-in-all-views ()
+  (dolist (mode '(ef-reader-feed-mode ef-reader-article-mode ef-reader-groups-mode camulus-subscriptions-mode ef-reader-folders-mode ef-reader-folder-mode))
+    (with-temp-buffer
+      (funcall mode)
+      (when (eq mode 'ef-reader-article-mode)
+        (setq ef-reader--source "test")
+        (cl-letf (((symbol-function 'ef-reader--schedule-visible) #'ignore)) (ef-reader--render)))
+      (should (eq (key-binding "f") #'ef-reader-folders))
+      (let* ((label (cl-find-if (lambda (s) (and (stringp s) (string-match-p "收藏夹" s))) header-line-format))
+             (map (and label (get-text-property 0 'local-map label)))
+             (command (and map (lookup-key map [header-line mouse-1])))
+             (last-input-event (list 'mouse-1 (list (selected-window) 'header-line '(0 . 0) 0))) called)
+        (should (commandp command))
+        (cl-letf (((symbol-function 'ef-reader-folders) (lambda () (interactive) (setq called t))))
+          (call-interactively command))
+        (should called)))))
+
 (ert-run-tests-batch-and-exit)

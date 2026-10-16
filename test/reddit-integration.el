@@ -88,7 +88,7 @@
              (should (string-match-p "- failed" (aref (cadar tabulated-list-entries) 3))))
            (with-current-buffer thread
              (should (string-match-p "- failed" (buffer-string)))
-             (should (string-suffix-p "loaded" header-line-format))))
+             (should (string-suffix-p "loaded" (apply #'concat header-line-format)))))
        (kill-buffer summary) (kill-buffer thread)))))
 
 (ert-deftest reddit-vote-validates-before-optimistic-change ()
@@ -109,7 +109,7 @@
      (goto-char (point-min))
      (ef-reddit-downvote)
      (should (= ef-reader--active 900000))
-     (should (string-suffix-p "loading / partial" header-line-format))
+     (should (string-suffix-p "loading / partial" (apply #'concat header-line-format)))
      (setq ef-reader--active nil))))
 
 (ert-run-tests-batch-and-exit)

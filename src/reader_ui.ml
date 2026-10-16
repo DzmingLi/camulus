@@ -189,6 +189,16 @@ let with_bindings vars f =
     | (name,value)::rest -> Current_buffer.set_value_temporarily Sync (Var.create (Symbol.intern name) Value.Type.value) value ~f:(fun () -> loop rest)
   in loop vars
 
+let header_link label command =
+  let map=Keymap.create () in
+  let action=Function.to_value (Defun.lambda_nullary_nil [%here] ~interactive:No_arg (fun () ->
+     let event=get "last-input-event" in
+     Selected_window.set (Window.of_value_exn (call "posn-window" [call "event-start" [event]]));
+     run "call-interactively" [sym command])) in
+  run "define-key" [Keymap.to_value map;vector [sym "header-line";sym "mouse-1"];action];
+  propertize (s label) [sym "face";sym "link";sym "mouse-face";sym "highlight";
+    sym "help-echo";s label;sym "local-map";Keymap.to_value map]
+
 let body m indent =
   if String.is_empty (text "body" m) && truth (field "html" m) then (
     let dom=Current_buffer.set_temporarily_to_temp_buffer Sync (fun () ->
@@ -246,10 +256,10 @@ let render () =
       done in
     render_roots (List.filter messages ~f:(fun m -> not (truth (find (get "ef-reader--messages") (field "parent_id" m)))));
     render_roots messages);
-  set "header-line-format" (s (Printf.sprintf "!: save to default  m: choose folder  n: next unread%s — %d articles — %s"
+  set "header-line-format" (list [header_link "[收藏夹 · f]" "ef-reader-folders";s (Printf.sprintf "  !: save to default  m: choose folder  n: next unread%s — %d articles — %s"
     (Option.value_map (capability (get "ef-reader--source")) ~default:"" ~f:(fun backend ->
        String.concat (List.map backend.controls ~f:(fun control -> "  "^control.hint))))
-    (List.length messages) (if flag "ef-reader--complete" then "loaded" else "loading / partial")));
+    (List.length messages) (if flag "ef-reader--complete" then "loaded" else "loading / partial"))]);
   (match !first_unread with
    | Some p when not (flag "ef-reader--positioned") -> goto p;set "ef-reader--positioned" (b true);
      List.iter windows ~f:(fun (w,_) -> run "set-window-start" [w;i p;b true])
@@ -307,21 +317,12 @@ let open_article () =
   let window=call "display-buffer-in-direction" [bv target;alist ["direction",sym "right";"window-width",call "string-to-number" [s "0.6"]]] in
   if truth window then Selected_window.set (Window.of_value_exn window)
 
-let home_link label command =
-  let map=Keymap.create () in
-  let action=Function.to_value (Defun.lambda_nullary_nil [%here] ~interactive:No_arg (fun () ->
-     let event=get "last-input-event" in
-     Selected_window.set (Window.of_value_exn (call "posn-window" [call "event-start" [event]]));
-     run "call-interactively" [sym command])) in
-  run "define-key" [Keymap.to_value map;vector [sym "header-line";sym "mouse-1"];action];
-  propertize (s label) [sym "face";sym "link";sym "mouse-face";sym "highlight";
-    sym "help-echo";s "Browse without subscribing";sym "local-map";Keymap.to_value map]
 let home_header () =
   let errors=List.length (values (get "ef-reader-home--errors")) in
   let links=List.concat_map (Reader_backend.all ()) ~f:(fun backend ->
-    match backend.browser with None -> [] | Some (label,command) -> [s "  ";home_link ("["^label^"]") command]) in
-  set "header-line-format" (list ([s "Home  ";home_link "[Groups · B]" "ef-reader-browse-groups"] @ links @
-    [s "  ";home_link "[Subscriptions · U]" "camulus-subscriptions";s "  ";home_link "[Folders · f]" "ef-reader-folders";
+    match backend.browser with None -> [] | Some (label,command) -> [s "  ";header_link ("["^label^"]") command]) in
+  set "header-line-format" (list ([s "Home  ";header_link "[收藏夹 · f]" "ef-reader-folders";s "  ";header_link "[Groups · B]" "ef-reader-browse-groups"] @ links @
+    [s "  ";header_link "[Subscriptions · U]" "camulus-subscriptions";
     s (Printf.sprintf "   %d feeds · %d/%d refreshed%s   RET: read  d: delete  !: save to default  m: choose folder  g: refresh  e: errors"
       (List.length (values (get "ef-reader-home--entries"))) (number (get "ef-reader-home--done"))
       (number (get "ef-reader-home--total")) (if errors=0 then "" else Printf.sprintf " · %d failed" errors))]));
@@ -610,14 +611,37 @@ let save () =
     if String.equal (text "kind" data) "folders" then (
       let folder=call "completing-read" [s "Save to folder (new parent/child allowed): ";field "rows" data;nil;nil] in
       if not (String.is_empty (str folder)) then save_to row folder)))
-let folders () =
-  let origin=Selected_window.get () in
+let open_folder folder =
+  ignore(show_buffer ("*Reader folder: "^str folder^"*") : Buffer.t);
+  run "ef-reader-folder-mode" [];set "ef-reader--folder" folder;load_list false false
+let folders_load () =
+  let target=buffer () and generation=token () in
+  set "ef-reader--list-token" generation;
+  writable(fun () -> Current_buffer.erase ();Point.insert "Loading favorite folders…\n");
   request_ignore ["op",s "folders"] ~receive:(callback_unit (fun data ->
-    if String.equal (text "kind" data) "folders" && Window.is_live origin then (
-      let folder=call "completing-read" [s "Folder: ";field "rows" data;nil;b true] in
-      if not (String.is_empty (str folder)) then (
-        Selected_window.set origin;ignore (show_buffer ("*Reader folder: "^str folder^"*") : Buffer.t);
-        run "ef-reader-folder-mode" [];set "ef-reader--folder" folder;load_list false false))))
+    if String.equal(text "kind" data)"folders" && alive target then in_buffer target (fun () ->
+      if derived "ef-reader-folders-mode" && Value.eq generation(get "ef-reader--list-token") then (
+        writable(fun () ->
+          Current_buffer.erase ();Point.insert "收藏夹\n\n";
+          let folders=values(field "rows" data) in
+          List.iter folders ~f:(fun folder ->
+            let parts=String.split (str folder) ~on:'/' in
+            Point.insert (String.make (2*(List.length parts-1)) ' ');
+            button (List.last_exn parts) (fun () -> open_folder folder);Point.insert "\n");
+          if List.is_empty folders then Point.insert "还没有收藏。阅读文章时按 ! 收藏到 default。\n";
+          Point.goto_min ();run "forward-line"[i 2]);
+        Current_buffer.set_modified false))))
+let folders () =
+  run "ef-reader-start" [];
+  if derived "ef-reader-article-mode" then (
+    let windows=values(call "window-list"[]) in
+    Option.iter (List.find windows ~f:(fun window ->
+      let target=Buffer.of_value_exn(call "window-buffer"[window]) in
+      in_buffer target(fun () -> derived "ef-reader-feed-mode" || derived "ef-reader-folder-mode" ||
+        derived "ef-reader-groups-mode" || derived "ef-reader-folders-mode")))
+      ~f:(fun window->Selected_window.set(Window.of_value_exn window)));
+  ignore(show_buffer "*Camulus folders*" : Buffer.t);
+  run "ef-reader-folders-mode" [];folders_load ()
 let delete_folder () =
   if not (flag "ef-reader--folder") then user_error "Open a favorites folder first";
   request_ignore ["op",s "remove-folder";"folder",get "ef-reader--folder"]
@@ -779,8 +803,8 @@ let local_default name default =
 let mode name parent title columns_ header init =
   let initialize () =
     Option.iter columns_ ~f:(fun cols -> set "tabulated-list-format" (columns cols));
-    local "header-line-format" (s header);
     if Option.is_some columns_ then run "tabulated-list-init-header" [];
+    local "header-line-format" (list [header_link "[收藏夹 · f]" "ef-reader-folders";s ("  "^header)]);
     init () in
   ignore (Major_mode.define_derived_mode (Symbol.intern name) [%here] ~docstring:"Native Ecaml reader view."
     ~parent:(Major_mode.find_or_wrap_existing [%here] (Symbol.intern parent)) ~mode_line:title
@@ -799,6 +823,8 @@ let install_modes () =
   mode "ef-reader-folder-mode" "tabulated-list-mode" "Favorites"
     (Some ["Kind",8,false;"Source",24,true;"Title",80,true])
     "RET: read saved copy  !: add to default  m: add folder  d: remove entry  D: remove folder  f: folders  g: reload  h: home" ignore;
+  mode "ef-reader-folders-mode" "special-mode" "Favorite folders" None
+    "RET / click: open folder  TAB: next folder  g: refresh  h: home" ignore;
   mode "ef-reader-groups-mode" "special-mode" "Reader groups" None
     "Groups · RET / click: browse  TAB: next entry  h: home  g: reload  U: subscriptions  s: follow group  C: edit groups" ignore;
   mode "camulus-subscriptions-mode" "ef-reader-groups-mode" "Subscriptions" None
@@ -814,9 +840,10 @@ let install_modes () =
   bind "ef-reader-feed-mode" ["s","ef-reader-subscription";"S","ef-reader-group-subscription";"G","ef-reader-entries";"C","ef-reader-edit-config";"n","ef-reader-more";"/","ef-reader-search";
     "U","camulus-subscriptions";"B","ef-reader-browse-groups";"b","ef-reader-home-browse-source";"e","ef-reader-home-errors"];
   bind "ef-reader-folder-mode" ["D","ef-reader-delete-folder"];
-  bind "ef-reader-article-mode" ["s","ef-reader-subscription";"!","ef-reader-save-default";"m","ef-reader-save";"n","ef-reader-next-unread";"h","camulus"];
+  bind "ef-reader-folders-mode" ["RET","push-button";"TAB","forward-button";"<backtab>","backward-button";"f","ef-reader-folders";"g","ef-reader-folders-refresh";"h","camulus"];
+  bind "ef-reader-article-mode" ["f","ef-reader-folders";"s","ef-reader-subscription";"!","ef-reader-save-default";"m","ef-reader-save";"n","ef-reader-next-unread";"h","camulus"];
   bind "camulus-subscriptions-mode" ["g","camulus-subscriptions-refresh";"B","ef-reader-browse-groups";"U","camulus-subscriptions"];
-  bind "ef-reader-groups-mode" ["U","camulus-subscriptions";"s","ef-reader-group-subscription";"S","ef-reader-group-subscription";"h","camulus";"g","ef-reader-browse-groups";"C","ef-reader-edit-groups"]
+  bind "ef-reader-groups-mode" ["f","ef-reader-folders";"U","camulus-subscriptions";"s","ef-reader-group-subscription";"S","ef-reader-group-subscription";"h","camulus";"g","ef-reader-browse-groups";"C","ef-reader-edit-groups"]
 
 
 let installed = ref false
@@ -860,6 +887,7 @@ let install () =
   define0 ~interactive:true "ef-reader-save" save;
   define0 ~interactive:true "ef-reader-save-default" save_default;
   define0 ~interactive:true "ef-reader-folders" folders;
+  define0 ~interactive:true "ef-reader-folders-refresh" folders_load;
   define0 ~interactive:true "ef-reader-delete-folder" delete_folder;
   define0 ~interactive:true "ef-reader-subscription" subscription;
   define0 ~interactive:true "ef-reader-group-subscription" group_subscription;
