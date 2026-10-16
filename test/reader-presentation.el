@@ -207,6 +207,68 @@
           (should (< (point) body)))))
     (should shr-inhibit-images)))
 
+(ert-deftest reader-late-images-cannot-write-into-a-new-render-or-article ()
+  (let* ((ef-reader--states (make-hash-table :test #'equal))
+        (requests nil) (cached 0) (inserted 0)
+        (shr-put-image-function
+         (lambda (_data alt &rest _) (cl-incf inserted) (insert (propertize alt 'test-image t)))))
+    (cl-letf (((symbol-function 'ef-reader--schedule-visible) #'ignore)
+              ((symbol-function 'url-is-cached) (lambda (&rest _) nil))
+              ((symbol-function 'url-queue-retrieve)
+               (lambda (url callback args &rest options)
+                 (push (list url callback args options) requests)))
+              ((symbol-function 'url-store-in-cache) (lambda (&rest _) (cl-incf cached)))
+              ((symbol-function 'shr-parse-image-data) (lambda () "downloaded-image")))
+      (cl-labels ((finish (request &optional status)
+                    (let ((response (generate-new-buffer " *delayed-image*")))
+                      (with-current-buffer response
+                        (insert "HTTP/1.1 200 OK\n\nimage")
+                        (apply (nth 1 request) status (nth 2 request)))
+                      (should-not (buffer-live-p response)))))
+        (with-temp-buffer
+          (ef-reader-article-mode)
+          (setq ef-reader--source "atlantic")
+          (puthash "one" '((id . "one") (author . "A") (title . "Delayed hero") (body . "")
+                           (url . "https://example.test/post")
+                           (html . "<figure><img src='https://example.test/hero.png' alt='Hero'></figure><p>Body</p>"))
+                   ef-reader--messages)
+          (puthash "one" t ef-reader--loaded)
+          (ef-reader--render)
+          (ef-reader--render)
+          (should (= 2 (length requests)))
+          (should (equal (caar requests) "https://example.test/hero.png"))
+          ;; The old markers have collapsed to point-min. Its response must
+          ;; still be cached and cleaned up, without inserting above From:.
+          (let ((before (buffer-string)))
+            (finish (cadr requests))
+            (should (equal before (buffer-string)))
+            (should (= 0 inserted)))
+          (finish (car requests))
+          (should (= 1 inserted))
+          (should (= 2 cached))
+          (should (string-prefix-p "From:" (buffer-substring-no-properties (point-min) (point-max))))
+          (goto-char (point-min)) (search-forward "Hero") (search-forward "Body")
+          ;; Reusing the same buffer for a different article invalidates the
+          ;; previous article's image request before the next render, too.
+          (ef-reader--render)
+          (ef-reader-article-mode)
+          (let ((before (buffer-string)))
+            (finish (car requests))
+            (should (equal before (buffer-string))))
+          (should (= 1 inserted))
+          (should (= 3 cached))
+          (finish (car requests) '(:error (error "offline")))
+          (should (= 3 cached)))
+        ;; A closed article must not receive a late image either.
+        (finish (car requests))
+        (should (= 1 inserted))
+        ;; The scoped adapter is gone after rendering; other SHR users keep
+        ;; their original callback and queue arguments.
+        (url-queue-retrieve "https://example.test/other.png" #'shr-image-fetched '(untouched) t t)
+        (should (eq (nth 1 (car requests)) #'shr-image-fetched))
+        (should (equal (nth 2 (car requests)) '(untouched)))
+        (should (equal (nth 3 (car requests)) '(t t)))))))
+
 (ert-deftest reader-favorites-button-and-key-are-available-in-all-views ()
   (dolist (mode '(ef-reader-feed-mode ef-reader-article-mode ef-reader-groups-mode camulus-subscriptions-mode ef-reader-folders-mode ef-reader-folder-mode))
     (with-temp-buffer

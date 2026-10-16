@@ -199,6 +199,33 @@ let header_link label command =
   propertize (s label) [sym "face";sym "link";sym "mouse-face";sym "highlight";
     sym "help-echo";s label;sym "local-map";Keymap.to_value map]
 
+let with_image_downloads f =
+  let target=buffer () and generation=get "ef-reader--render-token" in
+  (* SHR's download markers collapse to the beginning when we redraw. Scope
+     this adapter to our rendering, and let only the current render insert. *)
+  let advice=Function.to_value (Defun.lambda [%here] (Returns Value.Type.value)
+    (let open Defun.Let_syntax in
+     let%map_open original=required "original" value and args=rest "arguments" value in
+     let args=match args with
+       | url::finished::rest when Value.eq finished (sym "shr-image-fetched") ->
+         let guarded=Function.to_value (Defun.lambda [%here] (Returns Value.Type.value)
+           (let open Defun.Let_syntax in
+            let%map_open status=required "status" value and args=rest "arguments" value in
+            if alive target && in_buffer target (fun () ->
+              derived "ef-reader-article-mode" && Value.eq generation (get "ef-reader--render-token"))
+            then call "apply" [finished;list (status::args)]
+            else (
+              let response=buffer () in
+              Exn.protect ~f:(fun () ->
+                if not (truth (call "plist-get" [status;sym ":error"])) then
+                  run "url-store-in-cache" [bv response])
+                ~finally:(fun () -> if alive response then run "kill-buffer" [bv response]);nil))) in
+         url::guarded::rest
+       | _ -> args in
+     call "apply" [original;list args])) in
+  run "advice-add" [sym "url-queue-retrieve";sym ":around";advice];
+  Exn.protect ~f ~finally:(fun () -> run "advice-remove" [sym "url-queue-retrieve";advice])
+
 let body m indent =
   if String.is_empty (text "body" m) && truth (field "html" m) then (
     let dom=Current_buffer.set_temporarily_to_temp_buffer Sync (fun () ->
@@ -208,7 +235,7 @@ let body m indent =
       "shr-external-rendering-functions",call "append" [renderers;get "shr-external-rendering-functions"];
       "shr-width",i (Int.max 20 (number (call "window-body-width" [call "get-buffer-window" [bv (buffer ());b true]])-indent-2));
       "shr-base",or_ (field "link_url" m) (field "url" m)]
-      (fun () -> run "shr-insert-document" [dom]))
+      (fun () -> with_image_downloads (fun () -> run "shr-insert-document" [dom])))
   else Point.insert (text "body" m)
 
 let render () =
@@ -221,6 +248,7 @@ let render () =
   let seen=Hash_set.create (module String) and children=Hashtbl.create (module String) in
   List.iter (List.rev messages) ~f:(fun m -> Hashtbl.add_multi children ~key:(text "parent_id" m) ~data:m);
   let first_unread=ref None in
+  local "ef-reader--render-token" (token ());
   writable (fun () ->
     Current_buffer.erase ();
     (* Explicit traversal preserves chronological siblings without recursion limits. *)
@@ -830,6 +858,7 @@ let install_modes () =
   mode "camulus-subscriptions-mode" "ef-reader-groups-mode" "Subscriptions" None
     "Subscriptions · RET / click: browse  s: change subscription  g: refresh  B: all groups  h: home" ignore;
   mode "ef-reader-article-mode" "special-mode" "Reader thread" None "Loading…" (fun () ->
+    local "ef-reader--render-token" nil;
     reading_layout ();
     List.iter ["messages";"attachments";"loaded"] ~f:(fun name -> set ("ef-reader--"^name) (hash ()));
     run "add-hook" [sym "kill-buffer-hook";callback0 (fun () ->
