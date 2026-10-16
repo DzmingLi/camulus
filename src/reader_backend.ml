@@ -15,6 +15,7 @@ type t = {
   read : source:string -> id:string -> thread_id:string option -> group:string option -> Value.t;
   attachment : (source:string -> id:string -> group:string option -> part:int -> destination:string -> Value.t) option;
   controls : control list;
+  list_controls : control list;
   browser : (string * string) option;
   entrances : unit -> entrance list;
   followed : (unit -> Value.t) option;
@@ -34,7 +35,7 @@ let s = Value.of_utf8_bytes
 let alist fields = Value.list (List.map fields ~f:(fun (k,v) -> call "cons" [Value.intern k;v]))
 let base ~name ~matches ~threaded ~read = {
   name;matches;threaded;read;thread_contains_bodies=false;
-  available=(fun _ -> true);attachment=None;controls=[];browser=None;entrances=(fun () -> []);followed=None;
+  available=(fun _ -> true);attachment=None;controls=[];list_controls=[];browser=None;entrances=(fun () -> []);followed=None;
   subscription_target=None;page=None;events=[];
   reconcile=(fun ~source:_ ~existing:_ ~request:_ ~archived:_ message -> message)
 }

@@ -123,3 +123,7 @@ Discourse 增加 `replies`（直接回复）和 `notifications`（回复、提�
 最终回归通过 11 个 OCaml 测试程序、3 个 Python 迁移测试和 48 项 Emacs ERT 测试，见 完整回归记录（本地验证输出）。真实 Ecaml/界面检查（本地验证输出） 覆盖六个新后端的列表与正文；Public Inbox 的 86 封邮件合并为一行并在阅读窗口全部展开。安装后入口检查（本地验证输出） 验证了邮箱、Discourse 回复和豆瓣空通知列表。网络数据会变化，这些是本次检查时的结果；豆瓣的非空通知解析及嵌套回复分页由模拟接口测试覆盖。
 
 启动新进程以加载新版本原生模块：在项目目录执行 `nix-shell --run 'make reader-demo'`，首页 `G` 选择入口，`g` 抓取当前入口，`RET` 打开，`m` 收藏。已加载旧 `.so` 的 Emacs 进程需要重启才能使用新后端。
+
+## CS.RIN.RU
+
+`source: "csrin"`，`group: "forum.ID"` 或 `"topic.ID"`。默认浏览入口不进入首页；需要时设置 `timeline: true`。支持论坛发现、逐页完整讨论、登录、发帖/回复与草稿，详细配置和边界见 [CSRIN.md](CSRIN.md)。Gnus 导入器同时支持原 nncsrin 入口。

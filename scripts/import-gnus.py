@@ -61,6 +61,8 @@ def convert(inventory, mail_root, reddit_user):
             source, mapped = 'public-inbox', old['server'].rstrip('/') + '/' + group + '/'
         elif backend == 'nngcores' and re.fullmatch(r'talks\.[1-9][0-9]*', group):
             source, mapped = 'gcores', group
+        elif backend == 'nncsrin' and re.fullmatch(r'(?:forum|topic)\.[0-9]+', group):
+            source, mapped = 'csrin', group
         elif backend == 'nnreddit' and reddit_user:
             source = 'reddit:' + reddit_user
             mapped = group.removeprefix('r/')

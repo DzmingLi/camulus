@@ -1,0 +1,7 @@
+SPDX-License-Identifier: AGPL-3.0-or-later
+Copyright (C) 2026 Dzming Li
+
+Protocol and phpBB layout behavior ported from Dzming Li's nncsrin:
+https://github.com/DzmingLi/nncsrin
+The former repository was backed up before deletion. This implementation
+uses OCaml networking and parsing and has no dependency on Gnus.

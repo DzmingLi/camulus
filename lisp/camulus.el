@@ -45,6 +45,7 @@
     (ef-rss-subscriptions-configure ef-reader-rss-subscriptions-file)
     (camulus-jsonfeed-subscriptions-configure camulus-jsonfeed-subscriptions-file)
     (ef-content-state-configure ef-reader-state-file)
+    (camulus-csrin-configure camulus-csrin-site)
     (ef-browser-profile-configure (or ef-reader-firefox-profile ""))
     (ef-discourse-setup)
     (when ef-reddit-username

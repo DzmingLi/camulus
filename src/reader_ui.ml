@@ -396,6 +396,13 @@ let reader entry =
     if flag "ef-reader--home" then home_cancel ();
     run "ef-reader-feed-mode" [];
     set "ef-reader--entry" entry;set "ef-reader--source" (field "source" entry);
+    Option.iter (capability (field "source" entry)) ~f:(fun backend ->
+      let map=call "copy-keymap" [call "current-local-map" []] in
+      List.iter backend.list_controls ~f:(fun control ->
+        run "define-key" [map;call "kbd" [s control.key];sym control.command]);
+      run "use-local-map" [map];
+      let hints=String.concat(List.map backend.list_controls ~f:(fun c->"  "^c.hint))in
+      if not(String.is_empty hints)then set "header-line-format" (list[get "header-line-format";s hints]));
     run "ef-reader--load-list" [])
 let browse_entry entry = run "camulus" [entry];run "ef-reader--load-list" [b true]
 let button label action = run "insert-text-button" [s label;sym "follow-link";b true;sym "action";callback_unit (fun _ -> action ())]

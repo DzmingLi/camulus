@@ -1,0 +1,5 @@
+(library (name csrin_backend) (modules (:standard \ csrin_emacs))
+ (libraries reader rss_backend curl eio eio.unix uri yojson ptime str unix))
+(library (name csrin_emacs) (modules csrin_emacs)
+ (libraries reader_emacs_backend ecaml csrin_backend)
+ (preprocess (pps ppx_jane)))

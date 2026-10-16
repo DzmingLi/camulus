@@ -18,7 +18,8 @@
 (defun ef-reader--backend-settings (settings)
   "Validate backend settings and return variable assignments without applying them."
   (let (assignments)
-    (dolist (spec '((browser firefox_profile ef-reader-firefox-profile string)
+    (dolist (spec '((csrin site camulus-csrin-site string)
+                    (browser firefox_profile ef-reader-firefox-profile string)
                     (discourse auth_sources ef-discourse-auth-sources strings)
                     (reddit username ef-reddit-username string)
                     (reddit token_file ef-reddit-token-file string)

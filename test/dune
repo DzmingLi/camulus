@@ -38,3 +38,9 @@
 
 (test (name blogger_gcores_test) (modules blogger_gcores_test)
  (libraries blogger_backend gcores_backend rss_backend reader eio_posix yojson))
+
+(test (name csrin_test) (modules csrin_test)
+ (libraries csrin_backend rss_backend reader eio_posix uri))
+
+(executable (name csrin_live) (modules csrin_live)
+ (libraries csrin_backend reader eio_posix))

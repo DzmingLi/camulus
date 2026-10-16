@@ -36,6 +36,14 @@ class ImportTests(unittest.TestCase):
         self.assertTrue(all(e['timeline'] for e in config['entries']))
         self.assertFalse(report['pending'] + report['skipped'])
 
+    def test_csrin_forum_and_topic_entries(self):
+        groups = [dict(group='nncsrin:forum.14', backend='nncsrin', level=2),
+                  dict(group='nncsrin:topic.12', backend='nncsrin', level=2)]
+        config, report = module.convert(dict(groups=groups, rss=[]), Path('/mail'), None)
+        self.assertEqual([(e['source'], e['group']) for e in config['entries']],
+                         [('csrin', 'forum.14'), ('csrin', 'topic.12')])
+        self.assertFalse(report['pending'] + report['skipped'])
+
     def test_dribble_overrides_and_no_evaluation(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)

@@ -64,6 +64,11 @@
       "name": "Public-inbox thread",
       "source": "public-inbox",
       "group": "https://list.example.org/list/message-id@example.org/"
+    },
+    {
+      "name": "CS.RIN.RU forum",
+      "source": "csrin",
+      "group": "forum.14"
     }
   ]
 }

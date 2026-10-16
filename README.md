@@ -31,6 +31,7 @@
 | --- | --- |
 | Maildir | mu 本地索引与搜索、回复树、MIME 附件、自动保存草稿、纯 OCaml SMTP 发送、移动到 Archive；同步仍使用外部 mbsync |
 | Reddit | OAuth、subreddit、回复及提及、组内搜索、渐进回复树、投票；回复/发帖编辑界面未完成 |
+| CS.RIN.RU | Atom 更新、phpBB 逐页回复树、附件归档、登录、BBCode 发帖/回复、自动保存草稿 |
 | Discourse | 最新讨论、分类、回复及提及、追踪列表、远端搜索、渐进回复树、点赞、追踪设置、回复/发帖与草稿 |
 | RSS / Atom | 分页、后端订阅列表、正文与 enclosure 附件归档 |
 | JSON Feed 1 / 1.1 | `next_url` 分页、后端订阅列表、正文与附件归档 |
@@ -41,7 +42,7 @@
 | 网易云 | 公开动态、图片与歌曲链接；不下载歌曲音源 |
 | Public Inbox | 原生 gzip / mboxrd / MIME 解析，以邮件回复关系重建讨论树 |
 
-这些后端不依赖旧 Gnus 后端。CS.RIN.RU、Mastodon、GitHub / Forgejo 后端尚未实现。
+这些后端不依赖旧 Gnus 后端。Mastodon、GitHub / Forgejo 后端尚未实现。
 
 ## 使用 Nix 安装
 
@@ -100,7 +101,7 @@ emacsWithPackages (epkgs: [
 
 `timeline: true` 明确将入口加入首页；RSS 和 JSON Feed 另有各自后端管理的订阅文件。只声明可浏览的论坛、subreddit 或 feed URL 不会自动订阅。
 
-非秘密的账户、Maildir 路径、Firefox profile 等放在 `backend_settings`，密钥使用 auth-source 或独立凭据文件。完整说明见 [入口与订阅](docs/ENTRIES.md)、[邮件](docs/MAIL.md)、[Reddit](docs/REDDIT.md)、[Discourse](docs/DISCOURSE.md) 和 [RSS](docs/RSS.md)。
+非秘密的账户、Maildir 路径、Firefox profile 等放在 `backend_settings`，密钥使用 auth-source 或独立凭据文件。完整说明见 [入口与订阅](docs/ENTRIES.md)、[邮件](docs/MAIL.md)、[Reddit](docs/REDDIT.md)、[Discourse](docs/DISCOURSE.md) 和 [RSS](docs/RSS.md) 和 [CS.RIN.RU](docs/CSRIN.md)。
 
 本地内容状态默认为 `~/.local/state/camulus/state.sqlite3`，遵循 `XDG_STATE_HOME`。已读、移除、收藏归属和归档相互独立。普通条目保存列表元数据及操作状态；收藏才持久保存正文和附件。最后一个收藏归属移除后可清理归档，不会阻止以后重新获取内容。
 

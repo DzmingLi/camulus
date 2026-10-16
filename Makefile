@@ -9,7 +9,7 @@ build:
 
 test: export XDG_CONFIG_HOME = $(BUILD_ABS)/test-config
 test: export XDG_STATE_HOME = $(BUILD_ABS)/test-state
-test: build
+test: build csrin-test
 	python3 test/gnus-import-test.py
 	dune runtest --build-dir $(BUILD_ABS)
 	timeout 60s $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -l test/integration.el
@@ -49,3 +49,7 @@ mail-live: build
 
 demo: build
 	$(EMACS) -Q -L $(MODULE_DIR) -L lisp -l effects-probe -f ef-probe-demo
+
+.PHONY: csrin-test
+csrin-test: build
+	timeout 60s python3 test/csrin-fixture.py $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -l test/csrin-integration.el

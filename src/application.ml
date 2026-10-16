@@ -8,7 +8,7 @@ module Voting = Reader.Voting
 module CS = Reader.Content_state
 module Discourse = Discourse_backend
 type publication_operation = Publication_read of string * string option | Publication_attachment of string * string option * int * string
-type Protocol.work += Reddit of Reddit_backend.operation | Mail of Maildir_backend.operation | Local of CS.operation | Rss of Rss_backend.operation | Discourse of string * Discourse.operation | Subscription of string * string * string option | Rss_followed | Jsonfeed_followed | Jsonfeed of Rss_backend.operation | Publication of string * publication_operation
+type Protocol.work += Reddit of Reddit_backend.operation | Mail of Maildir_backend.operation | Local of CS.operation | Rss of Rss_backend.operation | Discourse of string * Discourse.operation | Subscription of string * string * string option | Rss_followed | Jsonfeed_followed | Jsonfeed of Rss_backend.operation | Publication of string * publication_operation | Csrin of Csrin_backend.operation
 type Protocol.payload += Reddit_result of Reddit_backend.result | Mail_result of Maildir_backend.result | State_result of Yojson.Safe.t | Rss_result of Yojson.Safe.t | Discourse_result of Discourse.result
 let reddit_service = function
   | Reddit_backend.Vote _ | Reply _ | Submit _ | Authorize | Complete_authorization _ -> true
@@ -39,7 +39,8 @@ let state_file = ref None
 let rss_subscriptions_file = ref None
 let jsonfeed_subscriptions_file = ref None
 let firefox_profile = ref None
-let publication_source s = List.mem ["atlantic";"janestreet";"zhihu";"douban";"netease";"public-inbox";"blogger";"gcores"] s ~equal:String.equal
+let csrin_site = ref "https://cs.rin.ru/forum/"
+let publication_source s = List.mem ["atlantic";"janestreet";"zhihu";"douban";"netease";"public-inbox";"blogger";"gcores";"csrin"] s ~equal:String.equal
 
 let vote_of_int = function
   | 1 -> Reader.Content.Upvote | -1 -> Downvote | 0 -> No_vote
@@ -84,6 +85,8 @@ let start process =
       let zhihu=Zhihu_backend.Live.create ~cookies () and douban=Douban_backend.Live.create ~cookies () in
       let netease=Netease_backend.Live.create() and public_inbox=Public_inbox_backend.Live.create() in
       let blogger=Blogger_backend.Live.create() and gcores=Gcores_backend.Live.create() in
+      let csrin=Csrin_backend.Live.create ~base:!csrin_site
+        ~cookies:(fun url -> match !firefox_profile with Some _ -> cookies url | None -> []) () in
       let publication_list source group ~after = match source with
         | "atlantic"->Atlantic_backend.Live.list atlantic group ~after
         | "janestreet"->Janestreet_backend.Live.list janestreet group ~after
@@ -93,6 +96,7 @@ let start process =
         | "public-inbox"->Public_inbox_backend.Live.list public_inbox group ~after
         | "blogger"->Blogger_backend.Live.list blogger group ~after
         | "gcores"->Gcores_backend.Live.list gcores group ~after
+        | "csrin"->Csrin_backend.Live.list csrin group ~after
         | _->invalid_arg "Unknown publication" in
       let publication_search source group ~query ~after = match source with
         | "atlantic"->Atlantic_backend.Live.search atlantic group ~query ~after
@@ -103,6 +107,7 @@ let start process =
         | "public-inbox"->Public_inbox_backend.Live.search public_inbox group ~query ~after
         | "blogger"->Blogger_backend.Live.search blogger group ~query ~after
         | "gcores"->Gcores_backend.Live.search gcores group ~query ~after
+        | "csrin"->Csrin_backend.Live.search csrin group ~query ~after
         | _->invalid_arg "Unknown publication" in
       let publication_read source group id = match source with
         | "atlantic"->Atlantic_backend.Live.read atlantic group id
@@ -113,6 +118,7 @@ let start process =
         | "public-inbox"->Public_inbox_backend.Live.read public_inbox group id
         | "blogger"->Blogger_backend.Live.read blogger group id
         | "gcores"->Gcores_backend.Live.read gcores group id
+        | "csrin"->Csrin_backend.Live.read csrin group id
         | _->invalid_arg "Unknown publication" in
       let publication_archive source group id = match source with
         | "atlantic"->Atlantic_backend.Live.archive atlantic group id
@@ -123,6 +129,7 @@ let start process =
         | "public-inbox"->Public_inbox_backend.Live.archive public_inbox group id
         | "blogger"->Blogger_backend.Live.archive blogger group id
         | "gcores"->Gcores_backend.Live.archive gcores group id
+        | "csrin"->Csrin_backend.Live.archive csrin group id
         | _->invalid_arg "Unknown publication" in
       let publication_attachment source group id part destination = match source with
         | "atlantic"->Atlantic_backend.Live.attachment atlantic group id part destination
@@ -133,6 +140,7 @@ let start process =
         | "public-inbox"->Public_inbox_backend.Live.attachment public_inbox group id part destination
         | "blogger"->Blogger_backend.Live.attachment blogger group id part destination
         | "gcores"->Gcores_backend.Live.attachment gcores group id part destination
+        | "csrin"->Csrin_backend.Live.attachment csrin group id part destination
         | _->invalid_arg "Unknown publication" in
       let forums=Stdlib.Hashtbl.create 8 in
       List.iter !discourse_configs ~f:(fun config ->
@@ -163,7 +171,7 @@ let start process =
       let publication_group source id requested = match requested with
         | Some group -> group
         | None when String.equal source "janestreet" -> "posts"
-        | None when List.mem ["zhihu";"douban";"public-inbox";"gcores"] source ~equal:String.equal -> ""
+        | None when List.mem ["zhihu";"douban";"public-inbox";"gcores";"csrin"] source ~equal:String.equal -> ""
         | None -> storage(fun db -> CS.groups_for_item db ~source ~id) |> List.hd
           |> Option.value_or_thunk ~default:(fun () -> failwith "Open this publication's entry before reading the article") in
       let archived source target id =
@@ -212,6 +220,10 @@ let start process =
         end else if String.equal source "douban" && Poly.equal target CS.Thread then begin
           Douban_backend.Live.stream_thread douban id
             ~emit_article:(fun a->add(Douban_backend.Live.archive_article douban a))
+            ~emit:(fun b->complete:=b.complete)
+        end else if String.equal source "csrin" && Poly.equal target CS.Thread then begin
+          Csrin_backend.Live.stream_thread csrin id
+            ~emit_article:(fun a->add(Csrin_backend.Live.archive_article csrin a))
             ~emit:(fun b->complete:=b.complete)
         end else if publication_source source then begin
           if Poly.equal target CS.Thread then failwith "Publication articles do not have threads";
@@ -358,12 +370,21 @@ let start process =
       in
       fun work ~emit -> match work with
       | Local operation -> state operation emit
+      | Csrin operation ->
+        (match operation with
+         | Csrin_backend.Forums -> reply emit "csrin-forums" ["rows",`List(List.map (Csrin_backend.Live.forums csrin) ~f:(fun(group,name)->`Assoc["group",`String group;"name",`String name]))]
+         | Login(username,password) -> Csrin_backend.Live.login csrin ~username ~password;reply emit "csrin-login" []
+         | Prepare(group,id) ->
+           let d=Csrin_backend.Live.prepare csrin group id in
+           reply emit "csrin-compose" ["forum",`String d.forum;"topic",(match d.topic with None->`Null|Some s->`String s);"subject",`String d.subject]
+         | Send draft -> let url=Csrin_backend.Live.send csrin draft in reply emit "csrin-sent" ["url",`String url])
       | Publication(source,operation) ->
         (match operation with
          | Publication_read(id,group) ->
            let group=publication_group source id group in
-           if String.equal source "douban" || String.equal source "public-inbox" then
+           if String.equal source "douban" || String.equal source "public-inbox" || String.equal source "csrin" then
              (if String.equal source "douban" then Douban_backend.Live.stream_thread douban id
+              else if String.equal source "csrin" then Csrin_backend.Live.stream_thread csrin id
               else Public_inbox_backend.Live.stream_thread public_inbox id)
                ~emit_article:(fun a->observe emit source None [a.message];emit(Rss_result(Rss_backend.article_json a)))
                ~emit:(fun b->emit(Rss_result(`Assoc["kind",`String "thread";"thread",`String b.thread;
@@ -618,3 +639,5 @@ let followed_jsonfeed () = submit_work ~service:true Jsonfeed_followed
 let configured_sources () =
   Option.to_list (Option.map !reddit_config ~f:(fun c -> "reddit:"^c.Reddit_backend.username)) @
   Option.to_list (Option.map !mail_config ~f:(fun c -> "maildir:"^c.Maildir_backend.root))
+
+let request_csrin operation = submit_work ~service:true (Csrin operation)

@@ -249,5 +249,9 @@ let () =
       publication Atlantic_emacs.install "atlantic";publication Janestreet_emacs.install "janestreet";
       publication Zhihu_emacs.install "zhihu";publication Douban_emacs.install "douban";
       publication Netease_emacs.install "netease";publication Public_inbox_emacs.install "public-inbox";
+      Csrin_emacs.install ~submit:request_csrin ~configure:(fun site ->
+        ensure_ui ();if Option.is_some !runtime then failwith "Stop runtime before changing CS.RIN.RU identity";
+        csrin_site:=Csrin_backend.site site) ();
+      publication Csrin_emacs.install_reader "csrin";
       publication Blogger_emacs.install "blogger";publication Gcores_emacs.install "gcores");
   provide (Symbol.intern "camulus_native")
