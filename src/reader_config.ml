@@ -56,7 +56,8 @@ let setup_variables ()=
  List.iter["ef-reader-heading",Value.list[Value.list[sym "t";Value.list[sym ":weight";sym "bold"]]];
   "ef-reader-separator",Value.list[Value.list[sym "t";Value.list[sym ":inherit";sym "shadow";sym ":underline";sym "t"]]];
   "ef-reader-read",Value.list[background "light" "gray55";background "dark" "gray65";
-    Value.list[sym "t";Value.list[sym ":inherit";sym "shadow"]]]]
+    Value.list[sym "t";Value.list[sym ":inherit";sym "shadow"]]];
+  "ef-reader-favorite",Value.list[Value.list[sym "t";Value.list[sym ":foreground";s "red";sym ":weight";sym "normal"]]]]
  ~f:(fun(name,spec)->run "custom-declare-face"[sym name;spec;s "Reader presentation.";sym ":group";sym "camulus"])
 let register ~idle =
  define0 "ef-reader-load-config"load;

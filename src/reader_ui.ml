@@ -103,11 +103,14 @@ let set_rows rows =
       else if favorite then vector [field "target" row;field "source" row;field "title" row]
       else vector [s (if truth (field "unread" row) then "*" else "");field "source" row;field "author" row;
         Option.value_map(capability(field "source"row))~default:(field "title"row)~f:(fun backend->backend.row_title row)] in
-    let columns=if not favorite && truth (call "assq"[sym "unread";row]) && not(truth(field "unread"row)) then
+    let face=if favorite || truth(field "favorite" row) then Some "ef-reader-favorite"
+      else if truth (call "assq"[sym "unread";row]) && not(truth(field "unread"row)) then Some "ef-reader-read"
+      else None in
+    let columns=match face with Some face ->
       vector(List.map (values(call "append"[columns;nil])) ~f:(fun column ->
         let copy=call "copy-sequence"[column] in
-        run "add-face-text-property"[i 0;call "length"[copy];sym "ef-reader-read";b true;copy];copy))
-      else columns in
+        run "add-face-text-property"[i 0;call "length"[copy];sym face;b true;copy];copy))
+      | None -> columns in
     list [key;columns]) in
   set "tabulated-list-entries" (list entries);run "tabulated-list-print" [b true];
   let positions=hash () in
@@ -580,8 +583,19 @@ let load_list synchronize more =
       set "ef-reader--list-request" (request ~receive fields)))
 let reload_lists () =
   List.iter (Buffer.all_live ()) ~f:(fun target -> in_buffer target (fun () ->
-    if (derived "ef-reader-feed-mode" || derived "ef-reader-folder-mode") && not (flag "ef-reader--query")
-      && not (flag "ef-reader--list-request" && truth (find (get "ef-reader--requests") (get "ef-reader--list-request"))) then load_list false false))
+    if (derived "ef-reader-feed-mode" || derived "ef-reader-folder-mode")
+      && not (flag "ef-reader--list-request" && truth (find (get "ef-reader--requests") (get "ef-reader--list-request"))) then (
+      if not(flag "ef-reader--query") then load_list false false else (
+        let generation=get "ef-reader--list-token" and rows=values(get "ef-reader--search-rows") in
+        let source=field "source" (get "ef-reader--entry") in
+        request_ignore ["op",s "states";"source",source;"ids",vector(List.map rows ~f:(field "id"))]
+          ~receive:(callback_unit(fun data ->
+            if alive target && String.equal(text "kind" data)"states" then in_buffer target(fun () ->
+              if Value.eq generation (get "ef-reader--list-token") then (
+                let rows=list(List.map rows ~f:(fun row ->
+                  cons (cons (sym "favorite") (field "favorite" (state source (field "id" row))))
+                    (call "assq-delete-all" [sym "favorite";call "copy-alist" [row]]))) in
+                set "ef-reader--search-rows" rows;set_rows rows))))))))
 let refresh () =
   load_list true false;
   request_ignore ["op",s "refresh-archives"] ~receive:(callback_unit (fun data ->

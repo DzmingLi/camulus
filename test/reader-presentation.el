@@ -19,6 +19,23 @@
       (should-not (memq 'ef-reader-read (ensure-list (get-text-property (1- (point)) 'face))))
       (should-not (get-text-property 0 'face (alist-get 'title row))))))
 
+(ert-deftest reader-favorites-are-red-before-and-after-reading ()
+  (with-temp-buffer
+    (ef-reader-feed-mode)
+    (dolist (unread '(t nil))
+      (let ((row `((source . "test") (id . "one") (title . "Saved title")
+                   (author . "Alice") (favorite . t) (unread . ,unread))))
+        (ef-reader--set-rows (list row))
+        (dolist (column (append (cadar tabulated-list-entries) nil))
+          (unless (equal column "")
+            (should (memq 'ef-reader-favorite (ensure-list (get-text-property 0 'face column))))
+            (should-not (memq 'ef-reader-read (ensure-list (get-text-property 0 'face column)))))))))
+  (should (equal "red" (face-attribute 'ef-reader-favorite :foreground nil t)))
+  (with-temp-buffer
+    (ef-reader-folder-mode)
+    (ef-reader--set-rows '(((source . "test") (target . "article") (id . "one") (title . "Saved title"))))
+    (should (memq 'ef-reader-favorite (ensure-list (get-text-property 0 'face (aref (cadar tabulated-list-entries) 2)))))))
+
 (ert-deftest reader-thread-layout-keeps-bodies-and-attachments-in-the-tree ()
   (let ((ef-reader--states (make-hash-table :test #'equal)))
     (with-temp-buffer

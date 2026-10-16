@@ -9,6 +9,33 @@ let msg ?parent ?thread ?activity id =
    html=None;url="https://example.test/"^id;link_url=None;created=1.;unavailable=false;score=0;my_vote=No_vote}
 let archive message = {S.message;attachments=`List [];raw=Some "MIME\000binary\r\n";files=[]}
 let () =
+  let path=Filename.temp_file "reader-favorite-state-" ".sqlite3" in
+  Fun.protect ~finally:(fun () -> Sys.remove path) @@ fun () ->
+  let source="forum" and group="posts" in
+  let root=msg ~thread:"thread" "root" and reply=msg ~thread:"thread" ~parent:"root" "reply" in
+  let favorite db = field "favorite" (List.hd(rows(S.feed db ~source ~group))) in
+  S.with_db path (fun db ->
+    S.observe db ~source ~group:(Some group) [root;reply];
+    S.observe db ~source:"other" ~group:(Some group) [root];
+    check(favorite db=`Bool false) "ordinary conversation is not a favorite";
+    S.save_archive db ~source ~target:S.Article ~id:root.id ~folder:"first" [archive root];
+    check(favorite db=`Bool true) "saved article marks its conversation even when the latest row is a reply";
+    check(field "favorite" (List.hd(rows(S.timeline db ~entries:[source,group])))=`Bool true) "home shares favorite state";
+    check(field "favorite" (List.hd(rows(S.search_rows db ~source [reply])))=`Bool true) "search shares favorite state";
+    check(field "favorite" (List.hd(rows(S.feed db ~source:"other" ~group)))=`Bool false) "favorite identity is source scoped";
+    check(S.copy_favorite db ~source ~target:S.Article ~id:root.id ~folder:"second") "copy favorite to another folder";
+    S.remove_favorite db ~source ~target:S.Article ~id:root.id ~folder:"first";
+    S.mark_read db ~source [root.id;reply.id] true;
+    check(favorite db=`Bool true) "reading and removing one membership preserve favorite state");
+  S.with_db path (fun db ->
+    check(favorite db=`Bool true) "favorite state survives reopening";
+    S.remove_folder db "second";
+    check(favorite db=`Bool false) "last folder removal clears favorite state";
+    check(field "unread" (List.hd(rows(S.feed db ~source ~group)))=`Bool false) "unfavorite preserves read state";
+    S.save_archive db ~source ~target:S.Thread ~id:"thread" ~folder:"threads" [archive root;archive reply];
+    check(favorite db=`Bool true) "native thread anchor marks conversation");
+  print_endline "PASS: persistent conversation favorite state, source isolation, search and multiple folders"
+let () =
   let path=Filename.temp_file "reader-state-" ".sqlite3" in
   Fun.protect ~finally:(fun () -> Sys.remove path) @@ fun () ->
   let source="reddit:alice" and root=msg ~thread:"t3_root" ~activity:"0" "t3_root" in

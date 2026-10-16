@@ -99,10 +99,6 @@ let observe ?(replace=false) db ~source ~group messages =
 let mark_read db ~source ids value =
   transaction db (fun () -> List.iter (fun id ->
     run db "UPDATE items SET is_read=? WHERE source=? AND id=?" [int(if value then 1 else 0);text source;text id]) ids)
-let snapshots db ~source ids = `Assoc ["source",`String source;"items",`List(List.map (fun id ->
-  let read = match query db "SELECT is_read FROM items WHERE source=? AND id=?" [text source;text id] with
-    | [r] -> n r.(0)<>0 | _ -> false in
-  `Assoc["id",`String id;"read",`Bool read]) ids)]
 let legacy_groups db = query db "SELECT source,grp FROM legacy_subscriptions ORDER BY source,grp" []
   |> List.map(fun r -> s r.(0),s r.(1))
 (* An internal connected component, not a native thread ID. Unknown ancestors are
@@ -121,11 +117,23 @@ let components db =
   List.iter(fun r -> union (s r.(0),s r.(1)) (s r.(0),s r.(2)))
     (query db "SELECT source,child,ancestor FROM item_links" []);
   root,rows
+let favorite_components db root =
+  let saved=Hashtbl.create 32 in
+  List.iter(fun r -> Hashtbl.replace saved (root(s r.(0),s r.(1))) ())
+    (query db "SELECT source,id FROM favorites" []);
+  saved
+let snapshots db ~source ids =
+  let root,_=components db in let saved=favorite_components db root in
+  `Assoc ["source",`String source;"items",`List(List.map (fun id ->
+    let read = match query db "SELECT is_read FROM items WHERE source=? AND id=?" [text source;text id] with
+      | [r] -> n r.(0)<>0 | _ -> false in
+    `Assoc["id",`String id;"read",`Bool read;"favorite",`Bool(Hashtbl.mem saved (root(source,id)))]) ids)]
 let dismiss db ~source ~group ~id ~through =
   if through<0 then invalid_arg "Negative feed revision";
   run db "INSERT INTO dismissals VALUES(?,?,?,?) ON CONFLICT(source,grp,id) DO UPDATE SET through_seq=max(through_seq,excluded.through_seq)" [text source;text group;text id;int through]
 let rows_for_activities db ~dismissals ~events ~groups =
   let root,items=components db in
+  let saved=favorite_components db root in
   let meta=Hashtbl.create 128 and last=Hashtbl.create 128 and removed=Hashtbl.create 32 in
   List.iter(fun r -> Hashtbl.replace meta (s r.(0),s r.(1)) r) items;
   List.iter(fun r -> let k=root(s r.(0),s r.(1)) in
@@ -144,6 +152,7 @@ let rows_for_activities db ~dismissals ~events ~groups =
     ((time event.(3),revision),`Assoc["source",`String(s event.(1));"id",`String(s event.(2));
       "thread_id",(if s m.(3)="" then `Null else `String(s m.(3)));
       "title",`String(s m.(4));"author",`String(s m.(5));"unread",`Bool unread;
+      "favorite",`Bool(Hashtbl.mem saved key);
       "conversation_id",`String(snd key);"occurred",`Float(time event.(3));
       "groups",`List(List.map (fun s -> `String s) (groups root key));
       "revision",`Int revision])::acc) last []
@@ -184,6 +193,7 @@ let timeline db ~entries =
 (* Search results share identities/read state, but never enter the cached timeline. *)
 let search_rows db ~source messages =
   let root,items=components db in
+  let saved=favorite_components db root in
   let seen=Hashtbl.create 32 in
   `List(List.filter_map(fun (m:M.message) ->
     let key=root(source,m.id) in
@@ -191,7 +201,7 @@ let search_rows db ~source messages =
       Hashtbl.add seen key ();
       let unread=List.exists(fun r -> root(s r.(0),s r.(1))=key && n r.(8)=0) items in
       Some(`Assoc["source",`String source;"id",`String m.id;"thread_id",(match m.thread_id with None->`Null | Some s->`String s);"title",`String m.title;
-        "author",`String m.author;"unread",`Bool unread])
+        "author",`String m.author;"unread",`Bool unread;"favorite",`Bool(Hashtbl.mem saved key)])
     end) messages)
 let folder_parts path =
   let parts=String.split_on_char '/' path in
@@ -244,7 +254,7 @@ let remove_folder db path =
   transaction db (fun () -> run db "DELETE FROM folders WHERE path=?" [text path];prune db)
 let favorites db ~folder =
   query db "SELECT f.source,f.kind,f.id,i.title FROM favorites f LEFT JOIN items i ON i.source=f.source AND i.id=f.id WHERE folder=? ORDER BY f.source,f.id,f.kind" [text folder]
-  |> List.map(fun r -> `Assoc["source",`String(s r.(0));"target",`String(s r.(1));"id",`String(s r.(2));"title",`String(s r.(3))]) |> fun xs -> `List xs
+  |> List.map(fun r -> `Assoc["source",`String(s r.(0));"target",`String(s r.(1));"id",`String(s r.(2));"title",`String(s r.(3));"favorite",`Bool true]) |> fun xs -> `List xs
 let load_archive db ~source ~target ~id =
   let root,_=components db in let members=memberships db in
   query db "SELECT id,payload FROM archives WHERE source=?" [text source]
