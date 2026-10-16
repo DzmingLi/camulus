@@ -1,12 +1,10 @@
 {
   "version": 1,
-  "home": null,
-  "entries": [
+  "groups": [
     {
       "name": "NixOS · watching",
       "source": "discourse:https://discourse.nixos.org",
-      "group": "watching",
-      "timeline": true
+      "group": "watching"
     },
     {
       "name": "NixOS · browse",
@@ -21,8 +19,7 @@
     {
       "name": "Reddit · replies and mentions",
       "source": "reddit:YOUR_USERNAME",
-      "group": "notifications",
-      "timeline": true
+      "group": "notifications"
     },
     {
       "name": "Example blog",
@@ -32,8 +29,7 @@
     {
       "name": "Mail inbox",
       "source": "maildir:/absolute/path/to/Maildir",
-      "group": "/Inbox",
-      "timeline": true
+      "group": "/Inbox"
     },
     {
       "name": "Jane Street",

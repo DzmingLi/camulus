@@ -15,7 +15,7 @@ let install ~submit ~configured () =
      |`List rows when List.for_all rows~f:(function `List cells when List.length cells=width ->
        List.for_alli cells~f:(fun index->function `Int port when width=6 && index=2->port>0 && port<65536|`String _->not(width=6 && index=2)|_->false)|_->false)->Some(var,of_json(`List rows))
      |_->failwith("Invalid maildir setting: "^k))in strings@lists);
-  register { (base ~name:"Maildir" ~matches:(String.is_prefix ~prefix:"maildir:") ~threaded:true
+  register_local_groups { (base ~name:"Maildir" ~matches:(String.is_prefix ~prefix:"maildir:") ~threaded:true
     ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_ -> Value.of_int_exn (submit (Maildir_backend.Thread id)))) with
     start=(fun()->if truth(get "ef-mail-sender")then(
       run "ef-mail-configure"[get "ef-mail-root";get "ef-mail-muhome";get "ef-mail-sender";

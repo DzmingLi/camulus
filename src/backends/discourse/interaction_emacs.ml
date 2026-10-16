@@ -80,12 +80,12 @@ let install ()=
  Defun.defun(Symbol.intern "ef-discourse--apply-like")[%here]~docstring:"Reconcile like responses with pending edits."(Returns Value.Type.value)
   (let open Defun.Let_syntax in let%map_open item=required "message"value and source=required "source"value and request=required "request"value in apply_like item source request);
  Defun.defun(Symbol.intern "ef-reader-discourse")[%here]~docstring:"Browse a Discourse group."
-  ~interactive:(Prompt "sDiscourse forum URL: ")(Returns Value.Type.unit)
+  ~interactive:(Prompt "Discourse forum URL: ")(Returns Value.Type.unit)
   (let open Defun.Let_syntax in let%map_open site=required "site"string and group=optional_with_nil "group"value in browse site(if truth group then text group else "latest"));
  optional ~interactive:true "ef-reader-discourse-refresh"(fun more->if truth more then run "ef-reader-more"[]else run "ef-reader-refresh"[];nil);
  define0 ~interactive:true "ef-reader-discourse-more"(fun()->run "ef-reader-more"[]);
  Defun.defun(Symbol.intern "ef-reader-discourse-search")[%here]~docstring:"Search the current forum group."
-  ~interactive:(Prompt "sSearch this Discourse group: ")(Returns Value.Type.unit)
+  ~interactive:(Prompt "Search this Discourse group: ")(Returns Value.Type.unit)
   (let open Defun.Let_syntax in let%map_open query=required "query"string in run "ef-reader-search"[s query]);
  define0 ~interactive:true "ef-reader-discourse-categories"(fun()->
   let buffer=Buffer.to_value(Current_buffer.get())and source=get "ef-reader--source"in
@@ -95,4 +95,4 @@ let install ()=
     let choice=text(call "completing-read"[s "Category: ";Value.list(List.map choices~f:(fun(k,_)->s k));nil;sym "t"])in
     Option.iter(List.Assoc.find choices choice~equal:String.equal)~f:(fun group->in_buffer buffer(fun()->browse(String.drop_prefix(text source)10)(text group)))))):Value.t));
  Defun.defun(Symbol.intern "ef-reader-discourse-like")[%here]~docstring:"Like the current article; prefix removes the like."
-  ~interactive:(Prompt "P")(Returns Value.Type.unit)(let open Defun.Let_syntax in let%map_open unlike=optional_with_nil "unlike"value in like(truth unlike))
+  ~interactive:Raw_prefix(Returns Value.Type.unit)(let open Defun.Let_syntax in let%map_open unlike=optional_with_nil "unlike"value in like(truth unlike))

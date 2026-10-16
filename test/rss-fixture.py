@@ -18,6 +18,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.reply(200, b'OK')
         if Handler.offline:
             return self.reply(503, b'offline')
+        if self.path == '/missing':
+            self.send_error(404); return
         if self.path == '/slow':
             time.sleep(5)
         if self.path == '/file.bin':

@@ -14,7 +14,7 @@ let refresh submit () =
   run "puthash" [id;Buffer.to_value (Current_buffer.get ());get "ef-reader--loads"]
 let install ~submit ~followed () =
   Defun.defun (Symbol.intern "ef-reader-rss") [%here] ~docstring:"Browse an RSS or Atom feed without following it."
-    ~interactive:(Prompt "sRSS / Atom feed URL: ") (Returns Value.Type.unit)
+    ~interactive:(Prompt "RSS / Atom feed URL: ") (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open url=required "url" string in
      run "ef-reader-start" [];
      run "switch-to-buffer" [Buffer.to_value (Buffer.find_or_create ~name:("*Reader feed: "^url^"*"))];
@@ -22,10 +22,10 @@ let install ~submit ~followed () =
   Defun.defun_nullary_nil (Symbol.intern "ef-reader-rss-refresh") [%here] ~docstring:"Refresh this feed."
     ~interactive:No_arg (refresh submit);
   Defun.defun (Symbol.intern "ef-reader-rss-search") [%here] ~docstring:"Search this feed's published entries."
-    ~interactive:(Prompt "sSearch this feed (empty clears): ") (Returns Value.Type.unit)
+    ~interactive:(Prompt "Search this feed (empty clears): ") (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open query=required "query" string in
      set "ef-reader--rss-query" (if String.is_empty query then Value.nil else s query);refresh submit ());
-  variable "ef-reader-rss-subscriptions-file"(data_path "XDG_CONFIG_HOME" "~/.config" "rss-subscriptions.json");
+  variable "ef-reader-rss-subscriptions-file"(data_path "XDG_STATE_HOME" "~/.local/state" "rss-subscriptions.json");
   register { (base ~name:"RSS / Atom" ~matches:(String.is_prefix ~prefix:"rss:") ~threaded:false
     ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Value.of_int_exn (submit (Rss_backend.Read(String.drop_prefix source 4,id))))) with
     attachment=Some (fun ~source ~id ~group ~part ~destination -> ignore group; Value.of_int_exn (submit (Rss_backend.Attachment(String.drop_prefix source 4,id,part,destination))));

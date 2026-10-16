@@ -44,7 +44,7 @@ let open_draft path window=
  let buffer=call "find-file-noselect"[s path]in
  run "set-window-buffer"[window;buffer];run "select-window"[window];run "set-buffer"[buffer];draft_setup ()
 let install_reader ~read ~attachment ()=
- register{(base ~name:"CS.RIN.RU" ~matches:(String.equal "csrin")~threaded:true
+ register_local_groups{(base ~name:"CS.RIN.RU" ~matches:(String.equal "csrin")~threaded:true
    ~read:(fun ~source:_ ~id ~thread_id:_ ~group->Value.of_int_exn(read id group)))with
    start=(fun()->run "camulus-csrin-configure"[get "camulus-csrin-site"]);
    thread_contains_bodies=true;
@@ -62,7 +62,7 @@ let install ~submit ~configure ()=
  Defun.defun(Symbol.intern "camulus-csrin-configure")[%here]~docstring:"Configure the forum origin before starting the runtime."
   (Returns Value.Type.unit)(let open Defun.Let_syntax in let%map_open site=required "site"string in configure site);
  Defun.defun(Symbol.intern "camulus-csrin")[%here]~docstring:"Browse forum.ID or topic.ID without subscribing."
-  ~interactive:(Prompt "sCS.RIN.RU group (forum.ID / topic.ID; empty lists forums): ")(Returns Value.Type.unit)
+  ~interactive:(Prompt "CS.RIN.RU group (forum.ID / topic.ID; empty lists forums): ")(Returns Value.Type.unit)
   (let open Defun.Let_syntax in let%map_open target=required "group"string in
    if String.is_empty(String.strip target)then run "camulus-csrin-forums"[]else(
     ignore(Csrin_backend.group target : string*string);

@@ -89,6 +89,73 @@
                     ef-reddit-request ef-discourse-request ef-content-request ef-subscription-request
                     ef-reader--request ef-reader--event ef-reader--load-archive))
     (should-not (fboundp command)))
-  (should (string-suffix-p "/camulus/entries.json" ef-reader-config-file)))
+  (should (string-suffix-p "/camulus/config.json" ef-reader-config-file)))
+
+(defun reader-test-rows (ids)
+  (mapcar (lambda (id) `((source . "test") (id . ,id) (author . "A") (title . ,id))) ids))
+
+(ert-deftest reader-summary-removal-selects-next-surviving-row ()
+  (with-temp-buffer
+    (ef-reader-feed-mode)
+    (ef-reader--set-rows (reader-test-rows '("a" "b" "c" "d")))
+    (forward-line 1)
+    ;; A refresh may insert an item above us while removing the selected item.
+    (ef-reader--set-rows (reader-test-rows '("new" "a" "c" "d")))
+    (should (equal (alist-get 'id (ef-reader--selected)) "c"))
+    (ef-reader--set-rows (reader-test-rows '("new" "a" "d")))
+    (should (equal (alist-get 'id (ef-reader--selected)) "d"))
+    ;; Removing the last row falls back to the previous surviving row.
+    (ef-reader--set-rows (reader-test-rows '("new" "a")))
+    (should (equal (alist-get 'id (ef-reader--selected)) "a"))
+    (ef-reader--set-rows nil)
+    (should (= (point) (point-min)))))
+
+(ert-deftest reader-summary-refresh-keeps-view-and-user-movement ()
+  (save-window-excursion
+    (let ((buffer (generate-new-buffer " *Reader cursor test*")))
+      (unwind-protect
+          (progn
+            (switch-to-buffer buffer)
+            (ef-reader-feed-mode)
+            (let ((rows (reader-test-rows (mapcar #'number-to-string (number-sequence 1 60)))))
+              (ef-reader--set-rows rows)
+              (forward-line 30)
+              (set-window-start (selected-window) (save-excursion (forward-line -5) (point)))
+              (let ((top (tabulated-list-get-id (window-start))))
+                ;; The user moves while an asynchronous deletion is in flight.
+                (forward-line 1)
+                (ef-reader--set-rows (cl-remove "31" rows :key (lambda (r) (alist-get 'id r)) :test #'equal))
+                (should (equal (alist-get 'id (ef-reader--selected)) "32"))
+                (should (equal (tabulated-list-get-id (window-start)) top)))))
+        (kill-buffer buffer)))))
+
+(ert-deftest reader-summary-removal-follows-displayed-sort-order ()
+  (with-temp-buffer
+    (ef-reader-feed-mode)
+    (setq tabulated-list-sort-key '("Thread" . t))
+    (ef-reader--set-rows (reader-test-rows '("a" "b" "c" "d")))
+    (forward-line 1)
+    (should (equal (alist-get 'id (ef-reader--selected)) "c"))
+    (ef-reader--set-rows (reader-test-rows '("a" "b" "d")))
+    (should (equal (alist-get 'id (ef-reader--selected)) "b"))))
+
+(ert-deftest reader-header-click-does-not-prompt-for-an-event ()
+  (save-window-excursion
+    (let ((buffer (generate-new-buffer " *Reader header test*")) called)
+      (unwind-protect
+          (progn
+            (switch-to-buffer buffer)
+            (ef-reader-feed-mode)
+            (ef-reader-home--header)
+            (let* ((label (cl-find-if (lambda (s) (and (stringp s) (equal s "[Discourse]"))) header-line-format))
+                   (map (get-text-property 0 'local-map label))
+                   (command (lookup-key map [header-line mouse-1]))
+                   (last-input-event (list 'mouse-1 (list (selected-window) 'header-line '(0 . 0) 0))))
+              (should (equal (interactive-form command) '(interactive "")))
+              (cl-letf (((symbol-function 'ef-reader-discourse) (lambda () (interactive) (setq called t)))
+                        ((symbol-function 'read-string) (lambda (&rest _) (ert-fail "Unexpected event prompt"))))
+                (call-interactively command))
+              (should called)))
+        (kill-buffer buffer)))))
 
 (ert-run-tests-batch-and-exit)

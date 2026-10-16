@@ -8,7 +8,7 @@ module Voting = Reader.Voting
 module CS = Reader.Content_state
 module Discourse = Discourse_backend
 type publication_operation = Publication_read of string * string option | Publication_attachment of string * string option * int * string
-type Protocol.work += Reddit of Reddit_backend.operation | Mail of Maildir_backend.operation | Local of CS.operation | Rss of Rss_backend.operation | Discourse of string * Discourse.operation | Subscription of string * string * string option | Rss_followed | Jsonfeed_followed | Jsonfeed of Rss_backend.operation | Publication of string * publication_operation | Csrin of Csrin_backend.operation
+type Protocol.work += Reddit of Reddit_backend.operation | Mail of Maildir_backend.operation | Local of CS.operation | Rss of Rss_backend.operation | Discourse of string * Discourse.operation | Subscription of string * string * string option | Rss_followed | Jsonfeed_followed | Jsonfeed of Rss_backend.operation | Publication of string * publication_operation | Csrin of Csrin_backend.operation | Group_followed of string | Group_subscription of Reader.Local_subscriptions.target * string option
 type Protocol.payload += Reddit_result of Reddit_backend.result | Mail_result of Maildir_backend.result | State_result of Yojson.Safe.t | Rss_result of Yojson.Safe.t | Discourse_result of Discourse.result
 let reddit_service = function
   | Reddit_backend.Vote _ | Reply _ | Submit _ | Authorize | Complete_authorization _ -> true
@@ -38,6 +38,7 @@ let votes = Voting.create ()
 let state_file = ref None
 let rss_subscriptions_file = ref None
 let jsonfeed_subscriptions_file = ref None
+let group_subscriptions_file = ref None
 let firefox_profile = ref None
 let csrin_site = ref "https://cs.rin.ru/forum/"
 let publication_source s = List.mem ["atlantic";"janestreet";"zhihu";"douban";"netease";"public-inbox";"blogger";"gcores";"csrin"] s ~equal:String.equal
@@ -76,6 +77,8 @@ let start process =
             | Some smtp -> smtp | None -> failwith "Configure an SMTP profile before sending" in
           Maildir_backend.Smtp.send ~net ~sleep smtp ~sender ~recipients source in
         Maildir_backend.create ~config ~run ~submit) in
+      let group_subscriptions=Option.map !group_subscriptions_file ~f:Reader.Local_subscriptions.create in
+      let groups () = Option.value_exn ~message:"Configure group subscriptions state before startup" group_subscriptions in
       let rss = Rss_backend.Live.create ?subscriptions_file:!rss_subscriptions_file () in
       let jsonfeed = Jsonfeed_backend.Live.create ?subscriptions_file:!jsonfeed_subscriptions_file () in
       let atlantic=Atlantic_backend.Live.create () and janestreet=Janestreet_backend.Live.create () in
@@ -414,6 +417,16 @@ let start process =
       | Rss_followed ->
         reply emit "entries" ["rows",`List(List.map (Rss_backend.followed rss) ~f:(fun url ->
           `Assoc["name",`String("RSS: "^url);"source",`String(Rss_backend.source_of_url url);"group",`String url]))]
+      | Group_followed backend ->
+        reply emit "entries" ["rows",`List(List.map (Reader.Local_subscriptions.followed (groups ()) ~backend) ~f:(fun target ->
+          `Assoc["name",`String(target.source^" · "^target.group);"source",`String target.source;"group",`String target.group]))]
+      | Group_subscription(target,setting) ->
+        Option.iter setting ~f:(fun setting -> Reader.Local_subscriptions.set (groups ()) target
+          (match setting with "subscribed"->true | "unsubscribed"->false | _->invalid_arg "Invalid group subscription setting"));
+        let subscribed=Reader.Local_subscriptions.get (groups ()) target in
+        reply emit "subscription" ["source",`String target.source;"target",`String target.group;
+          "setting",`String(if subscribed then "subscribed" else "unsubscribed");
+          "choices",`List[`String "unsubscribed";`String "subscribed"]]
       | Subscription(source,target,setting) ->
         let current,choices = if Discourse.is_source source then begin
           let backend=forum(Discourse.site_of_source source) in
@@ -641,3 +654,7 @@ let configured_sources () =
   Option.to_list (Option.map !mail_config ~f:(fun c -> "maildir:"^c.Maildir_backend.root))
 
 let request_csrin operation = submit_work ~service:true (Csrin operation)
+
+let followed_groups ~backend = submit_work ~service:true (Group_followed backend)
+let subscribe_group ~backend ~source ~group ~setting =
+  submit_work ~service:true (Group_subscription({Reader.Local_subscriptions.backend;source;group},setting))

@@ -72,28 +72,23 @@ emacsWithPackages (epkgs: [
 
 ## 配置
 
-入口文件默认为 `~/.config/camulus/entries.json`，或 `$XDG_CONFIG_HOME/camulus/entries.json`。从 [配置示例](examples/entries.json) 开始，替换其中的用户名、URL 和本地路径：
+注册组保存在 `~/.config/camulus/groups.json`（遵循 `XDG_CONFIG_HOME`），只声明浏览入口。见 [组目录示例](examples/groups.json)：
 
 ```json
 {
   "version": 1,
-  "entries": [
-    {
-      "name": "NixOS forum",
-      "source": "discourse:https://discourse.nixos.org",
-      "group": "latest"
-    },
-    {
-      "name": "Jane Street",
-      "source": "janestreet",
-      "group": "posts",
-      "timeline": true
-    }
+  "groups": [
+    {"name": "NixOS forum", "source": "discourse:https://discourse.nixos.org", "group": "latest"},
+    {"name": "Jane Street", "source": "janestreet", "group": "posts"}
   ]
 }
 ```
 
-`timeline: true` 明确将入口加入首页；RSS 和 JSON Feed 另有各自后端管理的订阅文件。只声明可浏览的论坛、subreddit 或 feed URL 不会自动订阅。
+首页按 `B` 进入组目录，`C` 编辑组文件，组上按 `s` 订阅或取消订阅。列表中 `S` 管理当前来源组；`s` 管理后端提供的具体关注目标，例如 Discourse 话题。注册和浏览不会订阅，取消订阅也不会删除浏览入口。
+
+订阅是由后端读取和修改的运行状态。Discourse 话题追踪保存在远端；本地组关注及 RSS / JSON Feed 关注保存在 `~/.local/state/camulus/`（遵循 `XDG_STATE_HOME`），由命令维护，不需要手写订阅配置。首页只汇集后端返回的关注入口。
+
+后端运行设置放在 `~/.config/camulus/config.json`，见 [配置示例](examples/config.json)。原 `entries.json` 已拆分；没有兼容读取。已有用户需把入口放入 `groups.json`，用订阅命令恢复关注，RSS / JSON Feed 的原关注文件移入状态目录。
 
 非秘密的账户、Maildir 路径、Firefox profile 等放在 `backend_settings`，密钥使用 auth-source 或独立凭据文件。完整说明见 [入口与订阅](docs/ENTRIES.md)、[邮件](docs/MAIL.md)、[Reddit](docs/REDDIT.md)、[Discourse](docs/DISCOURSE.md) 和 [RSS](docs/RSS.md) 和 [CS.RIN.RU](docs/CSRIN.md)。
 

@@ -1,6 +1,6 @@
 (library
  (name reader)
- (modules spsc_queue protocol runtime content backend host voting content_state html browser_cookies)
+ (modules spsc_queue protocol runtime content backend host voting content_state html browser_cookies local_subscriptions)
  (libraries unix threads eio eio.unix eio_posix sqlite3 yojson markup uri)
  (foreign_stubs (language c) (names host_stubs)))
 

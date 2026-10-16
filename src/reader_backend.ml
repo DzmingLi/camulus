@@ -25,6 +25,7 @@ type t = {
   browser : (string * string) option;
   entrances : unit -> entrance list;
   followed : (unit -> Value.t) option;
+  group_subscription : (source:string -> group:string -> setting:string option -> Value.t) option;
   subscription_target : (source:string -> selected:(unit -> Value.t) -> string option) option;
   page : (Value.t -> unit) option;
   events : string list;
@@ -42,9 +43,23 @@ let alist fields = Value.list (List.map fields ~f:(fun (k,v) -> call "cons" [Val
 let base ~name ~matches ~threaded ~read = {
   name;start=(fun()->());normalize=Fn.id;on_entry=(fun _->());matches;threaded;read;thread_contains_bodies=false;
   available=(fun _ -> true);attachment=None;controls=[];list_controls=[];article_marks=(fun _->"");row_title=(fun row->Value.funcallN(Value.intern "alist-get")[Value.intern "title";row]);browser=None;entrances=(fun () -> []);followed=None;
-  subscription_target=None;delete=None;page=None;events=[];
+  subscription_target=None;group_subscription=None;delete=None;page=None;events=[];
   reconcile=(fun ~source:_ ~existing:_ ~request:_ ~archived:_ message -> message)
 }
+
+(* Backends may opt into local group following when their service has no
+   corresponding remote operation. Topic tracking remains a separate capability. *)
+type local_group_operations = {
+  followed_groups : backend:string -> int;
+  subscribe_group : backend:string -> source:string -> group:string -> setting:string option -> int;
+}
+let local_group_operations = ref None
+let register_local_groups backend =
+  let operations () = Option.value_exn !local_group_operations in
+  register { backend with
+    followed=Some(fun () -> Value.of_int_exn ((operations ()).followed_groups ~backend:backend.name));
+    group_subscription=Some(fun ~source ~group ~setting -> Value.of_int_exn (
+      (operations ()).subscribe_group ~backend:backend.name ~source ~group ~setting)) }
 
 (* Conversion at the Emacs presentation boundary; no JSON string round trip. *)
 let rec of_json : Yojson.Safe.t -> Value.t = function

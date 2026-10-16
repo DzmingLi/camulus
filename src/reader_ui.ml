@@ -81,6 +81,16 @@ let home_row row = vector [s (if truth (field "unread" row) then "*" else "");
   or_ (field "name" (home_entry row)) (field "source" row); field "author" row;field "title" row]
 
 let set_rows rows =
+  (* A removed ID cannot be restored by tabulated-list-print. Remember the
+     displayed neighbours as well, so asynchronous refreshes keep our place. *)
+  let old_ids=List.map (values (get "tabulated-list-entries")) ~f:(fun entry -> call "car" [entry]) in
+  let anchor p =
+    let id=call "tabulated-list-get-id" [i p] in
+    let before,after=List.split_while old_ids ~f:(fun key -> not (Value.equal key id)) in
+    after @ List.rev before in
+  let saved=anchor (point ()) and column=call "current-column" [] in
+  let windows=List.map (values (call "get-buffer-window-list" [bv (buffer ());nil;b true])) ~f:(fun window ->
+    window,anchor (number (call "window-point" [window])),anchor (number (call "window-start" [window]))) in
   let table = hash () in
   set "ef-reader--rows" table;
   let entries = List.map (values rows) ~f:(fun row ->
@@ -99,7 +109,20 @@ let set_rows rows =
         run "add-face-text-property"[i 0;call "length"[copy];sym "ef-reader-read";b true;copy];copy))
       else columns in
     list [key;columns]) in
-  set "tabulated-list-entries" (list entries);run "tabulated-list-print" [b true]
+  set "tabulated-list-entries" (list entries);run "tabulated-list-print" [b true];
+  let positions=hash () in
+  Point.goto_min ();
+  while point () < max_point () do
+    put positions (call "tabulated-list-get-id" []) (i (point ()));
+    run "forward-line" [i 1]
+  done;
+  let restore candidates =
+    List.find_map candidates ~f:(fun id -> let p=find positions id in if truth p then Some p else None)
+    |> Option.value ~default:(i (min_point ())) in
+  List.iter windows ~f:(fun (window,point_anchor,start_anchor) ->
+    run "set-window-point" [window;restore point_anchor];
+    run "set-window-start" [window;restore start_anchor;b true]);
+  goto (number (restore saved));run "move-to-column" [column]
 
 let selected () =
   if derived "ef-reader-article-mode" then (
@@ -286,8 +309,8 @@ let open_article () =
 
 let home_link label command =
   let map=Keymap.create () in
-  let action=Function.to_value (Defun.lambda [%here] ~interactive:(Prompt "e") (Returns Value.Type.unit)
-    (let open Defun.Let_syntax in let%map_open event=required "event" value in
+  let action=Function.to_value (Defun.lambda_nullary_nil [%here] ~interactive:No_arg (fun () ->
+     let event=get "last-input-event" in
      Selected_window.set (Window.of_value_exn (call "posn-window" [call "event-start" [event]]));
      run "call-interactively" [sym command])) in
   run "define-key" [Keymap.to_value map;vector [sym "header-line";sym "mouse-1"];action];
@@ -345,9 +368,8 @@ let rec home_pump more =
   home_header ()
 let home_merge followed =
   let configured=values (get "ef-reader-entries") in
-  let entries=List.filter configured ~f:(fun entry -> Value.eq (field "timeline" entry) (sym "t") && not (Option.exists (capability (field "source" entry)) ~f:(fun backend -> Option.is_some backend.followed))) in
-  let entries=List.fold (values followed) ~init:entries ~f:(fun entries entry ->
-    Option.value (List.find configured ~f:(fun e -> Value.equal (entry_key e) (entry_key entry))) ~default:entry :: entries) in
+  let entries=List.map (values followed) ~f:(fun entry ->
+    Option.value (List.find configured ~f:(fun e -> Value.equal (entry_key e) (entry_key entry))) ~default:entry) in
   let seen=Hash_set.create (module String) in
   List.filter entries ~f:(fun entry ->
     let key=text "source" entry ^ "\000" ^ text "group" entry in
@@ -430,7 +452,9 @@ let groups () =
     List.iter sources ~f:(fun source ->
       Point.insert "\n";insert_value (styled (str source) "bold");Point.insert "\n";
       List.iter entries ~f:(fun entry -> if Value.equal source (field "source" entry) then (
-        Point.insert "  ";button (text "name" entry) (fun () -> browse_entry entry);Point.insert ("  · "^text "group" entry^"\n"))));
+        let start=point () in Point.insert "  ";
+        button (text "name" entry) (fun () -> browse_entry entry);Point.insert ("  · "^text "group" entry^"\n");
+        properties start (point ()) [sym "ef-reader-entry";entry])));
     if List.is_empty entries then Point.insert "\nNo configured groups yet. Press C to add browsing entries.\n";
     Point.goto_min ());
   Current_buffer.set_modified false
@@ -543,22 +567,43 @@ let delete_folder () =
   if not (flag "ef-reader--folder") then user_error "Open a favorites folder first";
   request_ignore ["op",s "remove-folder";"folder",get "ef-reader--folder"]
     ~receive:(callback_unit (fun data -> if String.equal (text "kind" data) "changed" then reader nil))
+let choose_subscription submit =
+  let id=submit None in
+  put (get "ef-reader--requests") id (callback_unit (fun data ->
+    if String.equal (text "kind" data) "subscription" then (
+      let current=field "setting" data in
+      let choice=call "completing-read" [s ("Following policy (currently "^str current^"): ");field "choices" data;nil;b true;nil;nil;current] in
+      if not (Value.equal choice current) then (
+        let id=submit (Some(str choice)) in
+        put (get "ef-reader--requests") id (callback_unit (fun result ->
+          if String.equal (text "kind" result) "subscription" then (
+            List.iter (Buffer.all_live ()) ~f:(fun target -> in_buffer target (fun () ->
+              if flag "ef-reader--home" then home_refresh false));
+            message ("Following policy: "^text "setting" result))))))))
+let group_subscription () =
+  run "ef-reader-start" [];
+  let entry=if derived "ef-reader-groups-mode" then property (point ()) "ef-reader-entry"
+    else if flag "ef-reader--home" then home_entry (selected ()) else get "ef-reader--entry" in
+  if not(truth entry) then user_error "Select or open a registered group";
+  let source=field "source" entry and group=field "group" entry in
+  match capability source with
+  | Some backend -> (match backend.group_subscription with
+    | Some submit -> choose_subscription (fun setting -> submit ~source:(str source) ~group:(str group) ~setting)
+    | None ->
+      let target=Option.bind backend.subscription_target ~f:(fun target ->
+        target ~source:(str source) ~selected:(fun () -> user_error "Open an article to change its tracking policy";nil)) in
+      (match target with
+       | Some target -> choose_subscription (fun setting -> i (Application.request_subscription (str source) target setting))
+       | None -> user_error "This backend does not offer group subscription settings"))
+  | None -> user_error "This backend does not offer group subscription settings"
 let subscription () =
-  let source=if flag "ef-reader--home" then field "source" (selected ()) else get "ef-reader--source" in
-  let target=Option.bind (capability source) ~f:(fun backend ->
-    Option.bind backend.subscription_target ~f:(fun target -> target ~source:(str source) ~selected:(fun () -> selected ()))) in
-  match target with
-  | None -> user_error "This backend does not offer subscription settings"
-  | Some target ->
-    let id=i (Application.request_subscription (str source) target None) in
-    put (get "ef-reader--requests") id (callback_unit (fun data ->
-      if String.equal (text "kind" data) "subscription" then (
-        let current=field "setting" data in
-        let choice=call "completing-read" [s ("Following policy (currently "^str current^"): ");field "choices" data;nil;b true;nil;nil;current] in
-        if not (Value.equal choice current) then (
-          let id=i (Application.request_subscription (str source) target (Some(str choice))) in
-          put (get "ef-reader--requests") id (callback_unit (fun result ->
-            if String.equal (text "kind" result) "subscription" then message ("Following policy: "^text "setting" result)))))))
+  if derived "ef-reader-groups-mode" then group_subscription () else (
+    let source=if flag "ef-reader--home" then field "source" (selected ()) else get "ef-reader--source" in
+    let target=Option.bind (capability source) ~f:(fun backend ->
+      Option.bind backend.subscription_target ~f:(fun target -> target ~source:(str source) ~selected:(fun () -> selected ()))) in
+    match target with
+    | None -> group_subscription ()
+    | Some target -> choose_subscription (fun setting -> i (Application.request_subscription (str source) target setting)))
 let attachment button =
   let prop name=call "button-get" [button;sym name] in
   let source=prop "source" and id=prop "message-id" and part=prop "part" in
@@ -693,12 +738,12 @@ let install_modes () =
   List.iter ["done";"total"] ~f:(fun name -> local_default ("ef-reader-home--"^name) (i 0));
   mode "ef-reader-feed-mode" "tabulated-list-mode" "Feed"
     (Some ["New",3,false;"Source",24,true;"Author",20,true;"Thread",70,true])
-    "RET: read  d: delete  m: save to folder  g: refresh  n: more  /: search  s: follow settings  G: entries  C: config  f: folders" ignore;
+    "RET: read  d: delete  m: save to folder  g: refresh  n: more  /: search  s: follow settings  S: follow group  G: entries  C: config  f: folders" ignore;
   mode "ef-reader-folder-mode" "tabulated-list-mode" "Favorites"
     (Some ["Kind",8,false;"Source",24,true;"Title",80,true])
     "RET: read saved copy  m: add folder  d: remove entry  D: remove folder  f: folders  g: reload  h: home" ignore;
   mode "ef-reader-groups-mode" "special-mode" "Reader groups" None
-    "Groups · RET / click: browse  TAB: next entry  h: home  g: reload  C: configure" ignore;
+    "Groups · RET / click: browse  TAB: next entry  h: home  g: reload  s: follow group  C: edit groups" ignore;
   mode "ef-reader-article-mode" "special-mode" "Reader thread" None "Loading…" (fun () ->
     reading_layout ();
     List.iter ["messages";"attachments";"loaded"] ~f:(fun name -> set ("ef-reader--"^name) (hash ()));
@@ -707,11 +752,11 @@ let install_modes () =
       if flag "ef-reader--active" && not (String.equal (str (call "ef-probe-status" [])) "idle") then run "ef-probe-cancel" [get "ef-reader--active"]);nil;b true]);
   List.iter ["ef-reader-feed-mode";"ef-reader-folder-mode"] ~f:(fun mode ->
     bind mode ["RET","ef-reader-open";"d","ef-reader-delete";"m","ef-reader-save";"g","ef-reader-refresh";"f","ef-reader-folders";"h","camulus"]);
-  bind "ef-reader-feed-mode" ["s","ef-reader-subscription";"G","ef-reader-entries";"C","ef-reader-edit-config";"n","ef-reader-more";"/","ef-reader-search";
+  bind "ef-reader-feed-mode" ["s","ef-reader-subscription";"S","ef-reader-group-subscription";"G","ef-reader-entries";"C","ef-reader-edit-config";"n","ef-reader-more";"/","ef-reader-search";
     "B","ef-reader-browse-groups";"b","ef-reader-home-browse-source";"e","ef-reader-home-errors"];
   bind "ef-reader-folder-mode" ["D","ef-reader-delete-folder"];
   bind "ef-reader-article-mode" ["s","ef-reader-subscription";"m","ef-reader-save";"n","ef-reader-next-unread";"h","camulus"];
-  bind "ef-reader-groups-mode" ["h","camulus";"g","ef-reader-browse-groups";"C","ef-reader-edit-config"]
+  bind "ef-reader-groups-mode" ["s","ef-reader-group-subscription";"S","ef-reader-group-subscription";"h","camulus";"g","ef-reader-browse-groups";"C","ef-reader-edit-groups"]
 
 
 let installed = ref false
@@ -754,6 +799,7 @@ let install () =
   define0 ~interactive:true "ef-reader-folders" folders;
   define0 ~interactive:true "ef-reader-delete-folder" delete_folder;
   define0 ~interactive:true "ef-reader-subscription" subscription;
+  define0 ~interactive:true "ef-reader-group-subscription" group_subscription;
   define1 "ef-reader--attachment" (fun button -> attachment button;nil);
   define2 "ef-reader--window-scrolled" (fun window _ -> schedule_visible (Window.buffer_exn (Window.of_value_exn window));nil);
   define1 "ef-reader--window-changed" (fun window -> schedule_visible (Window.buffer_exn (Window.of_value_exn window));nil);
@@ -761,7 +807,7 @@ let install () =
   define1 "ef-reader--mark-visible" (fun target -> mark_visible (Buffer.of_value_exn target);nil);
   define1 "ef-reader--schedule-visible" (fun target -> schedule_visible (Buffer.of_value_exn target);nil);
   Defun.defun (Symbol.intern "ef-reader-search") [%here] ~docstring:"Search only this group."
-    ~interactive:(Prompt "sSearch this entry (empty clears): ") (Returns Value.Type.unit)
+    ~interactive:(Prompt "Search this entry (empty clears): ") (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open query=required "query" string in search query);
   Defun.defun (Symbol.intern "ef-reader--load-list") [%here] ~docstring:"Refresh a native list view."
     (Returns Value.Type.unit)

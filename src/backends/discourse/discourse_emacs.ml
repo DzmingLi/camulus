@@ -6,7 +6,7 @@ let install ~submit () =
   register_settings "discourse"(fun j->match json_field "auth_sources"j with
     |`Null->[]|`List xs when List.for_all xs ~f:(function `String _->true|_->false)->["ef-discourse-auth-sources",of_json(`List xs)]
     |_->failwith "Invalid discourse auth_sources");
-  register { (base ~name:"Discourse" ~matches:(String.is_prefix ~prefix:"discourse:") ~threaded:true
+  register_local_groups { (base ~name:"Discourse" ~matches:(String.is_prefix ~prefix:"discourse:") ~threaded:true
     ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Value.of_int_exn (submit (String.drop_prefix source 10) (Discourse_backend.Thread id)))) with
     start=Interaction_emacs.setup;
     normalize=(fun entry->let source=text(field "source"entry)in

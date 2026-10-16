@@ -70,6 +70,27 @@ let () =
      let open Yojson.Safe.Util in
      request_subscription (j |> member "source" |> to_string) (j |> member "target" |> to_string)
        (match member "setting" j with `String s -> Some s | `Null -> None | _ -> invalid_arg "Invalid setting"));
+  defun (Symbol.intern "camulus-group-subscription-submit") [%here]
+    ~docstring:"Read or change a backend's group subscription." (Returns Value.Type.value)
+    (let open Defun.Let_syntax in let%map_open request=required "request" value in
+     let source=Reader_backend.text(Reader_backend.field "source" request) in
+     let group=Reader_backend.text(Reader_backend.field "group" request) in
+     let setting=Reader_backend.field "setting" request in
+     match Option.bind (Reader_backend.find source) ~f:(fun backend -> backend.group_subscription) with
+     | None -> failwith "This backend does not offer group subscriptions"
+     | Some submit -> submit ~source ~group ~setting:(if Value.eq setting Value.nil then None else Some(Value.to_utf8_bytes_exn setting)));
+  defun (Symbol.intern "camulus-group-followed") [%here]
+    ~docstring:"Discover a backend's locally followed groups." (Returns Value.Type.value)
+    (let open Defun.Let_syntax in let%map_open source=required "source" string in
+     match Reader_backend.find source with
+     | Some backend when Option.is_some backend.group_subscription -> (Option.value_exn backend.followed) ()
+     | _ -> failwith "This backend does not offer group subscriptions");
+  defun (Symbol.intern "camulus-group-subscriptions-configure") [%here]
+    ~docstring:"Set mutable local group subscription storage before startup." (Returns Value.Type.unit)
+    (let open Defun.Let_syntax in let%map_open path=required "path" string in
+     ensure_ui ();if Option.is_some !runtime then failwith "Stop runtime before changing group subscription storage";
+     if Stdlib.Filename.is_relative path then invalid_arg "Use an absolute state path";
+     group_subscriptions_file:=Some path);
   defun (Symbol.intern "ef-content-state-configure") [%here]
     ~docstring:"Set an absolute local state database path before startup; empty disables storage."
     (Returns Value.Type.unit)
@@ -238,6 +259,7 @@ let () =
     ~docstring:"Register the linked backends' optional Emacs capabilities."
     (fun () ->
       let configured source=List.mem (configured_sources ()) source ~equal:String.equal in
+      Reader_backend.local_group_operations := Some {followed_groups;subscribe_group};
       Reddit_emacs.install ~submit:request_reddit ~configured ();
       Discourse_emacs.install ~submit:request_discourse ();
       Rss_emacs.install ~submit:request_rss ~followed:followed_rss ();
