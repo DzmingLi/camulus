@@ -1,0 +1,7 @@
+(library (name janestreet_backend) (modules (:standard \ janestreet_emacs)) (libraries reader rss_backend eio eio.unix uri yojson unix))
+
+(library
+ (name janestreet_emacs)
+ (modules janestreet_emacs)
+ (libraries reader_emacs_backend ecaml)
+ (preprocess (pps ppx_jane)))

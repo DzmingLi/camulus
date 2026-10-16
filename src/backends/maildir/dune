@@ -1,0 +1,10 @@
+(library
+ (name maildir_backend) (modules (:standard \ maildir_emacs))
+ (libraries reader yojson unix eio eio.unix mrmime rosetta uri
+   angstrom sendmail colombe tls-eio ca-certs mirage-crypto-rng.unix ptime.clock.os))
+
+(library
+ (name maildir_emacs)
+ (modules maildir_emacs)
+ (libraries reader_emacs_backend ecaml maildir_backend)
+ (preprocess (pps ppx_jane)))

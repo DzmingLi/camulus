@@ -1,0 +1,12 @@
+SPDX-License-Identifier: GPL-3.0-or-later
+
+This Reddit backend is a new OCaml implementation informed by the user's
+nnreddit Emacs Lisp backend (Copyright (C) 2026, GPL-3.0-or-later):
+https://github.com/DzmingLi/nnreddit
+Reference revision: d2f3ffc9e714560e2c6aa740cb4a72ab58f808b1
+
+The installed-app client ID, redirect URI and OAuth file convention are
+retained for interoperability. No private credentials are included.
+
+The Reddit implementation in this directory is provided under
+GPL-3.0-or-later. See COPYING for the GNU General Public License version 3.

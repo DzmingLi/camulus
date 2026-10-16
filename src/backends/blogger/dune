@@ -1,0 +1,5 @@
+(library (name blogger_backend) (modules blogger_backend)
+ (libraries reader rss_backend eio eio.unix uri yojson unix))
+(library (name blogger_emacs) (modules blogger_emacs)
+ (libraries reader_emacs_backend ecaml blogger_backend)
+ (preprocess (pps ppx_jane)))

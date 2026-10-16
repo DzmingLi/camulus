@@ -1,0 +1,1 @@
+(executable (name reddit_cli) (libraries reddit_backend eio eio.unix eio_posix yojson))

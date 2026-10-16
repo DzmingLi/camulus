@@ -1,0 +1,22 @@
+opam-version: "2.0"
+synopsis: "An effects-based multi-backend reader hosted in Emacs"
+maintainer: "DzmingLi"
+authors: "DzmingLi"
+version: "0.1.0"
+license: "AGPL-3.0-or-later"
+homepage: "https://github.com/DzmingLi/camulus"
+bug-reports: "https://github.com/DzmingLi/camulus/issues"
+dev-repo: "git+https://github.com/DzmingLi/camulus.git"
+depends: [
+  "ocaml" {>= "5.3" & < "5.4"}
+  "dune" {>= "3.11"}
+  "ecaml" {= "v0.17.0"}
+  "ppx_jane" {>= "v0.17" & < "v0.18"}
+  "eio" {= "1.6"}
+  "eio_posix" {= "1.6"}
+  "ocurl" "yojson" "uri" "base64" "sqlite3" "xmlm" "ptime" "markup"
+  "mrmime" "rosetta" "angstrom" "sendmail" "colombe" "tls-eio" "ca-certs"
+  "mirage-crypto-rng" "camlzip"
+]
+build: ["dune" "build" "-j" jobs "@install"]
+install: ["dune" "install" "--prefix" prefix "camulus"]

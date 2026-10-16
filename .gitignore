@@ -1,0 +1,13 @@
+_build/
+result
+result-*
+*.so
+*.log
+*~
+.#*
+__pycache__/
+*.py[cod]
+
+# Local account profile and historical machine-specific validation output.
+lisp/migadu-demo.el
+docs/*-results.txt

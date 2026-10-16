@@ -1,0 +1,5 @@
+(library (name gcores_backend) (modules gcores_backend)
+ (libraries reader rss_backend eio eio.unix uri yojson unix))
+(library (name gcores_emacs) (modules gcores_emacs)
+ (libraries reader_emacs_backend ecaml gcores_backend)
+ (preprocess (pps ppx_jane)))

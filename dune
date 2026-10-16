@@ -1,0 +1,11 @@
+(install
+ (package camulus)
+ (section share_root)
+ (files
+  (src/camulus_native.so as emacs/site-lisp/camulus/camulus_native.so)
+  (lisp/camulus.el as emacs/site-lisp/camulus/camulus.el)
+  (lisp/camulus-runtime.el as emacs/site-lisp/camulus/camulus-runtime.el)
+  (lisp/reader-config.el as emacs/site-lisp/camulus/reader-config.el)
+  (lisp/host-process.el as emacs/site-lisp/camulus/host-process.el)
+  (lisp/mail-workflow.el as emacs/site-lisp/camulus/mail-workflow.el)
+  (lisp/discourse-reader.el as emacs/site-lisp/camulus/discourse-reader.el)))

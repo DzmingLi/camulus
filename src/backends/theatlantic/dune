@@ -1,0 +1,7 @@
+(library (name atlantic_backend) (modules (:standard \ atlantic_emacs)) (libraries reader rss_backend uri yojson))
+
+(library
+ (name atlantic_emacs)
+ (modules atlantic_emacs)
+ (libraries reader_emacs_backend ecaml)
+ (preprocess (pps ppx_jane)))

@@ -1,0 +1,7 @@
+(library (name netease_backend) (modules (:standard \ netease_emacs)) (libraries reader rss_backend yojson uri eio))
+
+(library
+ (name netease_emacs)
+ (modules netease_emacs)
+ (libraries reader_emacs_backend ecaml)
+ (preprocess (pps ppx_jane)))

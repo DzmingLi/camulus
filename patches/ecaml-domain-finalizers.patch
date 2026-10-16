@@ -1,0 +1,90 @@
+--- a/ecaml_value/src/ecaml_stubs.c
++++ b/ecaml_value/src/ecaml_stubs.c
+@@ -3,6 +3,8 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <threads.h>
++#include <pthread.h>
++#include <stdatomic.h>
+ #include <unistd.h>
+ 
+ #include "emacs-module.h"
+@@ -71,41 +73,52 @@
+    everything that was scheduled. We also free before returning to emacs, since
+    the ocaml gc has possibly run in the meantime and found more emacs values to
+    free.
+-   The use of these variables must be protected by the ocaml runtime lock. */
++   The queue is protected independently of OCaml domain locks.
++   Never call Emacs while holding this mutex. */
+ static emacs_value *to_free = NULL;
+ static long to_free_size = 0;
+ static long to_free_index = 0;
+-static long num_emacs_free_scheduled = 0;
+-static long num_emacs_free_performed = 0;
++static _Atomic long num_emacs_free_scheduled = 0;
++static _Atomic long num_emacs_free_performed = 0;
++static pthread_mutex_t to_free_mutex = PTHREAD_MUTEX_INITIALIZER;
+ 
+ CAMLprim value ecaml_num_emacs_free_scheduled(value unit) {
+   (void)unit;
+-  return Val_long(num_emacs_free_scheduled);
++  return Val_long(atomic_load(&num_emacs_free_scheduled));
+ }
+ 
+ CAMLprim value ecaml_num_emacs_free_performed(value unit) {
+   (void)unit;
+-  return Val_long(num_emacs_free_performed);
++  return Val_long(atomic_load(&num_emacs_free_performed));
+ }
+ 
+ static void push_to_free(emacs_value v) {
++  pthread_mutex_lock(&to_free_mutex);
+   if (to_free_size == to_free_index) {
+     to_free_size = 2 * to_free_size + 1;
+-    to_free = realloc(to_free, sizeof(emacs_value) * to_free_size);
++    emacs_value *grown = realloc(to_free, sizeof(emacs_value) * to_free_size);
++    if (grown == NULL) abort();
++    to_free = grown;
+   }
+   to_free[to_free_index] = v;
+   to_free_index++;
+-  num_emacs_free_scheduled++;
++  atomic_fetch_add(&num_emacs_free_scheduled, 1);
++  pthread_mutex_unlock(&to_free_mutex);
+ }
+ 
+ static void free_emacs_values_assuming_in_emacs_thread(emacs_env *env) {
+-  if (env != NULL) {
+-    while (to_free_index != 0) {
+-      to_free_index--;
+-      env->free_global_ref(env, to_free[to_free_index]);
+-      num_emacs_free_performed++;
+-    }
+-  }
++  if (env == NULL) return;
++  pthread_mutex_lock(&to_free_mutex);
++  emacs_value *batch = to_free;
++  long count = to_free_index;
++  to_free = NULL;
++  to_free_size = to_free_index = 0;
++  pthread_mutex_unlock(&to_free_mutex);
++  for (long i = 0; i < count; i++) {
++    env->free_global_ref(env, batch[i]);
++    atomic_fetch_add(&num_emacs_free_performed, 1);
++  }
++  free(batch);
+ }
+ 
+ // extract wrapped emacs_value. also lvalue.
+@@ -772,3 +785,11 @@
+     caml_failwith("tried to project a NULL user pointer");
+   CAMLreturn(*((value *)data));
+ }
++
++/* Emacs >= 28: caller owns the resulting fd. Used only on the UI thread. */
++CAMLprim value ecaml_probe_open_channel(value process) {
++  CAMLparam1(process);
++  emacs_env *env = ecaml_active_env_or_die();
++  int fd = env->open_channel(env, emacs_of_ocaml(env, process));
++  CAMLreturn(Val_int(fd));
++}

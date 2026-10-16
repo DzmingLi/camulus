@@ -1,0 +1,7 @@
+(library (name douban_backend) (modules (:standard \ douban_emacs)) (libraries reader rss_backend eio eio.unix yojson uri unix ptime))
+
+(library
+ (name douban_emacs)
+ (modules douban_emacs)
+ (libraries reader_emacs_backend ecaml)
+ (preprocess (pps ppx_jane)))

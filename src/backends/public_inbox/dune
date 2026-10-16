@@ -1,0 +1,7 @@
+(library (name public_inbox_backend) (modules (:standard \ public_inbox_emacs)) (libraries reader rss_backend maildir_backend uri eio eio.unix zip unix yojson))
+
+(library
+ (name public_inbox_emacs)
+ (modules public_inbox_emacs)
+ (libraries reader_emacs_backend ecaml)
+ (preprocess (pps ppx_jane)))

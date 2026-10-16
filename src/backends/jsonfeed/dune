@@ -1,0 +1,6 @@
+(library (name jsonfeed_backend) (modules decode jsonfeed_backend)
+ (libraries reader rss_backend eio ptime uri yojson))
+
+(library (name jsonfeed_emacs) (modules jsonfeed_emacs)
+ (libraries reader_emacs_backend ecaml jsonfeed_backend)
+ (preprocess (pps ppx_jane)))

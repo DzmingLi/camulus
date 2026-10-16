@@ -1,0 +1,7 @@
+(library (name discourse_backend) (modules (:standard \ discourse_emacs)) (libraries reader eio eio.unix curl uri yojson ptime markup unix))
+
+(library
+ (name discourse_emacs)
+ (modules discourse_emacs)
+ (libraries reader_emacs_backend ecaml discourse_backend)
+ (preprocess (pps ppx_jane)))

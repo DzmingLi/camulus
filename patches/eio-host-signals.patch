@@ -1,0 +1,34 @@
+--- a/lib_eio_posix/eio_posix.ml
++++ b/lib_eio_posix/eio_posix.ml
+@@ -18,10 +18,12 @@
+ 
+ type stdenv = Eio_unix.Stdenv.base
+ 
+-let run main =
++let run ?(manage_signals = true) main =
+   (* SIGPIPE makes no sense in a modern application. *)
+-  Sys.(set_signal sigpipe Signal_ignore);
+-  Eio_unix.Process.install_sigchld_handler ();
++  if manage_signals then (
++    Sys.(set_signal sigpipe Signal_ignore);
++    Eio_unix.Process.install_sigchld_handler ()
++  );
+   let stdin = (Flow.of_fd Eio_unix.Fd.stdin :> _ Eio_unix.source) in
+   let stdout = (Flow.of_fd Eio_unix.Fd.stdout :> _ Eio_unix.sink) in
+   let stderr = (Flow.of_fd Eio_unix.Fd.stderr :> _ Eio_unix.sink) in
+--- a/lib_eio_posix/eio_posix.mli
++++ b/lib_eio_posix/eio_posix.mli
+@@ -3,8 +3,11 @@
+ type stdenv = Eio_unix.Stdenv.base
+ (** The type of the standard set of resources available on POSIX systems. *)
+ 
+-val run : (stdenv -> 'a) -> 'a
+-(** [run main] runs an event loop and calls [main stdenv] inside it.
++val run : ?manage_signals:bool -> (stdenv -> 'a) -> 'a
++(** With [manage_signals=false], the host retains SIGPIPE/SIGCHLD ownership.
++    The POSIX process manager must not be used in this mode.
++
++    [run main] runs an event loop and calls [main stdenv] inside it.
+ 
+     For portable code, you should use {!Eio_main.run} instead, which will call this for you if appropriate. *)
+ 

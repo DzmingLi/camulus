@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "home": null,
+  "entries": [
+    {
+      "name": "NixOS · watching",
+      "source": "discourse:https://discourse.nixos.org",
+      "group": "watching",
+      "timeline": true
+    },
+    {
+      "name": "NixOS · browse",
+      "source": "discourse:https://discourse.nixos.org",
+      "group": "latest"
+    },
+    {
+      "name": "OCaml subreddit",
+      "source": "reddit:YOUR_USERNAME",
+      "group": "ocaml"
+    },
+    {
+      "name": "Reddit · replies and mentions",
+      "source": "reddit:YOUR_USERNAME",
+      "group": "notifications",
+      "timeline": true
+    },
+    {
+      "name": "Example blog",
+      "source": "rss:https://example.org/feed.xml",
+      "group": "https://example.org/feed.xml"
+    },
+    {
+      "name": "Mail inbox",
+      "source": "maildir:/absolute/path/to/Maildir",
+      "group": "/Inbox",
+      "timeline": true
+    },
+    {
+      "name": "Jane Street",
+      "source": "janestreet",
+      "group": "posts"
+    },
+    {
+      "name": "Atlantic · Ian Bogost",
+      "source": "atlantic",
+      "group": "author.ian-bogost"
+    },
+    {
+      "name": "Zhihu articles",
+      "source": "zhihu",
+      "group": "articles.people.USER"
+    },
+    {
+      "name": "Douban timeline",
+      "source": "douban",
+      "group": "timeline.12345"
+    },
+    {
+      "name": "NetEase events",
+      "source": "netease",
+      "group": "events.12345"
+    },
+    {
+      "name": "Public-inbox thread",
+      "source": "public-inbox",
+      "group": "https://list.example.org/list/message-id@example.org/"
+    }
+  ]
+}

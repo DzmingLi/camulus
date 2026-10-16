@@ -1,0 +1,2 @@
+*.patch -whitespace
+patches/*LICENSE.md -whitespace

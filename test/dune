@@ -1,0 +1,40 @@
+(test
+ (name core_test)
+ (modules core_test)
+ (libraries reader unix threads))
+
+(test
+ (name reddit_test)
+ (modules reddit_test)
+ (libraries reddit_backend reader eio eio.unix eio_posix yojson uri unix))
+
+(test (name mail_test) (modules mail_test)
+ (libraries maildir_backend reader unix yojson))
+
+(test (name mail_mime_test) (modules mail_mime_test) (libraries maildir_backend))
+
+(test (name voting_test) (modules voting_test) (libraries reader))
+
+(test (name content_state_test) (modules content_state_test) (libraries reader sqlite3 unix yojson))
+
+(test (name rss_test) (modules rss_test) (libraries rss_backend reader eio_posix unix sqlite3 yojson))
+
+(test (name discourse_test) (modules discourse_test) (libraries discourse_backend reader eio_posix uri yojson))
+
+(test (name publication_test) (modules publication_test)
+ (libraries atlantic_backend janestreet_backend rss_backend reader eio_posix))
+
+(test (name social_test) (modules social_test)
+ (libraries zhihu_backend douban_backend rss_backend reader eio_posix sqlite3 uri yojson unix))
+
+(executable (name publication_live) (modules publication_live)
+ (libraries atlantic_backend janestreet_backend zhihu_backend douban_backend netease_backend public_inbox_backend blogger_backend gcores_backend rss_backend reader eio_posix uri yojson))
+
+(test (name inbox_sources_test) (modules inbox_sources_test)
+ (libraries netease_backend public_inbox_backend maildir_backend rss_backend eio_posix zip))
+
+(test (name jsonfeed_test) (modules jsonfeed_test)
+ (libraries jsonfeed_backend rss_backend reader eio_posix yojson unix))
+
+(test (name blogger_gcores_test) (modules blogger_gcores_test)
+ (libraries blogger_backend gcores_backend rss_backend reader eio_posix yojson))

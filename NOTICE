@@ -1,0 +1,17 @@
+Camulus
+Copyright (C) 2026 Dzming Li
+
+Unless otherwise noted, Camulus is licensed under the GNU Affero General
+Public License, version 3 or (at your option) any later version.
+See LICENSE for the full license text.
+
+The Reddit backend remains GPL-3.0-or-later; see
+src/backends/reddit/NOTICE and src/backends/reddit/COPYING.
+Other backend provenance and notices are retained in their directories.
+The Zhihu signing implementation also includes MIT-licensed code; its
+copyright and permission notice are in src/backends/zhihu/NOTICE.
+
+The Ecaml patches in patches/ modify Ecaml (Jane Street, MIT license).
+The Eio patch modifies Eio (ISC license, with additional BSD-3-Clause
+portions). Their upstream license notices are included in
+patches/ecaml-LICENSE.md and patches/eio-LICENSE.md.

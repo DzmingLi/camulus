@@ -1,0 +1,7 @@
+(library (name rss_backend) (modules (:standard \ rss_emacs)) (libraries reader eio eio.unix curl uri xmlm ptime yojson unix))
+
+(library
+ (name rss_emacs)
+ (modules rss_emacs)
+ (libraries reader_emacs_backend ecaml rss_backend)
+ (preprocess (pps ppx_jane)))
