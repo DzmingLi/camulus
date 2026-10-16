@@ -103,7 +103,7 @@ let set_rows rows =
       else if favorite then vector [field "target" row;field "source" row;field "title" row]
       else vector [s (if truth (field "unread" row) then "*" else "");field "source" row;field "author" row;
         Option.value_map(capability(field "source"row))~default:(field "title"row)~f:(fun backend->backend.row_title row)] in
-    let face=if favorite || truth(field "favorite" row) then Some "ef-reader-favorite"
+    let face=if not favorite && truth(field "favorite" row) then Some "ef-reader-favorite"
       else if truth (call "assq"[sym "unread";row]) && not(truth(field "unread"row)) then Some "ef-reader-read"
       else None in
     let columns=match face with Some face ->
@@ -234,8 +234,15 @@ let body m indent =
     let dom=Current_buffer.set_temporarily_to_temp_buffer Sync (fun () ->
       Point.insert (text "html" m);call "libxml-parse-html-region" [i (min_point ());i (max_point ())]) in
     let renderers=list (List.map ["pre";"code";"tt"] ~f:(fun tag -> cons (sym tag) (sym "ef-reader--shr-code"))) in
+    let index=ref 0 in
+    let video=callback_unit(fun dom->
+      Int.incr index;
+      let window=call "get-buffer-window" [bv(buffer ());b true] in
+      let width=Int.max 120 (number(call "window-body-width" [window;b true])-32-indent*8) in
+      Reader_media.render ~source:(str(get "ef-reader--source")) ~id:(text "id" m)
+        ~base:(str(or_ (field "link_url" m) (field "url" m))) ~index:!index ~width dom) in
     with_bindings ["shr-inhibit-images",nil;"shr-use-fonts",nil;"shr-fill-text",nil;
-      "shr-external-rendering-functions",call "append" [renderers;get "shr-external-rendering-functions"];
+      "shr-external-rendering-functions",cons (cons (sym "video") video) (call "append" [renderers;get "shr-external-rendering-functions"]);
       "shr-width",i (Int.max 20 (number (call "window-body-width" [call "get-buffer-window" [bv (buffer ());b true]])-indent-2));
       "shr-base",or_ (field "link_url" m) (field "url" m)]
       (fun () -> with_image_downloads (fun () -> run "shr-insert-document" [dom])))
@@ -252,6 +259,7 @@ let render () =
   List.iter (List.rev messages) ~f:(fun m -> Hashtbl.add_multi children ~key:(text "parent_id" m) ~data:m);
   let first_unread=ref None in
   local "ef-reader--render-token" (token ());
+  Reader_media.begin_render ();
   writable (fun () ->
     Current_buffer.erase ();
     (* Explicit traversal preserves chronological siblings without recursion limits. *)
@@ -287,7 +295,8 @@ let render () =
       done in
     render_roots (List.filter messages ~f:(fun m -> not (truth (find (get "ef-reader--messages") (field "parent_id" m)))));
     render_roots messages);
-  set "header-line-format" (list [header_link "[收藏夹 · f]" "ef-reader-folders";s (Printf.sprintf "  !: save to default  m: choose folder  n: next unread%s — %d articles — %s"
+  Reader_media.finish_render ();
+  set "header-line-format" (list [header_link "[收藏夹 · f]" "ef-reader-folders";s (Printf.sprintf "  m: choose folder  n: next unread%s — %d articles — %s"
     (Option.value_map (capability (get "ef-reader--source")) ~default:"" ~f:(fun backend ->
        String.concat (List.map backend.controls ~f:(fun control -> "  "^control.hint))))
     (List.length messages) (if flag "ef-reader--complete" then "loaded" else "loading / partial"))]);
@@ -354,7 +363,7 @@ let home_header () =
     match backend.browser with None -> [] | Some (label,command) -> [s "  ";header_link ("["^label^"]") command]) in
   set "header-line-format" (list ([s "Home  ";header_link "[收藏夹 · f]" "ef-reader-folders";s "  ";header_link "[Groups · B]" "ef-reader-browse-groups"] @ links @
     [s "  ";header_link "[Subscriptions · U]" "camulus-subscriptions";
-    s (Printf.sprintf "   %d feeds · %d/%d refreshed%s   RET: read  d: delete  !: save to default  m: choose folder  g: refresh  e: errors"
+    s (Printf.sprintf "   %d feeds · %d/%d refreshed%s   RET: read  d: delete  m: choose folder  g: refresh  e: errors"
       (List.length (values (get "ef-reader-home--entries"))) (number (get "ef-reader-home--done"))
       (number (get "ef-reader-home--total")) (if errors=0 then "" else Printf.sprintf " · %d failed" errors))]));
   run "force-mode-line-update" []
@@ -646,7 +655,6 @@ let save_to row folder =
   request_ignore ["op",s "favorite";"source",field "source" row;"id",field "id" row;
     "target",or_ (field "target" row) (s "thread");"folder",folder];
   message "Downloading archive; it appears in the folder after saving succeeds"
-let save_default () = save_to (selected ()) (s "default")
 let save () =
   let row=call "copy-tree" [selected ()] in
   request_ignore ["op",s "folders"] ~receive:(callback_unit (fun data ->
@@ -670,7 +678,7 @@ let folders_load () =
             let parts=String.split (str folder) ~on:'/' in
             Point.insert (String.make (2*(List.length parts-1)) ' ');
             button (List.last_exn parts) (fun () -> open_folder folder);Point.insert "\n");
-          if List.is_empty folders then Point.insert "还没有收藏。阅读文章时按 ! 收藏到 default。\n";
+          if List.is_empty folders then Point.insert "还没有收藏。阅读文章时按 m 选择或创建收藏夹。\n";
           Point.goto_min ();run "forward-line"[i 2]);
         Current_buffer.set_modified false))))
 let folders () =
@@ -861,10 +869,10 @@ let install_modes () =
   List.iter ["done";"total"] ~f:(fun name -> local_default ("ef-reader-home--"^name) (i 0));
   mode "ef-reader-feed-mode" "tabulated-list-mode" "Feed"
     (Some ["New",3,false;"Source",24,true;"Author",20,true;"Thread",70,true])
-    "RET: read  d: delete  !: save to default  m: choose folder  g: refresh  n: more  /: search  s: follow settings  S: follow group  G: entries  C: config  f: folders" ignore;
+    "RET: read  d: delete  m: choose folder  g: refresh  n: more  /: search  s: follow settings  S: follow group  G: entries  C: config  f: folders" ignore;
   mode "ef-reader-folder-mode" "tabulated-list-mode" "Favorites"
     (Some ["Kind",8,false;"Source",24,true;"Title",80,true])
-    "RET: read saved copy  !: add to default  m: add folder  d: remove entry  D: remove folder  f: folders  g: reload  h: home" ignore;
+    "RET: read saved copy  m: add folder  d: remove entry  D: remove folder  f: folders  g: reload  h: home" ignore;
   mode "ef-reader-folders-mode" "special-mode" "Favorite folders" None
     "RET / click: open folder  TAB: next folder  g: refresh  h: home" ignore;
   mode "ef-reader-groups-mode" "special-mode" "Reader groups" None
@@ -875,16 +883,18 @@ let install_modes () =
     local "ef-reader--render-token" nil;
     reading_layout ();
     List.iter ["messages";"attachments";"loaded"] ~f:(fun name -> set ("ef-reader--"^name) (hash ()));
+    List.iter ["kill-buffer-hook";"change-major-mode-hook"] ~f:(fun hook->
+      run "add-hook" [sym hook;callback0 Reader_media.cleanup;nil;b true]);
     run "add-hook" [sym "kill-buffer-hook";callback0 (fun () ->
       if truth (call "timerp" [get "ef-reader--visibility-timer"]) then run "cancel-timer" [get "ef-reader--visibility-timer"];
       if flag "ef-reader--active" && not (String.equal (str (call "ef-probe-status" [])) "idle") then run "ef-probe-cancel" [get "ef-reader--active"]);nil;b true]);
   List.iter ["ef-reader-feed-mode";"ef-reader-folder-mode"] ~f:(fun mode ->
-    bind mode ["RET","ef-reader-open";"d","ef-reader-delete";"!","ef-reader-save-default";"m","ef-reader-save";"g","ef-reader-refresh";"f","ef-reader-folders";"h","camulus"]);
+    bind mode ["RET","ef-reader-open";"d","ef-reader-delete";"m","ef-reader-save";"g","ef-reader-refresh";"f","ef-reader-folders";"h","camulus"]);
   bind "ef-reader-feed-mode" ["s","ef-reader-subscription";"S","ef-reader-group-subscription";"G","ef-reader-entries";"C","ef-reader-edit-config";"n","ef-reader-more";"/","ef-reader-search";
     "U","camulus-subscriptions";"B","ef-reader-browse-groups";"b","ef-reader-home-browse-source";"e","ef-reader-home-errors"];
   bind "ef-reader-folder-mode" ["D","ef-reader-delete-folder"];
   bind "ef-reader-folders-mode" ["RET","push-button";"TAB","forward-button";"<backtab>","backward-button";"f","ef-reader-folders";"g","ef-reader-folders-refresh";"h","camulus"];
-  bind "ef-reader-article-mode" ["f","ef-reader-folders";"s","ef-reader-subscription";"!","ef-reader-save-default";"m","ef-reader-save";"n","ef-reader-next-unread";"h","camulus"];
+  bind "ef-reader-article-mode" ["f","ef-reader-folders";"s","ef-reader-subscription";"m","ef-reader-save";"n","ef-reader-next-unread";"h","camulus"];
   bind "camulus-subscriptions-mode" ["g","camulus-subscriptions-refresh";"B","ef-reader-browse-groups";"U","camulus-subscriptions"];
   bind "ef-reader-groups-mode" ["f","ef-reader-folders";"U","camulus-subscriptions";"s","ef-reader-group-subscription";"S","ef-reader-group-subscription";"h","camulus";"g","ef-reader-browse-groups";"C","ef-reader-edit-groups"]
 
@@ -892,6 +902,7 @@ let install_modes () =
 let installed = ref false
 let install () =
   if not !installed then (
+  Reader_media.install ();
   define1 "ef-reader--set-rows" (fun rows -> set_rows rows;nil);
   define0 "ef-reader--reading-layout" reading_layout;
   define1 "ef-reader--header-text" (fun value -> s (header_text value));
@@ -928,7 +939,6 @@ let install () =
   define0 ~interactive:true "ef-reader-entries" entries;
   define0 ~interactive:true "ef-reader-delete" delete;
   define0 ~interactive:true "ef-reader-save" save;
-  define0 ~interactive:true "ef-reader-save-default" save_default;
   define0 ~interactive:true "ef-reader-folders" folders;
   define0 ~interactive:true "ef-reader-folders-refresh" folders_load;
   define0 ~interactive:true "ef-reader-delete-folder" delete_folder;
