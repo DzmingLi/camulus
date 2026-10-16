@@ -22,7 +22,7 @@ external open_channel : Value.t -> Os.file_descr = "ecaml_probe_open_channel"
 let owner_thread = Host_thread.id (Host_thread.self ())
 let ensure_ui () =
   if Host_thread.id (Host_thread.self ()) <> owner_thread then
-    failwith "effects-probe: must be called on the Emacs owner thread"
+    failwith "Camulus: must be called on the Emacs owner thread"
 
 (* These references are only accessed from the UI thread. No Lisp value enters Runtime. *)
 let runtime = ref None
@@ -52,11 +52,11 @@ let vote_status = function
 
 let get_runtime () =
   ensure_ui ();
-  match !runtime with Some t -> t | None -> failwith "effects-probe is not started"
+  match !runtime with Some t -> t | None -> failwith "Camulus is not started"
 
 let start process =
   ensure_ui ();
-  if Option.is_some !runtime then failwith "effects-probe already started";
+  if Option.is_some !runtime then failwith "Camulus already started";
   Reader.Host.snapshot_signals ();
   let fd = open_channel process in
   Value.Expert.raise_if_emacs_signaled ();

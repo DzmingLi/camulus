@@ -32,7 +32,7 @@
 | Maildir | mu 本地索引与搜索、回复树、MIME 附件、自动保存草稿、纯 OCaml SMTP 发送、移动到 Archive；同步仍使用外部 mbsync |
 | Reddit | OAuth、subreddit、回复及提及、组内搜索、渐进回复树、投票；回复/发帖编辑界面未完成 |
 | CS.RIN.RU | Atom 更新、phpBB 逐页回复树、附件归档、登录、BBCode 发帖/回复、自动保存草稿 |
-| Discourse | 最新讨论、分类、回复及提及、追踪列表、远端搜索、渐进回复树、点赞、追踪设置、回复/发帖与草稿 |
+| Discourse | 最新讨论、分类、回复及提及、追踪列表、远端搜索、渐进回复树、点赞与追踪设置；回复/发帖已有后端接口，编辑界面待接入 |
 | RSS / Atom | 分页、后端订阅列表、正文与 enclosure 附件归档 |
 | JSON Feed 1 / 1.1 | `next_url` 分页、后端订阅列表、正文与附件归档 |
 | Blogger | Atom 列表、打开时提取公开网页全文、图片归档 |
@@ -54,13 +54,7 @@ cd camulus
 nix build .#emacs-camulus
 ```
 
-在 Emacs 配置中加入构建产物：
-
-```elisp
-(add-to-list 'load-path "/absolute/path/to/camulus/result/share/emacs/site-lisp")
-(require 'camulus)
-;; M-x camulus
-```
+Nix 包包含标准 ELPA 元数据和 autoload。加入 Emacs 包集合并 rebuild 后，在新 Emacs 进程直接 `M-x camulus` 打开首页，不需要手动 `require` 或加载 `.so`。
 
 也可直接加入自己的 Nix flake：
 
@@ -111,7 +105,7 @@ emacsWithPackages (epkgs: [
 nix develop -c make reader-demo
 nix develop -c make test
 # 在 Nix 构建沙箱中运行完整测试：
-nix build .#checks.x86_64-linux.reader
+nix build .#checks.x86_64-linux.reader .#checks.x86_64-linux.startup
 ```
 
 开发构建默认使用 `_build/`，可通过 `BUILD_DIR=/absolute/path` 覆盖。测试包括 OCaml 单元测试、Emacs 原生模块与界面集成、Python 导入器，以及本机 HTTP/SMTP 模拟服务；普通测试不写入真实远端账户。
@@ -122,17 +116,18 @@ src/
   content.ml          公共内容与分页类型
   runtime.ml          Eio worker、任务生命周期与取消
   reader_ui.ml        Ecaml 列表、阅读、窗口与收藏交互
+  reader_config.ml    声明式配置与后端启动
   content_state.ml    本地状态与归档
   backends/
     reddit/           每个后端拥有自己的协议、解析与身份管理
     discourse/
     maildir/          mu / mbsync 的进程调用也属于此后端
     ...
-lisp/                 配置、宿主启动及尚未迁移的撰写流程
+lisp/camulus.el       仅加载原生模块；无后端或交互逻辑
 patches/              Ecaml / Eio 的宿主适配补丁
 ```
 
-Emacs 主线程通过 Ecaml 操作窗口和 buffer，独立 OCaml domain 运行 Eio。后端基本接口不强制 thread、点赞、投票、写入或订阅；这些作为可选模块提供。`*_emacs.ml` 是各后端在 Emacs 中的命令和能力注册，同一目录中的其他模块处理协议与内容。详情参见源码接口及 [运行时验证说明](docs/VALIDATION.md)。
+邮件撰写、草稿、Discourse 认证与点赞、Reddit 授权与投票、进程宿主和配置加载都在 OCaml 模块中实现。Emacs 主线程通过 Ecaml 操作窗口和 buffer，独立 OCaml domain 运行 Eio。后端基本接口不强制 thread、点赞、投票、写入或订阅；这些作为可选模块提供。`*_emacs.ml` 是各后端在 Emacs 中的命令和能力注册，同一目录中的其他模块处理协议与内容。详情参见源码接口及 [运行时验证说明](docs/VALIDATION.md)。
 
 当前刷新发生在打开首页和手动操作时。后台增量同步、完整回复/提及规则、持久离线写入重试、Reddit 完整撰写、邮件附件撰写和邮件 WebKit 整树阅读仍待完成。不要把已实现的会话任务调度视为持久同步队列。
 

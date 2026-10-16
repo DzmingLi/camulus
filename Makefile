@@ -33,22 +33,13 @@ test: build csrin-test
 reader-demo: build
 	$(EMACS) -Q -L $(MODULE_DIR) -L lisp -l camulus -f camulus
 
-.PHONY: reddit-demo reddit-live
-reddit-demo: build
-	$(EMACS) -Q -L $(MODULE_DIR) -L lisp -l reddit-demo -f ef-reddit-browse
-
+# Live checks are opt-in and read-only.
+.PHONY: reddit-live mail-live
 reddit-live: build
 	timeout 180s $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -l test/reddit-live.el
 
-.PHONY: mail-demo mail-live
-mail-demo: build
-	$(EMACS) -Q -L $(MODULE_DIR) -L lisp -l mail-demo -f ef-mail-browse
-
 mail-live: build
 	timeout 180s $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -L test -l test/mail-live.el
-
-demo: build
-	$(EMACS) -Q -L $(MODULE_DIR) -L lisp -l effects-probe -f ef-probe-demo
 
 .PHONY: csrin-test
 csrin-test: build

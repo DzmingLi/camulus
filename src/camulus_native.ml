@@ -254,4 +254,7 @@ let () =
         csrin_site:=Csrin_backend.site site) ();
       publication Csrin_emacs.install_reader "csrin";
       publication Blogger_emacs.install "blogger";publication Gcores_emacs.install "gcores");
+  Reader_config.setup_variables ();
+  Reader_config.register ~idle:(fun()->String.equal(Application.status())"idle");
+  Reader_ui.install ();
   provide (Symbol.intern "camulus_native")

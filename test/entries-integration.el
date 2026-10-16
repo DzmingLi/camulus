@@ -69,7 +69,12 @@
           (with-temp-file ef-reader-config-file
             (insert "{\"version\":1,\"entries\":[],\"backend_settings\":{\"maildir\":{\"sender\":\"bad\",\"smtp_profiles\":[[\"a\",\"smtp.test\",70000,\"a\",\"/secret-file\",\"\"]]}}}"))
           (should-error (ef-reader-load-config) :type 'user-error)
-          (should (equal ef-mail-sender "after")))
+          (should (equal ef-mail-sender "after"))
+          (dolist (settings '("[]" "{\"maildir\":[]}" "{\"maildir\":{\"sender\":null}}"))
+            (with-temp-file ef-reader-config-file
+              (insert "{\"version\":1,\"entries\":[],\"backend_settings\":" settings "}"))
+            (should-error (ef-reader-load-config) :type 'user-error)
+            (should (equal ef-mail-sender "after"))))
       (delete-file ef-reader-config-file))))
 
 (ert-deftest entries-publication-sources-use-article-target-except-douban ()

@@ -1,6 +1,7 @@
 ;;; reddit-integration.el --- Offline native backend/UI checks -*- lexical-binding: t; -*-
 (require 'ert)
-(require 'reddit-demo)
+(require 'camulus)
+(setq ef-probe-record-events t)
 
 (defmacro ef-reddit-test-session (&rest body)
   `(progn
@@ -40,15 +41,15 @@
      (should (equal (alist-get 'kind (ef-reddit-test-data id)) "error"))
      (should (equal (ef-probe-status) "running")))))
 
-(ert-deftest reddit-demo-tree-is-expanded-and-chronological ()
+(ert-deftest reddit-reader-tree-is-expanded-and-chronological ()
   (with-temp-buffer
-    (ef-reddit-thread-mode)
-    (setq ef-reddit--messages (make-hash-table :test #'equal))
+    (ef-reader-article-mode) (setq ef-reader--source "reddit:fixture-user")
+    (setq ef-reader--messages (make-hash-table :test #'equal))
     (dolist (m '(((id . "t3_r") (author . "root") (body . "root text") (created . 1))
                  ((id . "t1_b") (parent_id . "t3_r") (author . "second") (body . "later") (created . 3))
                  ((id . "t1_a") (parent_id . "t3_r") (author . "first") (body . "earlier") (created . 2))))
-      (puthash (alist-get 'id m) m ef-reddit--messages))
-    (ef-reddit--render-thread '((complete . t)))
+      (puthash (alist-get 'id m) m ef-reader--messages))
+    (setq ef-reader--complete t) (maphash (lambda (id _) (puthash id t ef-reader--loaded)) ef-reader--messages) (ef-reader--render)
     (should (string-match-p "root text" (buffer-string)))
     (should (< (string-match "earlier" (buffer-string)) (string-match "later" (buffer-string))))))
 
@@ -61,30 +62,30 @@
      (unwind-protect
          (progn
            (with-current-buffer summary
-             (ef-reddit-summary-mode)
-             (setq ef-reddit--messages (make-hash-table :test #'equal))
-             (puthash "t3_vote" item ef-reddit--messages)
-             (ef-reddit--render-summary)
+             (ef-reader-feed-mode) (setq ef-reader--source "reddit:fixture-user")
+             (setq ef-reader--messages (make-hash-table :test #'equal))
+             (puthash "t3_vote" item ef-reader--messages)
+             (ef-reader--set-rows (list (append '((source . "reddit:fixture-user")) item)))
              (goto-char (point-min)))
            (with-current-buffer thread
-             (ef-reddit-thread-mode)
-             (setq ef-reddit--messages (make-hash-table :test #'equal))
-             (puthash "t3_vote" item ef-reddit--messages)
-             (ef-reddit--render-thread '((complete . t)))
+             (ef-reader-article-mode) (setq ef-reader--source "reddit:fixture-user")
+             (setq ef-reader--messages (make-hash-table :test #'equal))
+             (puthash "t3_vote" item ef-reader--messages)
+             (setq ef-reader--complete t) (maphash (lambda (id _) (puthash id t ef-reader--loaded)) ef-reader--messages) (ef-reader--render)
              (goto-char (point-min))
              (ef-reddit-upvote)
              (should (equal (seq-take (ef-reddit-vote-state "t3_vote") 2) '(1 pending)))
              (should (string-match-p "+ pending" (buffer-string)))
              (should-error (ef-reddit-clear-vote))
-             (should-not ef-reddit--active-request))
+             (should-not ef-reader--active))
            (with-current-buffer summary
-             (should (equal (aref (cadr (assoc "t3_vote" tabulated-list-entries)) 0) "+ pending")))
+             (should (string-match-p "\\+ pending" (aref (cadar tabulated-list-entries) 3))))
            ;; Votes outlive the reading view. The nonexistent token prevents HTTP.
            (ef-probe-close-view)
            (ef-probe-await (lambda () (eq (cadr (ef-reddit-vote-state "t3_vote")) 'rejected)))
            (should (= (car (ef-reddit-vote-state "t3_vote")) -1))
            (with-current-buffer summary
-             (should (equal (aref (cadr (assoc "t3_vote" tabulated-list-entries)) 0) "- failed")))
+             (should (string-match-p "- failed" (aref (cadar tabulated-list-entries) 3))))
            (with-current-buffer thread
              (should (string-match-p "- failed" (buffer-string)))
              (should (string-suffix-p "loaded" header-line-format))))
@@ -99,16 +100,16 @@
 (ert-deftest reddit-vote-does-not-replace-or-cancel-thread-read ()
   (ef-reddit-test-session
    (with-temp-buffer
-     (ef-reddit-thread-mode)
-     (setq ef-reddit--messages (make-hash-table :test #'equal)
-           ef-reddit--active-request 900000)
+     (ef-reader-article-mode) (setq ef-reader--source "reddit:fixture-user")
+     (setq ef-reader--messages (make-hash-table :test #'equal)
+           ef-reader--active 900000)
      (puthash "t1_vote" '((id . "t1_vote") (author . "test") (body . "Text") (created . 1))
-              ef-reddit--messages)
-     (ef-reddit--render-thread '((complete . nil)))
+              ef-reader--messages)
+     (ef-reader--render)
      (goto-char (point-min))
      (ef-reddit-downvote)
-     (should (= ef-reddit--active-request 900000))
+     (should (= ef-reader--active 900000))
      (should (string-suffix-p "loading / partial" header-line-format))
-     (setq ef-reddit--active-request nil))))
+     (setq ef-reader--active nil))))
 
 (ert-run-tests-batch-and-exit)

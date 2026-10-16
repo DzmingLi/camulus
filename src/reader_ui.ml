@@ -91,7 +91,8 @@ let set_rows rows =
     put table key row;
     let columns = if flag "ef-reader--home" then home_row row
       else if favorite then vector [field "target" row;field "source" row;field "title" row]
-      else vector [s (if truth (field "unread" row) then "*" else "");field "source" row;field "author" row;field "title" row] in
+      else vector [s (if truth (field "unread" row) then "*" else "");field "source" row;field "author" row;
+        Option.value_map(capability(field "source"row))~default:(field "title"row)~f:(fun backend->backend.row_title row)] in
     list [key;columns]) in
   set "tabulated-list-entries" (list entries);run "tabulated-list-print" [b true]
 
@@ -118,7 +119,8 @@ let heading m depth read =
   let date = if Float.(timestamp (field "created" m) > 0.) then str (format_time "%Y-%m-%d %H:%M" (field "created" m)) else "" in
   let marks () =
     if truth (field "liked" m) then Point.insert "  ♥";
-    if truth (field "like-uncertain" m) then Point.insert " (like unconfirmed)" in
+    if truth (field "like-uncertain" m) then Point.insert " (like unconfirmed)";
+    Option.iter(capability(get "ef-reader--source"))~f:(fun backend->Point.insert(backend.article_marks m)) in
   let author () =
     insert_value (styled (if truth (field "read" read) then "○ " else "● ") "shadow");
     insert_value (styled (header_text (field "author" m)) "font-lock-keyword-face") in

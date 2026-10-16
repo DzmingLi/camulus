@@ -1,0 +1,22 @@
+;;; package-startup.el --- Installed package activation and first command -*- lexical-binding: t; -*-
+(require 'ert)
+(require 'package)
+(package-activate-all)
+(ert-deftest camulus-installed-autoload-opens-native-home ()
+  (should (commandp 'camulus))
+  (should (autoloadp (symbol-function 'camulus)))
+  (should-not (featurep 'camulus_native))
+  (unwind-protect
+      (progn
+        (call-interactively 'camulus)
+        (ef-probe-await (lambda () (and (null ef-reader-home--jobs)
+                                      (= 0 (hash-table-count ef-reader--requests)))) 15)
+        (should (featurep 'camulus_native))
+        (should (eq major-mode 'ef-reader-feed-mode))
+        (should ef-reader--home)
+        (dolist (command '(camulus-csrin ef-mail-compose ef-mail-drafts ef-reader-discourse-like ef-reddit-upvote))
+          (should (commandp command)))
+        (dolist (feature '(camulus-runtime host-process reader-config mail-workflow discourse-reader mail-demo reddit-demo effects-probe))
+          (should-not (featurep feature))))
+    (when (fboundp 'ef-probe-session-stop) (ef-probe-session-stop))))
+(ert-run-tests-batch-and-exit)

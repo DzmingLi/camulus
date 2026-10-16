@@ -1,5 +1,6 @@
 ;;; exit.el --- Quit with live worker tasks -*- lexical-binding: t; -*-
-(require 'effects-probe)
+(require 'camulus)
+(setq ef-probe-record-events t)
 (ef-probe-session-start)
 (ef-probe-await (lambda () (equal (ef-probe-status) "running")))
 (ef-probe-submit 60000 60 t nil 0)

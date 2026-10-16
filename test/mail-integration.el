@@ -1,6 +1,7 @@
 ;;; mail-integration.el --- Real mu, MIME and native process bridge -*- lexical-binding: t; -*-
 (require 'ert)
-(require 'mail-demo)
+(require 'camulus)
+(setq ef-probe-record-events t)
 (require 'smtp-fixture)
 (defvar ef-mail-test-base (getenv "MAIL_FIXTURE"))
 (unless ef-mail-test-base (error "MAIL_FIXTURE is required"))
@@ -9,7 +10,9 @@
                      (expand-file-name "mu" ef-mail-test-base) "bob@example.test"
                      (or program (executable-find "mu")) ""))
 (defmacro ef-mail-test-session (&rest body)
-  `(progn (ef-mail-test-config) (ef-probe-session-start)
+  `(progn (ef-mail-test-config)
+          (ef-content-state-configure (expand-file-name "reader-state.sqlite" ef-mail-test-base))
+          (ef-probe-session-start)
           (unwind-protect (progn ,@body) (ef-probe-session-stop))))
 (defun ef-mail-test-finished (id)
   (cl-find-if (lambda (e) (and (eq (car e) 'finished) (= (nth 1 e) id))) ef-probe--events))
@@ -75,31 +78,30 @@
   (ef-probe-session-start)
   (unwind-protect
       (let ((id (camulus-mail-submit '((op . "list") (group . "/Inbox")))))
-        (ef-probe-await (lambda () (> (hash-table-count ef-host--jobs) 0)))
+        (ef-probe-await (lambda () (cl-some (lambda (p) (and (process-live-p p) (string-prefix-p "camulus-mail-" (process-name p)))) (process-list))))
         (ef-probe-cancel id)
         (ef-probe-await (lambda () (ef-mail-test-finished id)))
         (should (eq (nth 3 (ef-mail-test-finished id)) 'cancelled))
-        (ef-probe-await (lambda () (= 0 (hash-table-count ef-host--jobs))))
+        (ef-probe-await (lambda () (not (cl-some (lambda (p) (and (process-live-p p) (string-prefix-p "camulus-mail-" (process-name p)))) (process-list)))))
         (should (equal (ef-probe-status) "running")))
     (ef-probe-session-stop)))
 
-(ert-deftest mail-demo-expanded-tree-with-inline-attachments ()
+(ert-deftest mail-reader-expanded-tree-with-inline-attachments ()
   (ef-mail-test-session
    (unwind-protect
        (progn
-         (ef-mail-browse "/Inbox")
-         (ef-mail-test-await ef-mail--active)
-         (goto-char (point-min))
-         (search-forward "Re: 测试主题")
-         (ef-mail-open-thread)
-         (with-current-buffer "*Mail thread*"
-           (ef-mail-test-await ef-mail--active)
+         (ef-reader-browse-entry `((name . "Mail") (source . ,(concat "maildir:" (expand-file-name "Maildir" ef-mail-test-base))) (group . "/Inbox")))
+         (ef-probe-await (lambda () (= 0 (hash-table-count ef-reader--requests))))
+         (goto-char (point-min)) (search-forward "Re: 测试主题")
+         (ef-reader-open)
+         (ef-probe-await (lambda () (= 0 (hash-table-count ef-reader--loads))))
+         (with-current-buffer "*Reader thread*"
            (should (string-match-p "root body" (buffer-string)))
            (should (string-match-p "child body" (buffer-string)))
            (should (< (string-match "root body" (buffer-string)) (string-match "child body" (buffer-string))))
            (should (string-match-p "Save ../附件.bin" (buffer-string)))
-           (should ef-mail--complete)))
-     (dolist (b '("*Mail /Inbox*" "*Mail thread*")) (when (get-buffer b) (kill-buffer b))))))
+           (should ef-reader--complete)))
+     (dolist (b '("*Reader*" "*Reader thread*")) (when (get-buffer b) (kill-buffer b))))))
 
 (ert-deftest mail-native-send-to-loopback-tls-only ()
   (ef-mail-configure (expand-file-name "Maildir" ef-mail-test-base)

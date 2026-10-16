@@ -25,12 +25,12 @@
 在本目录运行：
 
 ```sh
-nix-shell --run 'make reddit-demo'
+nix develop -c make reader-demo
 ```
 
-启动全新 `emacs -Q` 后输入 subreddit 和 Reddit 用户名。默认读取 `~/News/nnreddit/refresh-token`。如果在已经加载 nnreddit 的 Emacs 中使用，它会读取现有 `nnreddit-username`、`nnreddit-client-id`、`nnreddit-redirect-uri` 和 `nnreddit-refresh-token-file` 配置。
+启动全新 `emacs -Q` 后输入 subreddit 和 Reddit 用户名。默认读取 `~/News/nnreddit/refresh-token`。身份和凭据路径由 Camulus 配置声明，不读取旧后端变量。
 
-自定义路径可在加载 `reddit-demo.el` 后设置：
+也可以在 Emacs 中设置下列变量，或使用入口 JSON 的 `backend_settings.reddit`：
 
 ```elisp
 (setq ef-reddit-username "YOUR_USERNAME"
@@ -40,7 +40,7 @@ nix-shell --run 'make reddit-demo'
 
 列表中 `RET` 在右侧打开整个回复树，默认展开；`s` 在当前 subreddit 搜索，空查询回到普通列表；`n` 加载下一页，`g` 刷新。关闭阅读 buffer 会取消其请求；同一阅读 buffer 切换帖子时，旧请求结果不会覆盖新帖子。
 
-另有持久 feed 与收藏入口 `make reader-demo`，见 [README](../README.md#持久-feed-首页)。本节描述的后端专用 demo 不显示统一内容状态。
+浏览、回复树、投票与收藏都使用同一个原生界面，见 [README](../README.md#阅读与内容管理)。
 
 这是方便联调的薄 Elisp 界面，调用的后端、认证、解析、传输和调度都在 OCaml 中。它还不是最终阅读器：暂未实现已读状态、折叠、收藏、附件归档、draft group、写入编辑界面或 WebKit。Olivetti 已加载时，阅读 buffer 会启用它。现在只展示文本及原始链接，保留的 HTML 尚未接入正式渲染器。
 

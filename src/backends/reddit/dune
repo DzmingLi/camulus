@@ -1,10 +1,10 @@
 (library
- (name reddit_backend) (modules (:standard \ reddit_emacs))
+ (name reddit_backend) (modules (:standard \ reddit_emacs interaction_emacs))
  (libraries reader eio eio.unix curl yojson uri base64 unix))
 
 
 (library
  (name reddit_emacs)
- (modules reddit_emacs)
+ (modules reddit_emacs interaction_emacs)
  (libraries reader_emacs_backend ecaml reddit_backend)
  (preprocess (pps ppx_jane)))

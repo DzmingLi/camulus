@@ -46,6 +46,7 @@ let open_draft path window=
 let install_reader ~read ~attachment ()=
  register{(base ~name:"CS.RIN.RU" ~matches:(String.equal "csrin")~threaded:true
    ~read:(fun ~source:_ ~id ~thread_id:_ ~group->Value.of_int_exn(read id group)))with
+   start=(fun()->run "camulus-csrin-configure"[get "camulus-csrin-site"]);
    thread_contains_bodies=true;
    attachment=Some(fun ~source:_ ~id ~group ~part ~destination->Value.of_int_exn(attachment id group part destination));
    events=["rss"];browser=Some("CS.RIN.RU","camulus-csrin");
@@ -54,6 +55,7 @@ let install_reader ~read ~attachment ()=
    entrances=(fun()->[{label="CS.RIN.RU forum/topic";open_=(fun()->run "call-interactively"[Value.intern "camulus-csrin"])}])}
 let install ~submit ~configure ()=
  variable "camulus-csrin-site"(s "https://cs.rin.ru/forum/");
+ register_settings "csrin"(string_settings["site","camulus-csrin-site"]);
  variable "camulus-csrin--sending"Value.nil;
  variable "camulus-csrin--save-timer"Value.nil;
  let define name doc f=Defun.defun_nullary_nil(Symbol.intern name)[%here]~docstring:doc ~interactive:No_arg f in

@@ -1,5 +1,6 @@
 ;;; mail-live.el --- Opt-in local read-only validation; no mailbox data in logs -*- lexical-binding: t; -*-
-(require 'mail-demo)
+(require 'camulus)
+(setq ef-probe-record-events t)
 (let ((root (getenv "MAIL_ROOT")) (home (getenv "MAIL_MUHOME"))
       (sender (getenv "MAIL_SENDER")) (group (getenv "MAIL_GROUP")))
   (unless (and root home sender group) (error "Explicit MAIL_ROOT/MUHOME/SENDER/GROUP required"))

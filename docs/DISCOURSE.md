@@ -1,6 +1,6 @@
 # Discourse 后端
 
-后端位于 `src/backends/discourse/`。原生接口实现 `Backend.S`、`Threading`、`Liking`、`Writing`、`Subscription`；Discourse topic 身份、楼层回复关系、User API 身份及 HTTP 操作由本后端管理。`lisp/discourse-reader.el` 是现有临时阅读界面的 Discourse 命令，不依赖 Gnus，也不调用旧后端抓取内容。
+后端位于 `src/backends/discourse/`。原生接口实现 `Backend.S`、`Threading`、`Liking`、`Writing`、`Subscription`；Discourse topic 身份、楼层回复关系、User API 身份及 HTTP 操作由本后端管理。`interaction_emacs.ml` 使用 Ecaml 实现认证、浏览、分类与点赞命令，不依赖 Gnus，也不调用旧后端抓取内容。
 
 ## 使用
 
@@ -78,7 +78,7 @@ API 凭据只发往指定站点及其部署路径。API 请求不跟随重定向
 | `topic-state` | `id`，读取服务器当前 notification level |
 | `attachment` | 文章 `id`、数字 `part`、本地 `destination` |
 
-回复、发帖与 tracking 已实现后端接口及模拟服务测试。撰写使用左侧编辑 buffer、右侧讨论的布局，支持自动保存草稿；界面也已接入点赞和通用订阅设置。**持久离线写入队列尚未实现**。HTTP 超时、5xx 或无法确认的写入回执会报告结果不确定，不自动重发；确认论坛实际状态后再决定后续操作。
+回复、发帖与 tracking 已实现后端接口及模拟服务测试。回复/发帖编辑界面仍待接入；当前界面已接入点赞和通用订阅设置。**持久离线写入队列尚未实现**。HTTP 超时、5xx 或无法确认的写入回执会报告结果不确定，不自动重发；确认论坛实际状态后再决定后续操作。
 
 核心不再保存一份独立的 Discourse 订阅关系。`Subscription.get/set` 直接使用远端 notification level；watching/tracking 入口由服务器提供，刷新接受站外修改。`replies` 和 `notifications` 提供回复、提及等通知入口。
 

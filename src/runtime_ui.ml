@@ -23,11 +23,7 @@ let publish () =
         if not(truth(call "ef-host-handle-event" [event])) then (
           if truth(get "ef-probe-record-events") then set "ef-probe--events" (call "cons" [event;get "ef-probe--events"]);
           run "run-hook-with-args" [sym "ef-probe-event-hook";event];
-          let demo=get "ef-probe--demo-buffer" in
-          if truth demo && truth(call "buffer-live-p" [demo]) then
-            Current_buffer.set_temporarily Sync (Buffer.of_value_exn demo) ~f:(fun () ->
-              Current_buffer.set_value_temporarily Sync (Var.create (Symbol.intern "inhibit-read-only") Value.Type.bool) true ~f:(fun () ->
-                Point.goto_max ();Point.insert (Value.to_utf8_bytes_exn(call "format" [s "%S\n";event]))))))))
+          ()))))
 let await predicate timeout =
   let deadline=Os.gettimeofday () +. timeout in
   while not(truth(Value.funcallN predicate [])) do
@@ -53,11 +49,15 @@ let stop () =
   if truth(call "process-live-p" [get "ef-probe--process"]) then run "delete-process" [get "ef-probe--process"];
   set "ef-probe--timer" nil;set "ef-probe--process" nil
 let install ~on_event =
+  List.iter ["ef-probe--process";"ef-probe--timer";"ef-probe--events";"ef-probe--hold";"ef-probe-record-events";"ef-probe-event-hook"]
+    ~f:(fun name->Reader_backend.variable name nil);
+  Reader_backend.variable "ef-probe--wakeups"(Value.of_int_exn 0);
   receive:=on_event;
   let define name f=Defun.defun_nullary_nil (Symbol.intern name) [%here] ~docstring:"Camulus event-loop operation." f in
   define "ef-probe--publish" publish;
   define "ef-probe-session-start" start;
   define "ef-probe-session-stop" stop;
+  run "add-hook"[sym "kill-emacs-hook";sym "ef-probe-session-stop"];
   Defun.defun (Symbol.intern "ef-probe--receive") [%here] ~docstring:"Drain worker events after a pipe wakeup."
     (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open _process=required "process" value and _bytes=required "bytes" value in

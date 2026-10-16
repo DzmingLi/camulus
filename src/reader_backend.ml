@@ -8,6 +8,9 @@ type control = { key : string; hint : string; command : string }
 type entrance = { label : string; open_ : unit -> unit }
 type t = {
   name : string;
+  start : unit -> unit;
+  normalize : Value.t -> Value.t;
+  on_entry : Value.t -> unit;
   matches : string -> bool;
   threaded : bool;
   thread_contains_bodies : bool;
@@ -16,6 +19,8 @@ type t = {
   attachment : (source:string -> id:string -> group:string option -> part:int -> destination:string -> Value.t) option;
   controls : control list;
   list_controls : control list;
+  article_marks : Value.t -> string;
+  row_title : Value.t -> Value.t;
   browser : (string * string) option;
   entrances : unit -> entrance list;
   followed : (unit -> Value.t) option;
@@ -34,8 +39,8 @@ let run name args = ignore (call name args : Value.t)
 let s = Value.of_utf8_bytes
 let alist fields = Value.list (List.map fields ~f:(fun (k,v) -> call "cons" [Value.intern k;v]))
 let base ~name ~matches ~threaded ~read = {
-  name;matches;threaded;read;thread_contains_bodies=false;
-  available=(fun _ -> true);attachment=None;controls=[];list_controls=[];browser=None;entrances=(fun () -> []);followed=None;
+  name;start=(fun()->());normalize=Fn.id;on_entry=(fun _->());matches;threaded;read;thread_contains_bodies=false;
+  available=(fun _ -> true);attachment=None;controls=[];list_controls=[];article_marks=(fun _->"");row_title=(fun row->Value.funcallN(Value.intern "alist-get")[Value.intern "title";row]);browser=None;entrances=(fun () -> []);followed=None;
   subscription_target=None;page=None;events=[];
   reconcile=(fun ~source:_ ~existing:_ ~request:_ ~archived:_ message -> message)
 }
@@ -62,3 +67,49 @@ let rec to_json value : Yojson.Safe.t =
 let variable name default =
   ignore (Defvar.defvar (Symbol.intern name) [%here] ~docstring:"Backend configuration."
     ~type_:Value.Type.value ~initial_value:default () : Value.t Var.t)
+
+let nil=Value.nil
+let sym=Value.intern
+let truth v=not(Value.eq v nil)
+let get name=Current_buffer.symbol_value(Symbol.intern name)
+let set name v=run "set"[sym name;v]
+let local name v=run "make-local-variable"[sym name];set name v
+let field name v=call "alist-get"[sym name;v]
+let text v=if truth v then Value.to_utf8_bytes_exn v else ""
+let integer v=Value.to_int_exn v
+let i=Value.of_int_exn
+let b v=if v then sym "t"else nil
+let values v=Value.to_list_exn v ~f:Fn.id
+let in_buffer value f=Current_buffer.set_temporarily Sync (Buffer.of_value_exn value) ~f
+let live v=truth(call "buffer-live-p"[v])
+let message fmt args=run "message"(s fmt::args)
+let user_error reason=run "user-error"[s "%s";s reason]
+let define0 ?(interactive=false) name f=Defun.defun_nullary_nil(Symbol.intern name)[%here]
+ ~docstring:"Camulus operation." ?interactive:(if interactive then Some No_arg else None) f
+let define1 name f=Defun.defun(Symbol.intern name)[%here] ~docstring:"Camulus callback." (Returns Value.Type.value)
+ (let open Defun.Let_syntax in let%map_open arg=required "argument"value in f arg)
+let optional ?(interactive=false) name f=Defun.defun(Symbol.intern name)[%here] ~docstring:"Camulus operation."
+ ?interactive:(if interactive then Some No_arg else None) (Returns Value.Type.value)
+ (let open Defun.Let_syntax in let%map_open arg=optional_with_nil "argument"value in f arg)
+let lambda0 f=Function.to_value(Defun.lambda_nullary [%here](Returns Value.Type.value) f)
+let lambda2 f=Function.to_value(Defun.lambda [%here](Returns Value.Type.value)
+ (let open Defun.Let_syntax in let%map_open a=required "a"value and c=required "b"value in f a c))
+let hook ?(local=false) name command=run "add-hook"[sym name;sym command;nil;b local]
+let bind map key command=run "define-key"[map;call "kbd"[s key];sym command]
+let mode name parent title header=
+ ignore(Major_mode.define_derived_mode (Symbol.intern name) [%here] ~docstring:"Camulus backend view."
+  ~parent:(Major_mode.find_or_wrap_existing [%here] (Symbol.intern parent)) ~mode_line:title
+  ~initialize:(Returns Value.Type.unit,(fun()->local "header-line-format"(s header))) () : (module Major_mode.S))
+let data_path env fallback name=
+ let root=call "getenv"[s env] in
+ call "expand-file-name"[s("camulus/"^name);if truth root then root else call "expand-file-name"[s fallback]]
+let settings : (string * (Yojson.Safe.t -> (string * Value.t) list)) list ref=ref []
+let register_settings name f=settings:=(name,f)::List.Assoc.remove !settings name ~equal:String.equal
+let json_field key=function `Assoc xs->Option.value(List.Assoc.find xs key ~equal:String.equal)~default:`Null|_->`Null
+let string_settings fields value=
+ match value with
+ |`Null->[]
+ |`Assoc xs->List.filter_map fields ~f:(fun(key,variable)->match List.Assoc.find xs key ~equal:String.equal with
+   |None->None|Some(`String v)when not(String.contains v '\000')->Some(variable,s v)
+   |_->failwith("Invalid backend setting: "^key))
+ |_->failwith "Backend settings must be an object"

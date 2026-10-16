@@ -25,9 +25,11 @@ let install ~submit ~followed () =
     ~interactive:(Prompt "sSearch this feed (empty clears): ") (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open query=required "query" string in
      set "ef-reader--rss-query" (if String.is_empty query then Value.nil else s query);refresh submit ());
+  variable "ef-reader-rss-subscriptions-file"(data_path "XDG_CONFIG_HOME" "~/.config" "rss-subscriptions.json");
   register { (base ~name:"RSS / Atom" ~matches:(String.is_prefix ~prefix:"rss:") ~threaded:false
     ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Value.of_int_exn (submit (Rss_backend.Read(String.drop_prefix source 4,id))))) with
     attachment=Some (fun ~source ~id ~group ~part ~destination -> ignore group; Value.of_int_exn (submit (Rss_backend.Attachment(String.drop_prefix source 4,id,part,destination))));
+    start=(fun()->run "ef-rss-subscriptions-configure"[get "ef-reader-rss-subscriptions-file"]);
     events=["rss"];subscription_target=Some (fun ~source ~selected:_ -> Some (String.drop_prefix source 4));
     browser=Some ("RSS / Atom", "ef-reader-rss");followed=Some (fun () -> Value.of_int_exn (followed ())) };
   ignore (Major_mode.define_derived_mode (Symbol.intern "ef-reader-rss-mode") [%here]

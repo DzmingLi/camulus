@@ -37,24 +37,42 @@
         default = scope.camulus;
         emacs-camulus = self.lib.mkEmacsPackage pkgs.emacsPackages;
       };
-      checks.${system}.reader = scope.camulus.overrideAttrs (old: {
-        doCheck = true;
-        nativeBuildInputs = (old.nativeBuildInputs or []) ++ [
-          pkgs.gnumake pkgs.python3 pkgs.emacs-nox pkgs.mu
-        ];
-        checkPhase = ''
-          make test BUILD_DIR="$PWD/_build"
-        '';
-      });
+      checks.${system} = {
+        startup =
+          let editor = pkgs.emacs-nox.pkgs.withPackages (epkgs: [ (self.lib.mkEmacsPackage epkgs) ]);
+          in pkgs.runCommand "camulus-package-startup" { } ''
+            export XDG_CONFIG_HOME="$TMPDIR/config"
+            export XDG_STATE_HOME="$TMPDIR/state"
+            export XDG_CACHE_HOME="$TMPDIR/cache"
+            mkdir -p "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME"
+            ${editor}/bin/emacs --batch --module-assertions -l ${./test/package-startup.el}
+            touch "$out"
+          '';
+        reader = scope.camulus.overrideAttrs (old: {
+          doCheck = true;
+          nativeBuildInputs = (old.nativeBuildInputs or []) ++ [
+            pkgs.gnumake pkgs.python3 pkgs.emacs-nox pkgs.mu
+          ];
+          checkPhase = ''
+            make test BUILD_DIR="$PWD/_build"
+          '';
+        });
+      };
       # An ordinary Emacs package; no OCaml compiler is needed at runtime.
       lib.mkEmacsPackage = epkgs: epkgs.trivialBuild {
         pname = "camulus";
         version = "0.1.0";
         src = "${scope.camulus}/share/emacs/site-lisp/camulus";
-        buildPhase = "true";
+        buildPhase = ''
+          emacs --batch -Q --eval '(progn (require (quote loaddefs-gen)) (loaddefs-generate default-directory (expand-file-name "camulus-autoloads.el")))'
+        '';
         installPhase = ''
-          mkdir -p "$out/share/emacs/site-lisp"
-          cp *.el *.so "$out/share/emacs/site-lisp/"
+          packageDir="$out/share/emacs/site-lisp/elpa/camulus-0.1.0"
+          mkdir -p "$packageDir"
+          cp *.el *.so "$packageDir/"
+          cat > "$packageDir/camulus-pkg.el" <<'EOF'
+          (define-package "camulus" "0.1.0" "Native OCaml reader for Emacs" '((emacs "31.1")))
+          EOF
         '';
       };
       devShells.${system}.default = pkgs.mkShell {

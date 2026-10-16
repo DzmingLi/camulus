@@ -6,7 +6,7 @@
 
 (executable
  (name camulus_native)
- (modules camulus_native application reader_ui runtime_ui)
+ (modules camulus_native application reader_ui reader_config runtime_ui)
  (libraries ecaml reader reader_emacs_backend reddit_emacs discourse_emacs rss_emacs maildir_emacs atlantic_emacs janestreet_emacs zhihu_emacs douban_emacs netease_emacs public_inbox_emacs reddit_backend maildir_backend rss_backend discourse_backend atlantic_backend janestreet_backend zhihu_backend douban_backend netease_backend public_inbox_backend jsonfeed_backend jsonfeed_emacs blogger_backend blogger_emacs gcores_backend gcores_emacs csrin_backend csrin_emacs)
  (preprocess (pps ppx_jane))
  (modes (native shared_object)))

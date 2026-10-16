@@ -8,6 +8,5 @@ result-*
 __pycache__/
 *.py[cod]
 
-# Local account profile and historical machine-specific validation output.
-lisp/migadu-demo.el
+# Historical machine-specific validation output.
 docs/*-results.txt

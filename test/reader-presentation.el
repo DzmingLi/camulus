@@ -73,7 +73,6 @@
                     ef-reddit-request ef-discourse-request ef-content-request ef-subscription-request
                     ef-reader--request ef-reader--event ef-reader--load-archive))
     (should-not (fboundp command)))
-  (should (equal (ef-reader--data-path "/tmp/camulus-config-test" "entries.json")
-                 "/tmp/camulus-config-test/camulus/entries.json")))
+  (should (string-suffix-p "/camulus/entries.json" ef-reader-config-file)))
 
 (ert-run-tests-batch-and-exit)

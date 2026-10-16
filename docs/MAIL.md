@@ -1,23 +1,23 @@
 # OCaml 邮件后端：本地 Maildir / mu 切片
 
-这一版是本地 Maildir 邮件后端，保留 mu 索引和现有 mbsync 同步。`Maildir_backend` 使用 Mrmime 解析及生成 MIME，通过 Colombe + tls-eio 直接发送 SMTP；不再绑定 GMime 或调用 msmtp。Emacs 提供 mu 子进程宿主和临时演示界面。没有以 Gnus 或 mu4e 作为后端，也没有 Elisp 后端扩展接口。
+这一版是本地 Maildir 邮件后端，保留 mu 索引和现有 mbsync 同步。`Maildir_backend` 使用 Mrmime 解析及生成 MIME，通过 Colombe + tls-eio 直接发送 SMTP；不再绑定 GMime 或调用 msmtp。`process_emacs.ml` 通过 Ecaml 提供 mu 子进程宿主；`compose_emacs.ml` 负责撰写和草稿交互。没有以 Gnus 或 mu4e 作为后端，也没有 Elisp 后端扩展接口。
 
 ## 运行
 
 在项目目录执行：
 
 ```sh
-nix-shell --run 'make mail-demo'
+nix develop -c make reader-demo
 ```
 
-它启动新的 `emacs -Q`，询问发信地址和 Maildir group。group 例如 `/main/Inbox`。默认读取 `~/Maildir` 和 `~/.cache/mu`，不修改正在运行的 Emacs。
+它启动新的 `emacs -Q` 并打开统一首页；在入口配置中声明 Maildir，再用 `G` 选择，例如 `/main/Inbox`。默认读取 `~/Maildir` 和 `~/.cache/mu`，不修改正在运行的 Emacs。
 
 - `RET`：右侧打开整棵回复树，默认展开。
 - `g`：重新查询本地索引。
-- `s`：当前 Maildir 内搜索，支持 mu 查询语法；空字符串恢复普通列表。
+- `/`：当前 Maildir 内搜索，支持 mu 查询语法；空字符串恢复普通列表。
 - `n`：下一页。
 - `c` / `r`：新建 / 回复，summary 所在窗口切换为 Message 编辑 buffer，右侧阅读窗口保留。
-- `G`：打开当前账户的草稿组；`RET` 恢复编辑。
+- `D`：打开当前账户的草稿组；`RET` 恢复编辑。
 - `a`：summary 中归档当前组内的整条讨论；阅读窗口中归档当前这一封。
 - 每封邮件下的附件按钮：选择保存位置，不覆盖已有文件。
 
@@ -25,7 +25,7 @@ nix-shell --run 'make mail-demo'
 
 账户映射通过 `ef-mail-accounts` 配置 Maildir 前缀、发件地址和 SMTP profile。`ef-mail-smtp-profiles` 指定 SMTP 主机、端口、用户名、密码文件及 CA 文件；凭据只在发送时读取。账户配置示例见 [ENTRIES.md](ENTRIES.md)。
 
-演示界面目前采用文本 / SHR，Olivetti 已加载时会启用它。**约定的默认 WebKit 整树阅读尚未接入**。这是验证后端的临时界面，不是最终 Ecaml UI。
+原生阅读界面采用文本 / SHR，Olivetti 已加载时会启用它。**约定的默认 WebKit 整树阅读尚未接入**。界面、窗口、撰写和草稿回调均使用 Ecaml。
 
 ## 阅读与身份
 

@@ -1,6 +1,7 @@
 ;;; mail-workflow-tests --- Native mutations on synthetic mail only -*- lexical-binding: t; -*-
 (require 'ert)
-(require 'mail-demo)
+(require 'camulus)
+(setq ef-probe-record-events t)
 (require 'smtp-fixture)
 (defvar wf-base (getenv "MAIL_FIXTURE"))
 ;; Message mode also creates its own crash-recovery autosave directory.
@@ -75,7 +76,7 @@
         (progn
           (delete-other-windows)
           (switch-to-buffer (get-buffer-create "*workflow summary*"))
-          (ef-mail-summary-mode) (setq ef-mail--group "/work/Inbox")
+          (ef-reader-feed-mode) (setq ef-mail--group "/work/Inbox")
           (setq right (split-window-right))
           (set-window-buffer right (get-buffer-create "*workflow reading*"))
           (ef-mail-compose)

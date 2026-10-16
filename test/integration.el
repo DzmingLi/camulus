@@ -1,6 +1,7 @@
 ;;; integration.el --- Fresh Emacs integration checks -*- lexical-binding: t; -*-
 (require 'ert)
-(require 'effects-probe)
+(require 'camulus)
+(setq ef-probe-record-events t)
 
 (defmacro ef-probe-with-session (&rest body)
   `(progn
