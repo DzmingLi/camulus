@@ -168,4 +168,43 @@
           (should-not (eq (face-attribute 'ef-reader-read :foreground nil t) 'unspecified)))
       (set-face-attribute 'shadow nil :foreground original))))
 
+(ert-deftest reader-renders-hero-and-body-images-inline-by-default ()
+  (let ((ef-reader--states (make-hash-table :test #'equal))
+        (image-data (base64-decode-string "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII="))
+        ;; A global SHR preference must not disable Camulus's default.
+        (shr-inhibit-images t) calls)
+    (dolist (source '("atlantic" "zhihu" "discourse:https://example.test"))
+      (with-temp-buffer
+        (ef-reader-article-mode)
+        (setq ef-reader--source source)
+        (puthash "one"
+                 `((id . "one") (author . "A") (title . "With images") (body . "")
+                   (url . "https://example.test/post")
+                   (html . ,(concat "<figure><img src='https://example.test/hero.png' alt='Hero'></figure><p>Article body</p><img src='data:image/png;base64,"
+                                    (base64-encode-string image-data t) "' alt='Body image'>")))
+                 ef-reader--messages)
+        (puthash "one" t ef-reader--loaded)
+        (let ((shr-put-image-function
+               (lambda (data alt &rest _)
+                 (should-not shr-inhibit-images)
+                 (should (equal data image-data))
+                 (push alt calls)
+                 (insert (propertize alt 'display (list 'image :type 'png :data data) 'test-image alt)))))
+          (cl-letf (((symbol-function 'ef-reader--schedule-visible) #'ignore)
+                    ((symbol-function 'url-is-cached) (lambda (&rest _) t))
+                    ((symbol-function 'shr-get-image-data) (lambda (&rest _) image-data)))
+            (ef-reader--render)))
+        (should (equal (seq-take calls 2) '("Body image" "Hero")))
+        (goto-char (point-min))
+        (let ((hero (cl-loop for p from (point-min) below (point-max)
+                             when (equal (get-text-property p 'test-image) "Hero") return p))
+              (body (cl-loop for p from (point-min) below (point-max)
+                             when (equal (get-text-property p 'test-image) "Body image") return p)))
+          (should (numberp hero)) (should (numberp body))
+          (should (eq (car (get-text-property hero 'display)) 'image))
+          (search-forward "Article body")
+          (should (< hero (point)))
+          (should (< (point) body)))))
+    (should shr-inhibit-images)))
+
 (ert-run-tests-batch-and-exit)

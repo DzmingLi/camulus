@@ -194,7 +194,7 @@ let body m indent =
     let dom=Current_buffer.set_temporarily_to_temp_buffer Sync (fun () ->
       Point.insert (text "html" m);call "libxml-parse-html-region" [i (min_point ());i (max_point ())]) in
     let renderers=list (List.map ["pre";"code";"tt"] ~f:(fun tag -> cons (sym tag) (sym "ef-reader--shr-code"))) in
-    with_bindings ["shr-inhibit-images",b true;"shr-use-fonts",nil;"shr-fill-text",nil;
+    with_bindings ["shr-inhibit-images",nil;"shr-use-fonts",nil;"shr-fill-text",nil;
       "shr-external-rendering-functions",call "append" [renderers;get "shr-external-rendering-functions"];
       "shr-width",i (Int.max 20 (number (call "window-body-width" [call "get-buffer-window" [bv (buffer ());b true]])-indent-2));
       "shr-base",or_ (field "link_url" m) (field "url" m)]
@@ -246,7 +246,7 @@ let render () =
       done in
     render_roots (List.filter messages ~f:(fun m -> not (truth (find (get "ef-reader--messages") (field "parent_id" m)))));
     render_roots messages);
-  set "header-line-format" (s (Printf.sprintf "m: save this article  n: next unread%s — %d articles — %s"
+  set "header-line-format" (s (Printf.sprintf "!: save to default  m: choose folder  n: next unread%s — %d articles — %s"
     (Option.value_map (capability (get "ef-reader--source")) ~default:"" ~f:(fun backend ->
        String.concat (List.map backend.controls ~f:(fun control -> "  "^control.hint))))
     (List.length messages) (if flag "ef-reader--complete" then "loaded" else "loading / partial")));
@@ -322,7 +322,7 @@ let home_header () =
     match backend.browser with None -> [] | Some (label,command) -> [s "  ";home_link ("["^label^"]") command]) in
   set "header-line-format" (list ([s "Home  ";home_link "[Groups · B]" "ef-reader-browse-groups"] @ links @
     [s "  ";home_link "[Subscriptions · U]" "camulus-subscriptions";s "  ";home_link "[Folders · f]" "ef-reader-folders";
-    s (Printf.sprintf "   %d feeds · %d/%d refreshed%s   RET: read  d: delete  m: save  g: refresh  e: errors"
+    s (Printf.sprintf "   %d feeds · %d/%d refreshed%s   RET: read  d: delete  !: save to default  m: choose folder  g: refresh  e: errors"
       (List.length (values (get "ef-reader-home--entries"))) (number (get "ef-reader-home--done"))
       (number (get "ef-reader-home--total")) (if errors=0 then "" else Printf.sprintf " · %d failed" errors))]));
   run "force-mode-line-update" []
@@ -599,14 +599,17 @@ let delete () =
   else if derived "ef-reader-folder-mode" then
     request_ignore ["op",s "unfavorite";"source",field "source" row;"id",field "id" row;"target",field "target" row;"folder",get "ef-reader--folder"]
   else user_error "Use d in the feed or a favorites folder"
+let save_to row folder =
+  request_ignore ["op",s "favorite";"source",field "source" row;"id",field "id" row;
+    "target",or_ (field "target" row) (s "thread");"folder",folder];
+  message "Downloading archive; it appears in the folder after saving succeeds"
+let save_default () = save_to (selected ()) (s "default")
 let save () =
   let row=call "copy-tree" [selected ()] in
   request_ignore ["op",s "folders"] ~receive:(callback_unit (fun data ->
     if String.equal (text "kind" data) "folders" then (
       let folder=call "completing-read" [s "Save to folder (new parent/child allowed): ";field "rows" data;nil;nil] in
-      if not (String.is_empty (str folder)) then (
-        request_ignore ["op",s "favorite";"source",field "source" row;"id",field "id" row;"target",or_ (field "target" row) (s "thread");"folder",folder];
-        message "Downloading archive; it appears in the folder after saving succeeds"))))
+      if not (String.is_empty (str folder)) then save_to row folder)))
 let folders () =
   let origin=Selected_window.get () in
   request_ignore ["op",s "folders"] ~receive:(callback_unit (fun data ->
@@ -792,10 +795,10 @@ let install_modes () =
   List.iter ["done";"total"] ~f:(fun name -> local_default ("ef-reader-home--"^name) (i 0));
   mode "ef-reader-feed-mode" "tabulated-list-mode" "Feed"
     (Some ["New",3,false;"Source",24,true;"Author",20,true;"Thread",70,true])
-    "RET: read  d: delete  m: save to folder  g: refresh  n: more  /: search  s: follow settings  S: follow group  G: entries  C: config  f: folders" ignore;
+    "RET: read  d: delete  !: save to default  m: choose folder  g: refresh  n: more  /: search  s: follow settings  S: follow group  G: entries  C: config  f: folders" ignore;
   mode "ef-reader-folder-mode" "tabulated-list-mode" "Favorites"
     (Some ["Kind",8,false;"Source",24,true;"Title",80,true])
-    "RET: read saved copy  m: add folder  d: remove entry  D: remove folder  f: folders  g: reload  h: home" ignore;
+    "RET: read saved copy  !: add to default  m: add folder  d: remove entry  D: remove folder  f: folders  g: reload  h: home" ignore;
   mode "ef-reader-groups-mode" "special-mode" "Reader groups" None
     "Groups · RET / click: browse  TAB: next entry  h: home  g: reload  U: subscriptions  s: follow group  C: edit groups" ignore;
   mode "camulus-subscriptions-mode" "ef-reader-groups-mode" "Subscriptions" None
@@ -807,11 +810,11 @@ let install_modes () =
       if truth (call "timerp" [get "ef-reader--visibility-timer"]) then run "cancel-timer" [get "ef-reader--visibility-timer"];
       if flag "ef-reader--active" && not (String.equal (str (call "ef-probe-status" [])) "idle") then run "ef-probe-cancel" [get "ef-reader--active"]);nil;b true]);
   List.iter ["ef-reader-feed-mode";"ef-reader-folder-mode"] ~f:(fun mode ->
-    bind mode ["RET","ef-reader-open";"d","ef-reader-delete";"m","ef-reader-save";"g","ef-reader-refresh";"f","ef-reader-folders";"h","camulus"]);
+    bind mode ["RET","ef-reader-open";"d","ef-reader-delete";"!","ef-reader-save-default";"m","ef-reader-save";"g","ef-reader-refresh";"f","ef-reader-folders";"h","camulus"]);
   bind "ef-reader-feed-mode" ["s","ef-reader-subscription";"S","ef-reader-group-subscription";"G","ef-reader-entries";"C","ef-reader-edit-config";"n","ef-reader-more";"/","ef-reader-search";
     "U","camulus-subscriptions";"B","ef-reader-browse-groups";"b","ef-reader-home-browse-source";"e","ef-reader-home-errors"];
   bind "ef-reader-folder-mode" ["D","ef-reader-delete-folder"];
-  bind "ef-reader-article-mode" ["s","ef-reader-subscription";"m","ef-reader-save";"n","ef-reader-next-unread";"h","camulus"];
+  bind "ef-reader-article-mode" ["s","ef-reader-subscription";"!","ef-reader-save-default";"m","ef-reader-save";"n","ef-reader-next-unread";"h","camulus"];
   bind "camulus-subscriptions-mode" ["g","camulus-subscriptions-refresh";"B","ef-reader-browse-groups";"U","camulus-subscriptions"];
   bind "ef-reader-groups-mode" ["U","camulus-subscriptions";"s","ef-reader-group-subscription";"S","ef-reader-group-subscription";"h","camulus";"g","ef-reader-browse-groups";"C","ef-reader-edit-groups"]
 
@@ -855,6 +858,7 @@ let install () =
   define0 ~interactive:true "ef-reader-entries" entries;
   define0 ~interactive:true "ef-reader-delete" delete;
   define0 ~interactive:true "ef-reader-save" save;
+  define0 ~interactive:true "ef-reader-save-default" save_default;
   define0 ~interactive:true "ef-reader-folders" folders;
   define0 ~interactive:true "ef-reader-delete-folder" delete_folder;
   define0 ~interactive:true "ef-reader-subscription" subscription;

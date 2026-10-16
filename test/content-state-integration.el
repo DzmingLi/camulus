@@ -82,6 +82,12 @@
          (ef-mail-configure ef-mail-root ef-mail-muhome ef-mail-sender "/nonexistent/mu" "")
          (ef-probe-session-start)
          (ef-state-test-request `((op . "favorite") (source . ,source) (target . "thread") (id . ,id) (folder . "keep")))
+         ;; The default shortcut reuses the archive and never opens a prompt.
+         (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) (ert-fail "! asked for a folder"))))
+           (should (eq (key-binding "!") #'ef-reader-save-default))
+           (call-interactively (key-binding "!")) (ef-state-test-ui-idle)
+           (call-interactively (key-binding "!")) (ef-state-test-ui-idle))
+         (should (= 1 (length (alist-get 'rows (ef-state-test-result '((op . "favorites") (folder . "default")) "favorites")))))
          (let ((data (ef-state-test-result `((op . "archive") (source . ,source) (target . "thread") (id . ,id)) "archive")))
            (should (= 3 (length (alist-get 'articles data))))
            (let ((root (cl-find "mail:root@example.test" (alist-get 'articles data)
