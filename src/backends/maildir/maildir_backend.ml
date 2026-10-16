@@ -39,16 +39,17 @@ type article = { message : M.message; attachments : attachment list }
 type draft = { to_ : string list; cc : string list; subject : string; body : string; reply_to : string option }
 type receipt = { message_id : string }
 type saved_draft = { key : string; group : string; revision : string; source_text : string; indexed : bool }
-type archive_result = { destination : string; moved : string list; failed : int }
+type move_result = { destination : string; moved : string list; failed : int }
 type operation = List of group * cursor option | Search of group * string * cursor option
   | Thread of string | Read of string | Attachment of string * int * string | Send of draft
   | Draft_new of string * string option | Draft_open of string
   | Draft_save of string * string * string | Draft_list of string
   | Draft_send of string * string
   | Archive of string * string * bool
+  | Trash of string * string * bool
 type result = Page of M.page * bool | Thread_batch of M.thread_batch | Article of article
   | Saved of string | Sent of receipt
-  | Draft of saved_draft | Drafts of saved_draft list | Archived of archive_result
+  | Draft of saved_draft | Drafts of saved_draft list | Archived of move_result | Trashed of move_result
   | Draft_sent of string * bool
 type process_result = { status : int; stdout : string }
 type run = ?input:string -> string list -> process_result
@@ -281,15 +282,15 @@ let list_drafts t group =
   Sys.readdir(Filename.concat dir "cur") |> Array.to_list |> List.sort String.compare |>
   List.filter(fun name -> not(String.starts_with ~prefix:"." name)) |>
   List.map(fun name -> draft_info t (folder^"/cur/"^name) true)
-let archive t group id whole_thread = with_mutation t @@ fun () ->
+let move_to t group id whole_thread folder = with_mutation t @@ fun () ->
   if not(Store.valid_group group) then error "Invalid Maildir group";
   if Filename.basename group="Drafts" then error "Drafts must stay in Drafts while being edited";
-  let destination=special_folder t group "Archive" in
+  let destination=special_folder t group folder in
   if group=destination then {destination;moved=[];failed=0} else begin
-    if not(String.starts_with ~prefix:"mail:" id) then error "Archive requires a Message-ID";
+    if not(String.starts_with ~prefix:"mail:" id) then error "Moving mail requires a Message-ID";
     let query="msgid:"^quote(String.sub id 5 (String.length id-5)) in
     let all=find t ~related:whole_thread query in
-    if List.length all>t.config.max_headers then error "Thread exceeds move limit; archive individual messages";
+    if List.length all>t.config.max_headers then error "Thread exceeds move limit; move individual messages";
     let hs=List.filter(fun (h:header) -> h.maildir=group) all in
     if hs=[] then error "Mail is no longer in this group; refresh";
     ignore(Store.folder ~root:t.config.root destination);
@@ -309,6 +310,10 @@ let archive t group id whole_thread = with_mutation t @@ fun () ->
     Hashtbl.clear t.snapshots;
     {destination;moved=List.rev !moved;failed= !failed}
   end
+let archive t group id whole_thread = move_to t group id whole_thread "Archive"
+let trash t group id whole_thread =
+  if Filename.basename group="Trash" then error "Already in Trash; d does not permanently delete mail";
+  move_to t group id whole_thread "Trash"
 let prepare_internal ?message_id ?(references=[]) t d =
   if d.to_=[] || List.length d.to_+List.length d.cc>100 then error "Supply 1..100 recipients";
   List.iter(fun s -> ignore(address s)) (d.to_@d.cc);
@@ -412,6 +417,7 @@ let operation_of_json j =
   | "draft-send" -> Draft_send(required "key",required "revision")
   | "draft-list" -> Draft_list(required "group")
   | "archive" -> Archive(required "group",required "id", get j "thread" = `Bool true)
+  | "trash" -> Trash(required "group",required "id", get j "thread" = `Bool true)
   | "send" -> Send {to_=strings(get j "to");cc=strings(get j "cc");subject=str(get j "subject");
     body=str(get j "body");reply_to=(match get j "reply_to" with `String s -> Some s | _ -> None)}
   | _ -> error "Unknown mail operation"
@@ -433,7 +439,7 @@ let result_json = function
   | Draft_sent(id,cleaned) -> `Assoc["kind",`String "draft-sent";"id",`String id;"cleaned",`Bool cleaned]
   | Draft d -> `Assoc["kind",`String "draft";"draft",draft_json ~include_source:true d]
   | Drafts ds -> `Assoc["kind",`String "drafts";"drafts",`List(List.map(draft_json ~include_source:false) ds)]
-  | Archived r -> `Assoc["kind",`String "archived";"destination",`String r.destination;
+  | (Archived r | Trashed r) as result -> `Assoc["kind",`String (match result with Trashed _->"trashed"|_->"archived");"destination",`String r.destination;
                         "moved",`List(List.map(fun s -> `String s) r.moved);"failed",`Int r.failed]
   | Sent r -> `Assoc["kind",`String "sent";"id",`String r.message_id]
 let execute t op ~emit = match op with
@@ -449,5 +455,6 @@ let execute t op ~emit = match op with
   | Draft_save(key,rev,src) -> emit(Draft(save_draft t key rev src))
   | Draft_list g -> emit(Drafts(list_drafts t g))
   | Archive(g,id,whole) -> emit(Archived(archive t g id whole))
+  | Trash(g,id,whole) -> emit(Trashed(trash t g id whole))
 
   | Draft_send(key,rev) -> let id,cleaned=send_draft t key rev in emit(Draft_sent(id,cleaned))

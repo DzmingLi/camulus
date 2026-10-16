@@ -17,16 +17,17 @@ type article = { message : Reader.Content.message; attachments : attachment list
 type draft = { to_ : string list; cc : string list; subject : string; body : string; reply_to : string option }
 type receipt = { message_id : string }
 type saved_draft = { key : string; group : string; revision : string; source_text : string; indexed : bool }
-type archive_result = { destination : string; moved : string list; failed : int }
+type move_result = { destination : string; moved : string list; failed : int }
 type operation = List of group * cursor option | Search of group * string * cursor option
   | Thread of string | Read of string | Attachment of string * int * string | Send of draft
   | Draft_new of string * string option | Draft_open of string
   | Draft_save of string * string * string | Draft_list of string
   | Draft_send of string * string
   | Archive of string * string * bool
+  | Trash of string * string * bool
 type result = Page of Reader.Content.page * bool | Thread_batch of Reader.Content.thread_batch
   | Article of article | Saved of string | Sent of receipt
-  | Draft of saved_draft | Drafts of saved_draft list | Archived of archive_result
+  | Draft of saved_draft | Drafts of saved_draft list | Archived of move_result | Trashed of move_result
   | Draft_sent of string * bool
 type process_result = { status : int; stdout : string }
 type run = ?input:string -> string list -> process_result
@@ -51,4 +52,5 @@ val new_draft : t -> group -> string option -> saved_draft
 val open_draft : t -> string -> saved_draft
 val save_draft : t -> string -> string -> string -> saved_draft
 val list_drafts : t -> group -> saved_draft list
-val archive : t -> group -> string -> bool -> archive_result
+val archive : t -> group -> string -> bool -> move_result
+val trash : t -> group -> string -> bool -> move_result

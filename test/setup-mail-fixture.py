@@ -7,11 +7,11 @@ base = pathlib.Path(sys.argv[1]).resolve()
 root = base / "Maildir"
 home = base / "mu"
 home.mkdir(parents=True, exist_ok=True)
-for account in ["work", "second"]:
+for account in ["work", "second", "trash", "trash-other"]:
     # Only the disposable workflow fixtures are reset between test runs.
     if (root / account).exists():
         shutil.rmtree(root / account)
-for folder in ["Inbox", "Other", "work/Inbox", "work/Drafts", "work/Archive", "work/Sent", "second/Inbox", "second/Drafts"]:
+for folder in ["Inbox", "Other", "work/Inbox", "work/Drafts", "work/Archive", "work/Sent", "second/Inbox", "second/Drafts", "trash/Inbox", "trash/Sent", "trash-other/Inbox"]:
     for sub in ["cur", "new", "tmp"]:
         (root / folder / sub).mkdir(parents=True, exist_ok=True)
 
@@ -43,6 +43,11 @@ message("archive-reply", 1, "Re: Archive me", "archive reply", "archive-root", [
 message("sent-relative", 2, "Re: Archive me", "already sent", "archive-root", ["archive-root"], folder="work/Sent")
 shutil.copyfile(root / "work/Inbox/cur/archive-root", root / "second/Inbox/cur/duplicate")
 (root / "work/Inbox/cur/archive-root").rename(root / "work/Inbox/cur/archive-root,U=77:2,FR")
+message("trash-root", 0, "Trash me", "trash root", folder="trash/Inbox", attachment=True)
+message("trash-reply", 1, "Re: Trash me", "trash reply", "trash-root", ["trash-root"], folder="trash/Inbox")
+message("trash-sent", 2, "Re: Trash me", "keep sent copy", "trash-root", ["trash-root"], folder="trash/Sent")
+shutil.copyfile(root / "trash/Inbox/cur/trash-root", root / "trash-other/Inbox/cur/duplicate")
+(root / "trash/Inbox/cur/trash-root").rename(root / "trash/Inbox/cur/trash-root,U=18:2,FR")
 subprocess.run(["mu", "init", "--quiet", "--muhome", str(home), "--maildir", str(root)], check=True)
 subprocess.run(["mu", "index", "--quiet", "--muhome", str(home)], check=True)
 for name, delay in [("slow-mu", 20), ("delayed-mu", 0.25)]:

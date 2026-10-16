@@ -3,6 +3,22 @@
 (require 'camulus)
 (setq ef-probe-record-events t)
 
+(ert-deftest reader-summary-read-rows-are-muted-without-hiding ()
+  (with-temp-buffer
+    (ef-reader-feed-mode)
+    (let ((row '((source . "test") (id . "one") (title . "Read title") (author . "Alice") (unread . nil))))
+      (ef-reader--set-rows (list row))
+      (goto-char (point-min))
+      (search-forward "Read title")
+      (should (memq 'ef-reader-read (ensure-list (get-text-property (1- (point)) 'face))))
+      (should (= 1 (hash-table-count ef-reader--rows)))
+      (setf (alist-get 'unread row) t)
+      (ef-reader--set-rows (list row))
+      (goto-char (point-min))
+      (search-forward "Read title")
+      (should-not (memq 'ef-reader-read (ensure-list (get-text-property (1- (point)) 'face))))
+      (should-not (get-text-property 0 'face (alist-get 'title row))))))
+
 (ert-deftest reader-thread-layout-keeps-bodies-and-attachments-in-the-tree ()
   (let ((ef-reader--states (make-hash-table :test #'equal)))
     (with-temp-buffer

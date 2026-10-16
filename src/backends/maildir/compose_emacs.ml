@@ -4,6 +4,13 @@ open Reader_backend
 let actions : (int, (Value.t->unit) * (Value.t->Value.t->unit) option) Hashtbl.t=Hashtbl.create(module Int)
 let action request receive finish=
  let id=integer(call "camulus-mail-submit"[request])in Hashtbl.set actions ~key:id ~data:(receive,finish)
+let trash ~entry ~row ~refresh =
+ let group=field "group"entry and id=field "id"row in
+ if not(truth group && truth id)then user_error "Select mail from a mail group to move to Trash";
+ action(alist["op",s "trash";"group",group;"id",id;"thread",sym "t"])
+  (fun data->
+   refresh();
+   message "Moved %d messages to %s; %d failed"[call "length"[field "moved"data];field "destination"data;field "failed"data])None
 let current ()=Buffer.to_value(Current_buffer.get())
 let group ()=let v=get "ef-mail--group"in if truth v then v else field "group"(get "ef-reader--entry")
 let selected ()=field "id"(call "ef-reader--selected"[])

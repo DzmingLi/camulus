@@ -14,7 +14,7 @@ let reddit_service = function
   | Reddit_backend.Vote _ | Reply _ | Submit _ | Authorize | Complete_authorization _ -> true
   | _ -> false
 let mail_service = function
-  | Maildir_backend.Send _ | Attachment _ | Draft_new _ | Draft_save _ | Draft_send _ | Archive _ -> true
+  | Maildir_backend.Send _ | Attachment _ | Draft_new _ | Draft_save _ | Draft_send _ | Archive _ | Trash _ -> true
   | _ -> false
 
 external open_channel : Value.t -> Os.file_descr = "ecaml_probe_open_channel"

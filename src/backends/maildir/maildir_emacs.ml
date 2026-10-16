@@ -24,5 +24,6 @@ let install ~submit ~configured () =
       List.iter(values(get "ef-mail-accounts"))~f:(fun row->run "apply"[sym "ef-mail-configure-account";row])));
     attachment=Some (fun ~source:_ ~id ~group:_ ~part ~destination -> Value.of_int_exn (submit (Maildir_backend.Attachment(id,part,destination))));
     events=["mail"];available=configured;
+    delete=Some Compose_emacs.trash;
     controls=[{key="r";hint="r: reply";command="ef-mail-reply"};{key="c";hint="c: compose";command="ef-mail-compose"};{key="a";hint="a: archive";command="ef-mail-archive"}];
     list_controls=[{key="r";hint="r: reply";command="ef-mail-reply"};{key="c";hint="c: compose";command="ef-mail-compose"};{key="a";hint="a: archive";command="ef-mail-archive"};{key="D";hint="D: drafts";command="ef-mail-drafts"}] }

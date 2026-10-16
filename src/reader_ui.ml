@@ -93,6 +93,11 @@ let set_rows rows =
       else if favorite then vector [field "target" row;field "source" row;field "title" row]
       else vector [s (if truth (field "unread" row) then "*" else "");field "source" row;field "author" row;
         Option.value_map(capability(field "source"row))~default:(field "title"row)~f:(fun backend->backend.row_title row)] in
+    let columns=if not favorite && truth (call "assq"[sym "unread";row]) && not(truth(field "unread"row)) then
+      vector(List.map (values(call "append"[columns;nil])) ~f:(fun column ->
+        let copy=call "copy-sequence"[column] in
+        run "add-face-text-property"[i 0;call "length"[copy];sym "ef-reader-read";b true;copy];copy))
+      else columns in
     list [key;columns]) in
   set "tabulated-list-entries" (list entries);run "tabulated-list-print" [b true]
 
@@ -294,7 +299,7 @@ let home_header () =
     match backend.browser with None -> [] | Some (label,command) -> [s "  ";home_link ("["^label^"]") command]) in
   set "header-line-format" (list ([s "Home  ";home_link "[Groups · B]" "ef-reader-browse-groups"] @ links @
     [s "  ";home_link "[Folders · f]" "ef-reader-folders";
-    s (Printf.sprintf "   %d feeds · %d/%d refreshed%s   RET: read  d: remove  m: save  g: refresh  e: errors"
+    s (Printf.sprintf "   %d feeds · %d/%d refreshed%s   RET: read  d: delete  m: save  g: refresh  e: errors"
       (List.length (values (get "ef-reader-home--entries"))) (number (get "ef-reader-home--done"))
       (number (get "ef-reader-home--total")) (if errors=0 then "" else Printf.sprintf " · %d failed" errors))]));
   run "force-mode-line-update" []
@@ -502,9 +507,19 @@ let entries () =
 let delete () =
   let row=selected () in
   if derived "ef-reader-feed-mode" then (
-    if flag "ef-reader--query" then user_error "Remove updates from the entry timeline, not search results";
-    request_ignore ["op",s (if flag "ef-reader--home" then "dismiss-timeline" else "dismiss");"group",field "group" (get "ef-reader--entry");
-      "source",field "source" row;"id",field "id" row;"revision",field "revision" row])
+    if flag "ef-reader--query" then user_error "Delete from the entry timeline, not search results";
+    match Option.bind (capability (field "source" row)) ~f:(fun backend -> backend.delete) with
+    | Some delete ->
+      let entry=if flag "ef-reader--home" then home_entry row else get "ef-reader--entry" in
+      let refresh () =
+        let finished=callback_unit(fun event ->
+          if Value.eq (call "nth"[i 3;event]) (sym "completed") then reload_lists ()
+          else message "Backend action completed, but refreshing the group failed; press g to retry") in
+        ignore(request ~finished ["op",s "refresh";"source",field "source" row;"group",field "group" entry] : Value.t) in
+      delete ~entry ~row ~refresh
+    | None ->
+      request_ignore ["op",s (if flag "ef-reader--home" then "dismiss-timeline" else "dismiss");"group",field "group" (get "ef-reader--entry");
+        "source",field "source" row;"id",field "id" row;"revision",field "revision" row])
   else if derived "ef-reader-folder-mode" then
     request_ignore ["op",s "unfavorite";"source",field "source" row;"id",field "id" row;"target",field "target" row;"folder",get "ef-reader--folder"]
   else user_error "Use d in the feed or a favorites folder"
@@ -678,7 +693,7 @@ let install_modes () =
   List.iter ["done";"total"] ~f:(fun name -> local_default ("ef-reader-home--"^name) (i 0));
   mode "ef-reader-feed-mode" "tabulated-list-mode" "Feed"
     (Some ["New",3,false;"Source",24,true;"Author",20,true;"Thread",70,true])
-    "RET: read  d: remove this update  m: save to folder  g: refresh  n: more  /: search  s: follow settings  G: entries  C: config  f: folders" ignore;
+    "RET: read  d: delete  m: save to folder  g: refresh  n: more  /: search  s: follow settings  G: entries  C: config  f: folders" ignore;
   mode "ef-reader-folder-mode" "tabulated-list-mode" "Favorites"
     (Some ["Kind",8,false;"Source",24,true;"Title",80,true])
     "RET: read saved copy  m: add folder  d: remove entry  D: remove folder  f: folders  g: reload  h: home" ignore;

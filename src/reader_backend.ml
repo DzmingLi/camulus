@@ -19,6 +19,7 @@ type t = {
   attachment : (source:string -> id:string -> group:string option -> part:int -> destination:string -> Value.t) option;
   controls : control list;
   list_controls : control list;
+  delete : (entry:Value.t -> row:Value.t -> refresh:(unit -> unit) -> unit) option;
   article_marks : Value.t -> string;
   row_title : Value.t -> Value.t;
   browser : (string * string) option;
@@ -41,7 +42,7 @@ let alist fields = Value.list (List.map fields ~f:(fun (k,v) -> call "cons" [Val
 let base ~name ~matches ~threaded ~read = {
   name;start=(fun()->());normalize=Fn.id;on_entry=(fun _->());matches;threaded;read;thread_contains_bodies=false;
   available=(fun _ -> true);attachment=None;controls=[];list_controls=[];article_marks=(fun _->"");row_title=(fun row->Value.funcallN(Value.intern "alist-get")[Value.intern "title";row]);browser=None;entrances=(fun () -> []);followed=None;
-  subscription_target=None;page=None;events=[];
+  subscription_target=None;delete=None;page=None;events=[];
   reconcile=(fun ~source:_ ~existing:_ ~request:_ ~archived:_ message -> message)
 }
 
