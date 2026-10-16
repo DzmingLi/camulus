@@ -112,7 +112,7 @@ summary 列表和回复树都支持 `+` 赞成、`-` 反对、`0` 取消投票�
 ```sh
 export REDDIT_USERNAME=YOUR_USERNAME
 export REDDIT_TOKEN_FILE=/path/to/private/refresh-token
-nix-shell --run 'dune exec bin/reddit_cli.exe -- identity'
+nix develop -c dune exec bin/reddit_cli.exe -- identity
 ```
 
 上述命令使用本地 `_build`；也可用 `--build-dir` 指定现有构建目录的绝对路径。CLI 还支持 `subreddit NAME`、`thread t3_ID`、`search NAME QUERY`、`notifications`。`REDDIT_SUMMARY=1` 只输出数量/状态，不输出正文。

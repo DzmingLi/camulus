@@ -88,7 +88,7 @@ SMTP 在 Eio 工作 domain 内直接使用 TCP、tls-eio 和 Colombe 的调度�
 ```sh
 MAIL_ROOT="$HOME/Maildir" MAIL_MUHOME="$HOME/.cache/mu" \
 MAIL_SENDER='your-address@example.org' MAIL_GROUP='/account/Inbox' \
-nix-shell --run 'make mail-live'
+nix develop -c make mail-live
 ```
 
 只输出条目数量和状态，不输出主题、地址、正文，不发信、不标记已读、不重建个人索引。本次 Mrmime 替换后的本机只读验证返回 8 个 summary 条目，打开并解码了 1 封真实邮件，组内搜索通过，记录见 `pure-ocaml-mail-live-results.txt`。另有合成回归测试保证长 Message-ID 不会因格式化折行而改变。

@@ -3,14 +3,13 @@ BUILD_DIR ?= _build
 MODULE_DIR = $(abspath $(BUILD_DIR)/default/src)
 BUILD_ABS = $(abspath $(BUILD_DIR))
 
-.PHONY: build test demo
+.PHONY: build test
 build:
 	dune build --build-dir $(BUILD_ABS) src/camulus_native.so
 
 test: export XDG_CONFIG_HOME = $(BUILD_ABS)/test-config
 test: export XDG_STATE_HOME = $(BUILD_ABS)/test-state
 test: build csrin-test
-	python3 test/gnus-import-test.py
 	dune runtest --build-dir $(BUILD_ABS)
 	timeout 60s $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -l test/integration.el
 	timeout 10s $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -l test/exit.el

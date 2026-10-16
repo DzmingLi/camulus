@@ -5,7 +5,7 @@
 ## 使用
 
 ```sh
-nix-shell --run 'make reader-demo'
+nix develop -c make reader-demo
 ```
 
 在 [入口配置](ENTRIES.md) 中声明论坛来源（例如 `discourse:https://discourse.nixos.org`）及组，首页 `G` 选择：

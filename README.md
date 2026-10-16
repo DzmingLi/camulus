@@ -108,7 +108,7 @@ nix develop -c make test
 nix build .#checks.x86_64-linux.reader .#checks.x86_64-linux.startup
 ```
 
-开发构建默认使用 `_build/`，可通过 `BUILD_DIR=/absolute/path` 覆盖。测试包括 OCaml 单元测试、Emacs 原生模块与界面集成、Python 导入器，以及本机 HTTP/SMTP 模拟服务；普通测试不写入真实远端账户。
+开发构建默认使用 `_build/`，可通过 `BUILD_DIR=/absolute/path` 覆盖。测试包括 OCaml 单元测试、Emacs 原生模块与界面集成，以及本机 HTTP/SMTP 模拟服务；普通测试不写入真实远端账户。
 
 ```text
 src/

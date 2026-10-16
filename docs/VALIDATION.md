@@ -2,7 +2,7 @@
 
 本页记录第一阶段运行时验证。后续真实 Reddit 后端及端到端联调见 [REDDIT.md](REDDIT.md)。
 
-2026-10-15，在当前 Linux 主机执行 `nix-shell --run 'make test'`，退出码 **0**。
+2026-10-15，在当前 Linux 主机的锁定开发环境中执行 `make test`，退出码 **0**。当前复现命令为 `nix develop -c make test`。
 
 环境：Emacs 31.1、OCaml 5.3.0、Ecaml 0.17.0、Eio 1.6。测试启动全新 `emacs -Q --batch --module-assertions`，没有加载用户配置，也没有连接正在使用的 Emacs daemon。
 

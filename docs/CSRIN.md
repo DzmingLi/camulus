@@ -57,4 +57,4 @@ machine cs.rin.ru port https login YOUR_USERNAME password YOUR_PASSWORD
 
 `make test` 包含协议模拟测试和本地 phpBB HTTP 服务的真实 Ecaml 集成：覆盖来源身份、时区、首楼关系、逐页交付、重复页和页数上限、Cookie 检查、登录、CSRF、二进制附件归档、草稿自动保存、左右窗口布局、成功清理与不确定结果保留。测试不会向真实论坛发帖。
 
-Gnus 导入器现可将 `nncsrin:forum.ID` / `nncsrin:topic.ID` 映射为 Camulus 入口；不导入旧数字文章号、已读区间或正文缓存。旧实现来源说明保存在后端 `NOTICE`。
+旧实现来源说明保存在后端 `NOTICE`。

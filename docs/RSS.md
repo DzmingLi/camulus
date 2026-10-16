@@ -5,7 +5,7 @@ RSS 2.0、RSS 1.0/RDF 和 Atom 1.0 共用 `src/backends/rss/` 中的 OCaml 后�
 ## 使用
 
 ```sh
-nix-shell --run 'make reader-demo'
+nix develop -c make reader-demo
 ```
 
 通过 [入口配置](ENTRIES.md) 声明 RSS URL，或 `M-x ef-reader-rss` 输入地址浏览，按 `s` 选择 subscribed。关注由 RSS 后端独立文件保存，`G` 可以选择这些关注入口；浏览和配置入口不会自动关注。首页 `g` 拉取当前入口。

@@ -62,19 +62,15 @@ SQLite 继续负责内容身份、已读、列表缓存、移除边界和收藏�
 
 schema v1/v2 自动迁移到 v3，保留 MIME、附件、收藏和已读。旧订阅表、旧活动和旧移除记录留在 `legacy_*` 表供迁移；它们不再决定首页内容。旧活动与移除边界映射至该来源原来配置的各组，以保留重复拉取去重；由于旧结构没有保存活动所属组，升级时不会据此构造可见成员。
 
-已有用户可运行 `M-x ef-reader-import-legacy-entries`，将旧组列表与已有配置合并到未保存的编辑 buffer 中，检查后保存。此命令不改远端关注状态、不覆盖尚未保存的配置编辑，也不会自动恢复旧的“订阅组即汇总 feed”行为。
-
 ## 验证与边界
 
 测试覆盖：入口声明无订阅副作用、配置失败保留旧配置、RSS 订阅在禁用内容数据库时读写及重启、接受文件外部修改、迟到列表结果隔离、同内容的跨入口移除隔离、迁移后保留移除边界、远端取消关注后的列表变化，以及原有邮件/归档/阅读回归。写入只针对本地临时文件和 loopback 模拟服务。另验证同一入口重叠刷新时，旧响应不会覆盖新缓存或让已移除的进展重新出现。
 
 `make test` 覆盖 OCaml 测试及 45 项 Emacs 测试，记录见 entries-test-results.txt（本地验证输出）；重叠刷新专项记录见 entries-concurrency-test-results.txt（本地验证输出）。
 
-首页打开会刷新一次，也可用 `g` 手动刷新；还没有周期性后台刷新。持久离线写入队列、自动后台同步仍未实现；本轮的订阅接口不会假装已具备离线重试。Discourse 已提供回复/发帖编辑器和自动保存草稿。
+首页打开会刷新一次，也可用 `g` 手动刷新；还没有周期性后台刷新。持久离线写入队列、自动后台同步仍未实现；本轮的订阅接口不会假装已具备离线重试。Discourse 的回复/发帖能力已在后端提供，编辑界面及自动保存草稿尚未接入。
 
-## Gnus 入口导入与新增后端
-
-`scripts/import-gnus.py --output STAGING_DIRECTORY` 读取 `~/.newsrc.eld`、较新的 dribble 记录和 `~/News/rss/nnrss.el`，输出 `entries.json` 及 `gnus-migration.json`。只读 Gnus 数据形式，不执行旧配置。level 1–5 的内容组才参与迁移；未实现的组保留在报告中。Blogger 和机核均映射为各自的原生后端。脚本只写 staging 目录，重复导入前应保留已填写的 `backend_settings`。
+## 来源与组标识
 
 
 | source | group | 内容与能力 |
@@ -112,18 +108,14 @@ schema v1/v2 自动迁移到 v3，保留 MIME、附件、收藏和已读。旧�
 
 知乎和豆瓣由 OCaml 读取指定 Firefox profile 的 Cookie，仅选择默认容器、匹配域名/路径且有效的记录。浏览器锁定数据库时，使用权限受限的临时数据库/WAL 快照，读取后删除；配置文件不保存 Cookie。请求签名、分页和正文解析也在 OCaml 中。图片下载不携带登录 Cookie。服务端登录挑战或访问限制会报告失败并保留旧列表，不伪装成空 feed。
 
-Discourse 增加 `replies`（直接回复）和 `notifications`（回复、提及、引用）入口，读取服务器通知并按原生 topic 合并；GET 不提交标为已读操作。旧 Gnus 的 Emacs China notifications 组只筛选直接回复，因此迁移为 `replies`。这些通知入口暂不提供组内搜索。
+Discourse 增加 `replies`（直接回复）和 `notifications`（回复、提及、引用）入口，读取服务器通知并按原生 topic 合并；GET 不提交标为已读操作。这些通知入口暂不提供组内搜索。
 
 ### 验证
 
-`make test` 使用隔离的 XDG 配置/状态目录，包含原有回归、原生新后端测试、Firefox WAL 快照测试、迁移脚本测试和 Emacs 界面测试。真实网络检查是单独显式运行的 `test/publication_live.ml` 和 `test/publication-native-live.el`，不会随普通测试运行；不会发帖、点赞或修改远端订阅。相关后端的源项目署名位于各目录 `NOTICE`。
+`make test` 使用隔离的 XDG 配置/状态目录，包含原有回归、原生新后端测试、Firefox WAL 快照测试和 Emacs 界面测试。真实网络检查是单独显式运行的 `test/publication_live.ml` 和 `test/publication-native-live.el`，不会随普通测试运行；不会发帖、点赞或修改远端订阅。相关后端的源项目署名位于各目录 `NOTICE`。
 
-本次安装位置为 `~/.config/camulus/entries.json`，RSS 关注存于同目录 `rss-subscriptions.json`，迁移报告为 `gnus-migration.json`。原有 Gnus 文件未修改。机核现在映射为 `gcores / talks.USER-ID`，Blogger 映射为 `blogger / posts.BLOG-HOST`；未订阅、虚拟和草稿组仍跳过。早期导入报告保留当时的状态。
-
-最终回归通过 11 个 OCaml 测试程序、3 个 Python 迁移测试和 48 项 Emacs ERT 测试，见 完整回归记录（本地验证输出）。真实 Ecaml/界面检查（本地验证输出） 覆盖六个新后端的列表与正文；Public Inbox 的 86 封邮件合并为一行并在阅读窗口全部展开。安装后入口检查（本地验证输出） 验证了邮箱、Discourse 回复和豆瓣空通知列表。网络数据会变化，这些是本次检查时的结果；豆瓣的非空通知解析及嵌套回复分页由模拟接口测试覆盖。
-
-启动新进程以加载新版本原生模块：在项目目录执行 `nix-shell --run 'make reader-demo'`，首页 `G` 选择入口，`g` 抓取当前入口，`RET` 打开，`m` 收藏。已加载旧 `.so` 的 Emacs 进程需要重启才能使用新后端。
+启动新进程以加载新版本原生模块：在项目目录执行 `nix develop -c make reader-demo`，首页 `G` 选择入口，`g` 抓取当前入口，`RET` 打开，`m` 收藏。已加载旧 `.so` 的 Emacs 进程需要重启才能使用新后端。
 
 ## CS.RIN.RU
 
-`source: "csrin"`，`group: "forum.ID"` 或 `"topic.ID"`。默认浏览入口不进入首页；需要时设置 `timeline: true`。支持论坛发现、逐页完整讨论、登录、发帖/回复与草稿，详细配置和边界见 [CSRIN.md](CSRIN.md)。Gnus 导入器同时支持原 nncsrin 入口。
+`source: "csrin"`，`group: "forum.ID"` 或 `"topic.ID"`。默认浏览入口不进入首页；需要时设置 `timeline: true`。支持论坛发现、逐页完整讨论、登录、发帖/回复与草稿，详细配置和边界见 [CSRIN.md](CSRIN.md)。
