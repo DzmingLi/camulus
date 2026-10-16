@@ -158,4 +158,14 @@
               (should called)))
         (kill-buffer buffer)))))
 
+(ert-deftest reader-read-gray-remains-visible-with-a-dark-shadow-face ()
+  (let ((original (face-attribute 'shadow :foreground nil)))
+    (unwind-protect
+        (progn
+          (set-face-attribute 'shadow nil :foreground "#202422")
+          (should-not (equal (face-attribute 'ef-reader-read :foreground nil t)
+                             (face-attribute 'shadow :foreground nil t)))
+          (should-not (eq (face-attribute 'ef-reader-read :foreground nil t) 'unspecified)))
+      (set-face-attribute 'shadow nil :foreground original))))
+
 (ert-run-tests-batch-and-exit)

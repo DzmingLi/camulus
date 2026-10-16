@@ -51,9 +51,12 @@ let setup_variables ()=
  List.iter["entry";"home";"cursor";"query";"search-rows";"list-token";"list-request";"rows";"folder";"source";"title";"messages";"attachments";"loaded";"complete";"archive";"active";"positioned";"view-token";"visibility-timer";"rss-query"]~f:(fun n->let name="ef-reader--"^n in variable name nil;run "make-variable-buffer-local"[sym name]);
  variable "ef-reader-reply-indent"(i 4);
  run "custom-declare-group"[sym "camulus";nil;s "Read feeds and discussions.";sym ":group";sym "applications"];
+ let read_attributes color=Value.list[sym ":inherit";sym "shadow";sym ":foreground";s color;sym ":weight";sym "normal"]in
+ let background name color=Value.list[Value.list[Value.list[sym "background";sym name]];read_attributes color]in
  List.iter["ef-reader-heading",Value.list[Value.list[sym "t";Value.list[sym ":weight";sym "bold"]]];
   "ef-reader-separator",Value.list[Value.list[sym "t";Value.list[sym ":inherit";sym "shadow";sym ":underline";sym "t"]]];
-  "ef-reader-read",Value.list[Value.list[sym "t";Value.list[sym ":inherit";sym "shadow"]]]]
+  "ef-reader-read",Value.list[background "light" "gray55";background "dark" "gray65";
+    Value.list[sym "t";Value.list[sym ":inherit";sym "shadow"]]]]
  ~f:(fun(name,spec)->run "custom-declare-face"[sym name;spec;s "Reader presentation.";sym ":group";sym "camulus"])
 let register ~idle =
  define0 "ef-reader-load-config"load;
