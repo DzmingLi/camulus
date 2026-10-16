@@ -5,9 +5,14 @@
 (ert-deftest camulus-installed-autoload-opens-native-home ()
   (should (commandp 'camulus))
   (should (autoloadp (symbol-function 'camulus)))
+  (should (commandp 'camulus-subscriptions))
+  (should (autoloadp (symbol-function 'camulus-subscriptions)))
   (should-not (featurep 'camulus_native))
   (unwind-protect
       (progn
+        (call-interactively 'camulus-subscriptions)
+        (ef-probe-await (lambda () (= 0 ef-reader-subscriptions--pending)) 15)
+        (should (eq major-mode 'camulus-subscriptions-mode))
         (call-interactively 'camulus)
         (ef-probe-await (lambda () (and (null ef-reader-home--jobs)
                                       (= 0 (hash-table-count ef-reader--requests)))) 15)

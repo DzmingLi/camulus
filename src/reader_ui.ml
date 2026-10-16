@@ -321,7 +321,7 @@ let home_header () =
   let links=List.concat_map (Reader_backend.all ()) ~f:(fun backend ->
     match backend.browser with None -> [] | Some (label,command) -> [s "  ";home_link ("["^label^"]") command]) in
   set "header-line-format" (list ([s "Home  ";home_link "[Groups · B]" "ef-reader-browse-groups"] @ links @
-    [s "  ";home_link "[Folders · f]" "ef-reader-folders";
+    [s "  ";home_link "[Subscriptions · U]" "camulus-subscriptions";s "  ";home_link "[Folders · f]" "ef-reader-folders";
     s (Printf.sprintf "   %d feeds · %d/%d refreshed%s   RET: read  d: delete  m: save  g: refresh  e: errors"
       (List.length (values (get "ef-reader-home--entries"))) (number (get "ef-reader-home--done"))
       (number (get "ef-reader-home--total")) (if errors=0 then "" else Printf.sprintf " · %d failed" errors))]));
@@ -458,6 +458,58 @@ let groups () =
     if List.is_empty entries then Point.insert "\nNo configured groups yet. Press C to add browsing entries.\n";
     Point.goto_min ());
   Current_buffer.set_modified false
+let subscriptions_render () =
+  let selected=property (point ()) "ef-reader-entry" and old_line=call "line-number-at-pos" [] in
+  let restored=ref None in
+  writable (fun () ->
+    Current_buffer.erase ();
+    Point.insert "Current subscriptions\n\n";
+    Point.insert "Personal timeline sources returned by each backend.\nUse B to browse all registered groups.\n\n";
+    let entries=values (home_merge (get "ef-reader-subscriptions--entries"))
+      |> List.sort ~compare:(fun a b -> String.compare (text "name" a) (text "name" b)) in
+    List.iter entries ~f:(fun entry ->
+      let start=point () in
+      Point.insert "  ";button (text "name" entry) (fun () -> browse_entry entry);
+      Point.insert ("  · "^text "source" entry^"  · "^text "group" entry^"\n");
+      properties start (point ()) [sym "ef-reader-entry";entry];
+      if truth selected && Value.equal (entry_key selected) (entry_key entry) then restored:=Some start);
+    let pending=number (get "ef-reader-subscriptions--pending") in
+    let errors=values (get "ef-reader-subscriptions--errors") in
+    if pending>0 then Point.insert (Printf.sprintf "\nReading subscriptions from %d backends…\n" pending)
+    else if List.is_empty entries && List.is_empty errors then Point.insert "No subscriptions. Use B to browse and s to follow a group.\n";
+    if not(List.is_empty errors) then (
+      Point.insert "\nSome subscriptions could not be read:\n";
+      List.iter errors ~f:(fun error -> Point.insert ("  "^str(call "car"[error])^": "^str(call "cdr"[error])^"\n")));
+    Point.goto_min ();
+    (match !restored with Some p->goto p|None->run "forward-line"[i(Int.max 0 (number old_line-1))]));
+  Current_buffer.set_modified false
+let subscriptions_refresh () =
+  run "ef-reader-start" [];run "ef-reader-load-config" [];
+  let target=buffer () and generation=token () in
+  set "ef-reader--list-token" generation;
+  let providers=List.filter_map (Reader_backend.all ()) ~f:(fun backend ->
+    Option.map backend.followed ~f:(fun followed -> backend.name,followed)) in
+  set "ef-reader-subscriptions--entries" nil;set "ef-reader-subscriptions--errors" nil;
+  set "ef-reader-subscriptions--pending" (i(List.length providers));subscriptions_render ();
+  let current ()=alive target && in_buffer target (fun () ->
+    derived "camulus-subscriptions-mode" && Value.eq generation (get "ef-reader--list-token")) in
+  List.iter providers ~f:(fun (name,followed) ->
+    let rows=ref nil in
+    let finish error = if current () then in_buffer target (fun () ->
+      (match error with Some error -> push_var "ef-reader-subscriptions--errors" (cons(s name)error)
+       | None -> set "ef-reader-subscriptions--entries" (call "append"[get "ef-reader-subscriptions--entries";!rows]));
+      set "ef-reader-subscriptions--pending" (i(number(get "ef-reader-subscriptions--pending")-1));
+      if number(get "ef-reader-subscriptions--pending")=0 then subscriptions_render ()) in
+    try
+      let id=followed () in
+      put (get "ef-reader--requests") id (callback_unit (fun data ->
+        if current () && String.equal(text "kind" data)"entries" then rows:=field "rows" data));
+      put (get "ef-reader--completions") id (callback_unit (fun event ->
+        finish(if Value.eq(call "nth"[i 3;event])(sym "completed")then None else Some(call "nth"[i 4;event]))))
+    with exn->finish(Some(s(Exn.to_string exn))))
+let subscriptions () =
+  ignore(show_buffer "*Camulus subscriptions*" : Buffer.t);
+  run "camulus-subscriptions-mode" [];subscriptions_refresh ()
 let browse_source () =
   if not (flag "ef-reader--home") then user_error "Already browsing an entry";
   let entry=home_entry (selected ()) in
@@ -567,18 +619,19 @@ let delete_folder () =
   if not (flag "ef-reader--folder") then user_error "Open a favorites folder first";
   request_ignore ["op",s "remove-folder";"folder",get "ef-reader--folder"]
     ~receive:(callback_unit (fun data -> if String.equal (text "kind" data) "changed" then reader nil))
-let choose_subscription submit =
+let choose_subscription ?(label="Following policy") submit =
   let id=submit None in
   put (get "ef-reader--requests") id (callback_unit (fun data ->
     if String.equal (text "kind" data) "subscription" then (
       let current=field "setting" data in
-      let choice=call "completing-read" [s ("Following policy (currently "^str current^"): ");field "choices" data;nil;b true;nil;nil;current] in
+      let choice=call "completing-read" [s (label^" (currently "^str current^"): ");field "choices" data;nil;b true;nil;nil;current] in
       if not (Value.equal choice current) then (
         let id=submit (Some(str choice)) in
         put (get "ef-reader--requests") id (callback_unit (fun result ->
           if String.equal (text "kind" result) "subscription" then (
             List.iter (Buffer.all_live ()) ~f:(fun target -> in_buffer target (fun () ->
-              if flag "ef-reader--home" then home_refresh false));
+              if flag "ef-reader--home" then home_refresh false
+              else if derived "camulus-subscriptions-mode" then subscriptions_refresh ()));
             message ("Following policy: "^text "setting" result))))))))
 let group_subscription () =
   run "ef-reader-start" [];
@@ -588,12 +641,12 @@ let group_subscription () =
   let source=field "source" entry and group=field "group" entry in
   match capability source with
   | Some backend -> (match backend.group_subscription with
-    | Some submit -> choose_subscription (fun setting -> submit ~source:(str source) ~group:(str group) ~setting)
+    | Some submit -> choose_subscription ~label:("Follow "^text "name" entry) (fun setting -> submit ~source:(str source) ~group:(str group) ~setting)
     | None ->
       let target=Option.bind backend.subscription_target ~f:(fun target ->
         target ~source:(str source) ~selected:(fun () -> user_error "Open an article to change its tracking policy";nil)) in
       (match target with
-       | Some target -> choose_subscription (fun setting -> i (Application.request_subscription (str source) target setting))
+       | Some target -> choose_subscription ~label:("Follow "^text "name" entry) (fun setting -> i (Application.request_subscription (str source) target setting))
        | None -> user_error "This backend does not offer group subscription settings"))
   | None -> user_error "This backend does not offer group subscription settings"
 let subscription () =
@@ -734,6 +787,7 @@ let bind mode_name bindings =
   List.iter bindings ~f:(fun (key,command) -> run "define-key" [Keymap.to_value map;call "kbd" [s key];sym command])
 let install_modes () =
   run "require" [sym "tabulated-list"];
+  List.iter ["entries";"errors";"pending"] ~f:(fun name -> local_default ("ef-reader-subscriptions--"^name) nil);
   List.iter ["entries";"cursors";"token";"jobs";"queue";"errors"] ~f:(fun name -> local_default ("ef-reader-home--"^name) nil);
   List.iter ["done";"total"] ~f:(fun name -> local_default ("ef-reader-home--"^name) (i 0));
   mode "ef-reader-feed-mode" "tabulated-list-mode" "Feed"
@@ -743,7 +797,9 @@ let install_modes () =
     (Some ["Kind",8,false;"Source",24,true;"Title",80,true])
     "RET: read saved copy  m: add folder  d: remove entry  D: remove folder  f: folders  g: reload  h: home" ignore;
   mode "ef-reader-groups-mode" "special-mode" "Reader groups" None
-    "Groups · RET / click: browse  TAB: next entry  h: home  g: reload  s: follow group  C: edit groups" ignore;
+    "Groups · RET / click: browse  TAB: next entry  h: home  g: reload  U: subscriptions  s: follow group  C: edit groups" ignore;
+  mode "camulus-subscriptions-mode" "ef-reader-groups-mode" "Subscriptions" None
+    "Subscriptions · RET / click: browse  s: change subscription  g: refresh  B: all groups  h: home" ignore;
   mode "ef-reader-article-mode" "special-mode" "Reader thread" None "Loading…" (fun () ->
     reading_layout ();
     List.iter ["messages";"attachments";"loaded"] ~f:(fun name -> set ("ef-reader--"^name) (hash ()));
@@ -753,10 +809,11 @@ let install_modes () =
   List.iter ["ef-reader-feed-mode";"ef-reader-folder-mode"] ~f:(fun mode ->
     bind mode ["RET","ef-reader-open";"d","ef-reader-delete";"m","ef-reader-save";"g","ef-reader-refresh";"f","ef-reader-folders";"h","camulus"]);
   bind "ef-reader-feed-mode" ["s","ef-reader-subscription";"S","ef-reader-group-subscription";"G","ef-reader-entries";"C","ef-reader-edit-config";"n","ef-reader-more";"/","ef-reader-search";
-    "B","ef-reader-browse-groups";"b","ef-reader-home-browse-source";"e","ef-reader-home-errors"];
+    "U","camulus-subscriptions";"B","ef-reader-browse-groups";"b","ef-reader-home-browse-source";"e","ef-reader-home-errors"];
   bind "ef-reader-folder-mode" ["D","ef-reader-delete-folder"];
   bind "ef-reader-article-mode" ["s","ef-reader-subscription";"m","ef-reader-save";"n","ef-reader-next-unread";"h","camulus"];
-  bind "ef-reader-groups-mode" ["s","ef-reader-group-subscription";"S","ef-reader-group-subscription";"h","camulus";"g","ef-reader-browse-groups";"C","ef-reader-edit-groups"]
+  bind "camulus-subscriptions-mode" ["g","camulus-subscriptions-refresh";"B","ef-reader-browse-groups";"U","camulus-subscriptions"];
+  bind "ef-reader-groups-mode" ["U","camulus-subscriptions";"s","ef-reader-group-subscription";"S","ef-reader-group-subscription";"h","camulus";"g","ef-reader-browse-groups";"C","ef-reader-edit-groups"]
 
 
 let installed = ref false
@@ -786,6 +843,8 @@ let install () =
   define0 ~interactive:true "ef-reader-home-browse-source" browse_source;
   define0 ~interactive:true "ef-reader-home-errors" home_errors;
   define0 ~interactive:true "ef-reader-browse-groups" groups;
+  define0 ~interactive:true "camulus-subscriptions" subscriptions;
+  define0 ~interactive:true "camulus-subscriptions-refresh" subscriptions_refresh;
   define1 "ef-reader-browse-entry" (fun entry -> browse_entry entry;nil);
   define_optional ~interactive:true "camulus" (fun entry -> reader entry;nil);
   define1 "ef-reader--single-article-source-p" (fun source -> b (single source));
