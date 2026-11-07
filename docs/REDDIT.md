@@ -1,6 +1,6 @@
 # 第一个真实后端：Reddit
 
-后端完全用 OCaml 实现，运行在已有 Eio worker domain 内。沿用先前 nnreddit 后端的公开 installed-app Client ID `5oagOpX2_NKVDej_iuZjFA` 和回调地址 `http://127.0.0.1:17973`。已有 nnreddit refresh-token 文件可以直接读取，token 不写进源码，也不传到前端结果中。
+后端完全用 OCaml 实现，运行在已有 Eio worker domain 内。沿用先前 nnreddit 后端的公开 installed-app Client ID `5oagOpX2_NKVDej_iuZjFA` 和回调地址 `http://127.0.0.1:17973`。已有 nnreddit refresh-token 文件可以直接读取，token 不写进源码，也不传到 Emacs 界面结果中。
 
 参考版本：[DzmingLi/nnreddit](https://github.com/DzmingLi/nnreddit/tree/d2f3ffc9e714560e2c6aa740cb4a72ab58f808b1)。沿用应用及协议约定；没有沿用 Gnus article-number、缓存或组状态结构。
 

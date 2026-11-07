@@ -91,8 +91,13 @@ let observe ?(replace=false) db ~source ~group messages =
       Option.iter (fun group ->
         validate group;
         run db "INSERT OR IGNORE INTO entry_members VALUES(?,?,?)" [text source;text group;text m.id];
-        (* Sequence numbers track discovery/dismissal, while display order uses
-           source time. Updating a known revision must retain its sequence. *)
+        (* The backend's activity token is an opaque revision key, not a time.
+           A repeated (source, group, message ID, token) keeps its local sequence,
+           so refreshing an already dismissed update cannot resurrect it. A new
+           token creates another sequence that can fall beyond the dismissal
+           boundary. With no token, the message ID identifies its only activity.
+           Display order uses m.created (source time), never this sequence or
+           the time at which we fetched the message. *)
         run db "INSERT INTO activities(source,grp,id,revision,occurred) VALUES(?,?,?,?,?) ON CONFLICT(source,grp,id,revision) DO UPDATE SET occurred=excluded.occurred"
           [text source;text group;text m.id;text (Option.value m.activity ~default:m.id);Q.Data.FLOAT m.created]
       ) group) messages)

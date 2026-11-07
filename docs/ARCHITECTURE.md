@@ -1,8 +1,8 @@
 # Camulus 代码结构与总体设计
 
-Camulus 把邮件、论坛和 feed 转换为统一的内容模型，提供时间线、回复树、已读状态和收藏归档。后端负责来源协议及其订阅语义；共享业务负责内容状态；前端负责呈现和交互。OCaml 的模块系统描述能力边界，Eio 负责可取消的并发任务，Ecaml 将当前实现接入 Emacs。
+Camulus 把邮件、论坛和 feed 转换为统一的内容模型，提供时间线、回复树、已读状态和收藏归档。后端负责来源协议及其订阅语义；共享业务负责内容状态；Emacs 界面负责呈现和交互。OCaml 的模块系统描述能力边界，Eio 负责可取消的并发任务，Ecaml 将当前实现接入 Emacs。
 
-当前可运行的前端是 Emacs。多前端是下一步架构方向：本文先解释已经存在的代码，再说明如何让网页前端复用业务层。`core/`、`frontends/`、`platform/` 是目标目录，尚未完成物理迁移；当前公共模块仍在 `src/`。已经移除了集中分派具体后端的 `application.ml`。
+界面、配置和宿主操作通过 Ecaml 接入 Emacs。公共模块位于 `src/`，各来源的协议与命令注册位于 `src/backends/`。本文按现有代码解释模块职责、请求流转和并发边界。
 
 ## 阅读源码的顺序
 
@@ -29,7 +29,7 @@ src/
   reader_webkit.ml           Emacs WebKit 页面与消息通道
   firefox_cookies.ml         可复用的 Firefox 凭据读取能力
   host.ml / host_stubs.c     宿主通知和信号保护
-  camulus_native.ml          链接后端、注册命令、装配前端
+  camulus_native.ml          链接后端、注册命令、装配 Emacs 界面
   backends/
     reddit/
     discourse/
@@ -98,7 +98,7 @@ JSON Feed 的格式解析交给外部 `jsonfeed` 库，当前只接受 1.1。Cam
 
 `Content.tree_order` 负责显示顺序：同一父节点下按来源时间排序，时间相同再按 ID 排序；缺失父节点的消息仍保留，循环关系不会导致无限遍历。这个函数组织已有消息，并不负责获取缺失回复。
 
-渐进加载通过 `thread_batch` 表达：`messages` 是本批消息，`gaps` 描述未展开的部分，`complete` 表示后端是否完成该次会话读取。前端合并批次并保持阅读锚点；只有后端知道远端是否还有内容。
+渐进加载通过 `thread_batch` 表达：`messages` 是本批消息，`gaps` 描述未展开的部分，`complete` 表示后端是否完成该次会话读取。Emacs 界面合并批次并保持阅读锚点；只有后端知道远端是否还有内容。
 
 ## 一次请求如何完成
 
@@ -122,7 +122,7 @@ sequenceDiagram
 
 以组刷新为例，`Reader_ui.load_list` 提交 `Content_state.Refresh`。`runtime_ui.ml` 的状态处理调用匹配的 worker，拿到 `Content.page` 后写入入口快照，再返回列表行和已读、收藏状态。`reader_ui.ml` 更新对应 buffer。搜索也走后端，但搜索结果不会被当作新的订阅入口。
 
-文章阅读通常由后端注册的 `read` 能力提交专属任务；后端可以逐批返回正文和回复树。用户关闭或切换视图后，即使响应已经在路上，前端仍需要判断它是否属于当前视图，不能仅凭“请求成功”更新屏幕。
+文章阅读通常由后端注册的 `read` 能力提交专属任务；后端可以逐批返回正文和回复树。用户关闭或切换视图后，即使响应已经在路上，Emacs 界面仍需要判断它是否属于当前视图，不能仅凭“请求成功”更新屏幕。
 
 收藏流程则先获取正文和所需资源，再提交归档和收藏关系。整条 thread 的归档需要后端报告完整；下载失败不能留下一个看似成功却内容不全的收藏。
 
@@ -156,7 +156,7 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 `Protocol.request` 包含 `id`、`owner` 和 `work`。`owner` 为 `View generation` 或 `Service`：前者可随视图关闭取消，后者允许操作离开当前视图后继续完成。运行时最多容纳 32 个活动任务，等待发布终态的任务也计入限额。
 
-取消通过 promise 和 `Eio.Fiber.first` 传播。前端同时检查视图代次和 buffer 内的请求 token；存储刷新还检查入口版本，阻止较早发出的慢响应覆盖较新的列表快照。这几处检查分别保护任务生命周期、界面和持久状态，不能相互替代。
+取消通过 promise 和 `Eio.Fiber.first` 传播。Emacs 界面同时检查视图代次和 buffer 内的请求 token；存储刷新还检查入口版本，阻止较早发出的慢响应覆盖较新的列表快照。这几处检查分别保护任务生命周期、界面和持久状态，不能相互替代。
 
 取消本地等待不表示远端写入已经撤销。当前 `voting.ml` 的 `Pending` 等状态是会话内乐观展示及结果协调，既不是持久离线队列，也不意味着等待下一轮定时同步才发送请求。通用离线写入重试尚未实现。
 
@@ -225,59 +225,24 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 ## 邮件进程 WebKit 与凭据的归属
 
-[maildir/process.ml](../src/backends/mu/process.ml) 是当前邮件后端的外部进程桥。worker 请求执行 `mu` 或 `mbsync`，主线程中的 [process_emacs.ml](../src/backends/mu/process_emacs.ml) 通过 Emacs process API 创建进程并交回结果。这样保留 Emacs 对子进程和 SIGCHLD 的管理。SMTP 使用 OCaml 邮件与 TLS 库，不经过这个进程桥。
+[mu/process.ml](../src/backends/mu/process.ml) 是当前邮件后端的外部进程桥。worker 请求执行 `mu` 或 `mbsync`，主线程中的 [process_emacs.ml](../src/backends/mu/process_emacs.ml) 通过 Emacs process API 创建进程并交回结果。这样保留 Emacs 对子进程和 SIGCHLD 的管理。SMTP 使用 OCaml 邮件与 TLS 库，不经过这个进程桥。
 
 未来 JMAP 后端可以直接使用 HTTP，不需要实现相同的外部进程机制。公共 `Runtime` 不要求所有后端都能启动子进程。
 
-[reader_webkit.ml](../src/reader_webkit.ml) 的接口负责打开页面、接收受限消息和关闭页面，属于 Emacs 宿主能力。正文的 SHR、图片和内联视频呈现也属于前端。它们不应变成来源协议库的硬依赖。
+[reader_webkit.ml](../src/reader_webkit.ml) 的接口负责打开页面、接收受限消息和关闭页面，属于 Emacs 宿主能力。正文的 SHR、图片和内联视频由 Emacs 界面呈现。它们不应变成来源协议库的硬依赖。
 
 [firefox_cookies.ml](../src/firefox_cookies.ml) 读取明确配置的 Firefox profile，筛选适用于 HTTPS 目标的未过期 Cookie。它不自行登录网站，也不是用户所有后端必须使用的全局认证系统。知乎和豆瓣可以选择它，其他后端可以使用 OAuth、User API Key 或自己的凭据机制。
 
 [host_stubs.c](../src/host_stubs.c) 则处理通知管道的 SIGPIPE 保护和信号检查。Ecaml 与 Eio 补丁分别解决当前运行时与 Emacs 宿主之间的适配问题。这类代码需要跟随宿主运行环境维护，不能当作来源业务的一部分。
-
-## 多前端的目标结构
-
-当 Emacs 和网页都成为前端时，目录可以演进为：
-
-```text
-src/
-  core/                     内容、状态、来源优先级、业务操作与任务编排
-  backends/                 各来源的协议与会话实现
-  frontends/
-    emacs/                  Ecaml、窗口、按键、Customize 和 WebKit 适配
-    web/                    浏览器界面与服务接口适配
-  platform/                 凭据、Cookie、进程等宿主能力的实现
-```
-
-这些目录表达责任，不能仅靠移动文件完成分离。具体应迁移的边界如下：
-
-| 当前代码 | 多前端时的归属 |
-| --- | --- |
-| `content`、`backend`、`content_state`、`protocol` | 共享业务层 |
-| `runtime_ui` 中的状态操作和后端 worker 协调 | 抽到不依赖 Ecaml 的服务模块 |
-| `runtime_ui` 中的 Emacs process、timer、`Value.t` 转换 | Emacs 前端 |
-| `reader_backend` 中纯 worker 注册接口 | 共享业务层 |
-| `reader_backend` 中命令、按键、Customize 和 Lisp 值辅助函数 | Emacs 前端 |
-| `*_emacs.ml` 中的会话创建与请求执行 | 后端的普通 OCaml 实现或服务注册 |
-| `*_emacs.ml` 中的按钮、buffer 和命令 | Emacs 前端中的后端适配 |
-| Firefox Cookie、外部进程的具体实现 | 可选宿主能力，通过接口注入 |
-
-共享服务接受普通 OCaml 请求、返回普通 OCaml 结果。Emacs 可以继续进程内调用；网页界面可以通过 HTTP 和事件流访问原生 OCaml 服务，让 Eio、SQLite 和来源会话保留在服务端。传输方式由前端适配决定，不能把网络 RPC 强加给所有前端。
-
-如果 Emacs 和网页需要同时访问同一份活动会话，宜由一个服务实例负责同步与写入，两端作为客户端。两个独立进程分别加载相同 SQLite 文件，并不能自动共享活动任务、取消和内存缓存。这个部署方式需要另行实现。
-
-网页原生适合显示 HTML 和视频，可以省去 Emacs WebKit 嵌入适配。不过普通网页不能直接读取其他站点的 Cookie，跨站 API 请求也受 CORS 约束。后端仍需合法可用的认证来源；是否能完全移除 Firefox Cookie 提供器取决于各网站的授权能力。[Cookie 行为](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cookies)、[CORS 行为](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS)。
-
-目前尚未提供网页前端、共享守护进程或浏览器 HTTP API。现有协议库已经可在不链接 Ecaml 时测试，但 worker 注册和内容操作编排仍有 Emacs 适配依赖，这是下一轮分离的实际工作量。
 
 ## 添加后端时需要改什么
 
 1. 在 `src/backends/` 中建立来源目录，定义会话、组、分页与认证模型，实现需要的基础和可选能力。先确认内容 ID 和来源 ID 的稳定规则。
 2. 使用外部库处理标准协议或格式；只保留来源特有的数据转换、HTML 选择和业务规则。网络请求应可取消，避免在 worker domain 中长期阻塞。
 3. 注册 worker 的来源匹配、分页、归档与执行能力。可扩展 `Protocol.work`；普通内容结果也可使用共享呈现格式。
-4. 为当前 Emacs 前端注册可用操作、可定制选项和时间线来源。协议模块不应调用 Ecaml。
+4. 为 Emacs 界面注册可用操作、可定制选项和时间线来源。协议模块不应调用 Ecaml。
 5. 在 Dune 和 `camulus_native.ml` 的装配清单加入该适配模块。公共运行时不应新增后端名称分支。
-6. 验证稳定身份、分页、错误与取消、订阅权威来源、归档，以及至少一条真实前端操作路径。
+6. 验证稳定身份、分页、错误与取消、订阅权威来源、归档，以及至少一条真实 Emacs 操作路径。
 
 [Reddit](../src/backends/reddit/reddit_emacs.ml) 可作为独立协议任务注册的例子；[JSON Feed](../src/backends/jsonfeed/jsonfeed_emacs.ml) 展示通过 functor 复用接入；[Discourse](../src/backends/discourse/discourse_emacs.ml) 展示多个站点和远端追踪能力。
 
@@ -303,8 +268,7 @@ src/
 
 仍需持续注意：
 
-- `runtime_ui` 目前兼有会话宿主与通用业务协调职责，多前端分离尚未完成。
 - 界面边界有 `Yojson` 与 Lisp alist 的动态字段约定，OCaml 模块签名不能检查所有呈现字段。
-- 邮件已有启动及定时同步，默认间隔 300 秒；这不等于所有来源都已有统一后台同步或持久离线写入队列。
+- Mu 邮件同步在进入首页或邮件组以及手动刷新时触发，默认不定时轮询；这不等于已经具备持久离线写入队列。
 - 归档刷新当前由任务触发；不同来源的增量更新能力、写入支持和编辑界面完整度仍不同。
 - 新原生模块需要新的 Emacs 进程才能替换已经加载的模块，更新 Lisp 入口不足以替换 OCaml runtime。

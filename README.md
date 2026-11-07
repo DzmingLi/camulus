@@ -32,7 +32,7 @@
 
 | 后端 | 当前范围 |
 | --- | --- |
-| Maildir | mu 本地索引与搜索、回复树、MIME 附件、自动保存草稿、纯 OCaml SMTP 发送、移动到 Archive；同步仍使用外部 mbsync |
+| Mu | mu 本地索引与搜索、回复树、MIME 附件、自动保存草稿、纯 OCaml SMTP 发送、移动到 Archive；同步仍使用外部 mbsync |
 | Reddit | OAuth、subreddit、回复及提及、组内搜索、渐进回复树、投票；回复/发帖编辑界面未完成 |
 | Discourse | 最新讨论、分类、远端通知、会话追踪管理、远端搜索、渐进回复树、点赞与追踪设置；回复/发帖已有后端接口，编辑界面待接入 |
 | RSS / Atom | 分页、后端订阅列表、正文与 enclosure 附件归档 |
@@ -102,7 +102,7 @@ emacsWithPackages (epkgs: [
 
 ## 开发
 
-完整的模块职责、请求流转、effects 与队列、订阅和状态模型，以及多前端演进方向，见 [代码结构与总体设计](docs/ARCHITECTURE.md)。
+完整的模块职责、请求流转、effects 与队列、订阅和状态模型，见 [代码结构与总体设计](docs/ARCHITECTURE.md)。
 
 ```sh
 nix develop -c make reader-demo
@@ -124,7 +124,7 @@ src/
   backends/
     reddit/           每个后端拥有自己的协议、解析与身份管理
     discourse/
-    maildir/          mu / mbsync 的进程调用也属于此后端
+    mu/               mu / mbsync 的进程调用也属于此后端
     ...
 lisp/camulus.el       仅加载原生模块；无后端或交互逻辑
 patches/              Ecaml / Eio 的宿主适配补丁
@@ -132,7 +132,7 @@ patches/              Ecaml / Eio 的宿主适配补丁
 
 邮件撰写、草稿、Discourse 认证与点赞、Reddit 授权与投票、进程宿主和配置加载都在 OCaml 模块中实现。Emacs 主线程通过 Ecaml 操作窗口和 buffer，独立 OCaml domain 运行 Eio。跨 domain 消息传递使用 Saturn 的有界 SPSC 队列，命令／事件容量分别为 256／512，邮件进程请求队列容量为 64。后端基本接口不强制 thread、点赞、投票、写入或订阅；这些作为可选模块提供。`*_emacs.ml` 是各后端在 Emacs 中的命令和能力注册，同一目录中的其他模块处理协议与内容。详情参见源码接口及 [运行时验证说明](docs/VALIDATION.md)。
 
-普通来源在打开首页和手动操作时刷新；邮件还提供启动及定时同步。统一后台增量同步、完整回复/提及规则、持久离线写入重试、Reddit 完整撰写、邮件附件撰写和邮件 WebKit 整树阅读仍待完成。不要把已实现的会话任务调度视为持久同步队列。
+普通来源在打开首页和手动操作时刷新；Mu 邮件同步在进入首页或邮件组以及手动刷新时触发，默认不定时轮询。统一后台增量同步、完整回复/提及规则、持久离线写入重试、Reddit 完整撰写、邮件附件撰写和邮件 WebKit 整树阅读仍待完成。不要把已实现的会话任务调度视为持久同步队列。
 
 ## 许可
 
