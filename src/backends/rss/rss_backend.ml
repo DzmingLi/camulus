@@ -98,7 +98,7 @@ module Make (H:Http.S) = struct
     end
   let fetch_articles t url = locked t (fun () ->
     let articles=load t url in (Hashtbl.find t.cache url).endpoint,articles)
-  let page articles = {C.messages=List.map(fun a -> a.Decode.message) articles;notifications=[];after=None}
+  let page articles = {C.messages=List.map(fun a -> a.Decode.message) articles;after=None}
   let list t url ~after =
     if after<>None then invalid_arg "RSS has no pagination cursor";
     locked t (fun () -> page(load t url))

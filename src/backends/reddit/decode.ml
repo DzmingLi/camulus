@@ -64,11 +64,14 @@ let message ~root thing =
     activity = (if kind = "t3" then Some (id ^ ":" ^ string_of_int (integer (get "num_comments" d))) else None);
     my_vote = (match get "likes" d with `Bool true -> M.Upvote | `Bool false -> M.Downvote | _ -> M.No_vote) }
 
-let notifications j =
+let inbox_messages j =
   listing j |> List.filter_map (fun thing ->
     let d = get "data" thing in
-    let target = string "name" d and thread = string "link_id" d in
-    if not (fullname "t1" target && fullname "t3" thread) then None else
-    Some { M.event_id = target; target; thread;
-      title = Option.value (optional "link_title" d) ~default:(string "subject" d);
-      created = number (get "created_utc" d) })
+    let id = string "name" d and thread = string "link_id" d in
+    if not (fullname "t1" id && fullname "t3" thread) then None else
+    Some { M.id; thread_id=Some thread; parent_id=None; references=[];
+      title=Option.value (optional "link_title" d) ~default:(string "subject" d);
+      author="";body="";html=None;
+      url="https://www.reddit.com/comments/"^String.sub thread 3 (String.length thread-3)^"/";
+      link_url=None;created=number (get "created_utc" d);unavailable=false;
+      score=0;my_vote=M.No_vote;activity=Some id })

@@ -179,8 +179,7 @@ module Make(H:R.Http.S)=struct
     [read_root t ((if kind="topic" then "topic:" else "group-topic:")^n)],false in
   let unique=Hashtbl.create 32 in
   let articles=List.filter(fun(a:D.article)->if Hashtbl.mem unique a.message.id then false else (Hashtbl.add unique a.message.id ();true))articles in
-  {C.messages=List.map(fun(a:D.article)->a.message)articles;notifications=[];
-   after=if more then Some(Yojson.Safe.to_string(`List[`String group;`Int(offset+20)]))else None}
+  {C.messages=List.map(fun(a:D.article)->a.message)articles;after=if more then Some(Yojson.Safe.to_string(`List[`String group;`Int(offset+20)]))else None}
  let search _ _ ~query:_ ~after:_=failwith "Douban entries do not provide scoped remote search"
  let stream_thread t id ~emit_article ~emit=
   let root=root_id id in let kind,n=root_parts root in

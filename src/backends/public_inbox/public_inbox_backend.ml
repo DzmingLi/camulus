@@ -80,7 +80,7 @@ module Make(H:R.Http.S)=struct
   List.iter(fun a->Hashtbl.replace t.cache a.article.message.id a)articles;articles
  let list t group ~after=
   if after<>None then invalid_arg "Public-inbox thread mbox has no cursor";
-  {C.messages=List.map(fun a->a.article.message)(load t group);notifications=[];after=None}
+  {C.messages=List.map(fun a->a.article.message)(load t group);after=None}
  let search t group ~query ~after=
   let page=list t group ~after in
   let query=String.lowercase_ascii query in

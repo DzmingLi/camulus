@@ -97,7 +97,7 @@ module Make(H:Http.S)=struct
    (* Oldest first: repeated notifications for one post must leave the newest
       metadata and activity last. No notification-type allowlist. *)
    let messages=List.rev(D.list "notifications" j) |> List.filter_map(notification_message t) in
-   {C.messages;notifications=[];after=(if (page+1)*60 < D.num "total_rows_notifications" j
+   {C.messages;after=(if (page+1)*60 < D.num "total_rows_notifications" j
      then cursor Notifications t.config.site page else None)}
  let list t group ~after =
    match group with
@@ -106,15 +106,14 @@ module Make(H:Http.S)=struct
      if after<>None then invalid_arg "Single topic has no list cursor";
      let j=call t (Printf.sprintf "/t/%d.json" (D.positive id)) [] in
      if D.num "id" j<>id then failwith "Unexpected Discourse topic";
-     {C.messages=[D.summary ~site:t.config.site j];notifications=[];after=None}
+     {C.messages=[D.summary ~site:t.config.site j];after=None}
    | Latest | Category _ ->
      let n=page_number group "" after in
      let path=match group with Latest->"/latest.json" | Category id -> Printf.sprintf "/c/%s/%d.json" (Uri.pct_encode(category_slug t id)) id | _->assert false in
      let j=call t path ["page",string_of_int n;"no_subcategories","true"] |> D.field "topic_list" in
      let topics=D.list "topics" j in
      let topics=List.filter(fun j -> match group with Category id -> D.num "category_id" j=id | _->true) topics in
-     {C.messages=List.map(D.summary ~site:t.config.site) topics;notifications=[];
-      after=(if D.str "more_topics_url" j<>"" then cursor group "" n else None)}
+     {C.messages=List.map(D.summary ~site:t.config.site) topics;after=(if D.str "more_topics_url" j<>"" then cursor group "" n else None)}
  let search t group ~query ~after =
    if group=Notifications then failwith "Discourse notification entries do not provide remote search";
    let n=page_number group query after in
@@ -131,7 +130,7 @@ module Make(H:Http.S)=struct
        Hashtbl.add seen topic ();
        Some(D.summary ~site:t.config.site meta)
      end) hits in
-   {C.messages;notifications=[];after=(if D.field "more_full_page_results" (D.field "grouped_search_result" j)=`Bool true then cursor group query n else None)}
+   {C.messages;after=(if D.field "more_full_page_results" (D.field "grouped_search_result" j)=`Bool true then cursor group query n else None)}
  let thread t id ~emit_article ~emit =
    let topic,_=D.parse_id id in
    let j=call t (Printf.sprintf "/t/%d.json" topic) [] in

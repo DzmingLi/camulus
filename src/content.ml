@@ -16,20 +16,13 @@ type message = {
   unavailable : bool;
   score : int;
   my_vote : vote;
+  (** Backend-defined change token for timeline dismissal and cache revisions.
+      The timeline falls back to the message ID for [None]; this is not a timestamp. *)
   activity : string option;
-}
-
-type notification = {
-  event_id : string;
-  thread : string;
-  target : string;
-  title : string;
-  created : float;
 }
 
 type page = {
   messages : message list;
-  notifications : notification list;
   after : string option;
 }
 

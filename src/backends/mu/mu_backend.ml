@@ -135,7 +135,7 @@ let search t group ~query ~after =
   let rows=List.filteri(fun i _ -> i>=offset && i<offset+t.config.page_size) snap.rows in
   let next=offset+List.length rows in
   t.truncated<-snap.truncated;
-  {M.messages=rows;notifications=[];after=(if next<List.length snap.rows then Some(key^":"^string_of_int next) else None)}
+  {M.messages=rows;after=(if next<List.length snap.rows then Some(key^":"^string_of_int next) else None)}
 let list t group ~after = search t group ~query:"" ~after
 
 let resolve t id =

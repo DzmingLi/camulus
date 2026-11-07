@@ -97,7 +97,7 @@ module Make(H:R.Http.S) = struct
           (String.sub text i (String.length query)=query || loop(i+1)) in loop 0 in
       let articles=match query with None->articles | Some query->List.filter(fun(a:R.Decode.article)->
         contains (a.message.title^" "^a.message.body^" "^Option.value a.message.html ~default:"") query) articles in
-      {C.messages=List.map(fun(a:R.Decode.article)->a.message) articles;notifications=[];after})
+      {C.messages=List.map(fun(a:R.Decode.article)->a.message) articles;after})
   let list t root ~after = page t root None after
   let search t root ~query ~after = page t root (Some query) after
   (* Saved items on later pages must be revalidated during archive refresh. *)

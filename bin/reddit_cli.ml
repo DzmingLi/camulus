@@ -20,8 +20,8 @@ let () =
     R.Live.execute t operation ~emit:(fun result ->
       if Sys.getenv_opt "REDDIT_SUMMARY" = Some "1" then
         (match result with
-         | R.Page p -> Printf.printf "page: posts=%d notifications=%d has_next=%b\n%!"
-             (List.length p.messages) (List.length p.notifications) (Option.is_some p.after)
+         | R.Page p -> Printf.printf "page: messages=%d has_next=%b\n%!"
+             (List.length p.messages) (Option.is_some p.after)
          | R.Thread_batch b -> Printf.printf "thread batch: messages=%d gaps=%d complete=%b\n%!"
              (List.length b.messages) (List.length b.gaps) b.complete
          | R.Identity_result _ -> print_endline "identity: authenticated"

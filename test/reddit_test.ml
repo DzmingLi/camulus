@@ -117,8 +117,9 @@ let notifications () = with_backend @@ fun b _ _ ->
     check (field r "mark"="false") "reading inbox must not mark server notifications read";
     response (listing [comment "a";comment "b";obj ["kind",str "t4";"data",obj ["name",str "t4_private"]]]));
   let p = B.list b R.Notifications ~after:None in
-  check (List.length p.notifications=2 && List.length p.messages=2 && List.for_all (fun (m:Reader.Content.message) -> m.body="" && m.thread_id=Some "t3_root") p.messages) "lazy notifications";
-  check ((List.hd p.notifications).thread="t3_root") "notification thread key";
+  check (List.length p.messages=2 && List.for_all (fun (m:Reader.Content.message) -> m.body="" && m.thread_id=Some "t3_root") p.messages) "lazy notifications";
+  check (List.map (fun (m:Reader.Content.message) -> m.id,m.activity) p.messages =
+    ["t1_a",Some "t1_a";"t1_b",Some "t1_b"]) "inbox retains canonical identities and activity tokens";
   check (List.length !Mock.requests=2) "notification did not fetch thread bodies"
 
 let refresh_and_rate () = with_backend @@ fun b _ sleeps ->

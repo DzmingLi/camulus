@@ -64,7 +64,7 @@ module Make(H:R.Http.S)=struct
     let rec loop i=i+String.length query<=String.length text && (String.sub text i (String.length query)=query || loop(i+1)) in loop 0 in
    let articles=match query with None->articles|Some q->List.filter(fun(a:D.article)->
      contains(a.message.title^" "^a.message.author^" "^a.message.body^" "^Option.value a.message.html ~default:"")q)articles in
-   {C.messages=List.map(fun(a:D.article)->a.message)articles;notifications=[];after})
+   {C.messages=List.map(fun(a:D.article)->a.message)articles;after})
  let list t group ~after=page t group None after
  let search t group ~query ~after=page t group (Some query) after
  let refresh t group=

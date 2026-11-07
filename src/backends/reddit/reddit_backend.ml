@@ -163,21 +163,16 @@ module Make (Transport : Http.S) = struct
     match group with
     | Notifications ->
       let j = api t ~scope:"privatemessages" Get "/message/inbox.json" (("mark","false")::fields) in
-      let notifications=D.notifications j in
-      let messages=List.map(fun (n:M.notification) ->
-        {M.id=n.target;thread_id=Some n.thread;parent_id=None;references=[];
-         title=n.title;author="";body="";html=None;url="https://www.reddit.com/comments/"^String.sub n.thread 3 (String.length n.thread-3)^"/";
-         link_url=None;created=n.created;unavailable=false;score=0;my_vote=M.No_vote;activity=Some n.event_id}) notifications in
-      { M.messages; notifications; after=D.after j }
+      { M.messages=D.inbox_messages j; after=D.after j }
     | Subreddit name ->
       let name = D.require_subreddit name in
       let j = api t ~scope:"read" Get ("/r/" ^ name ^ "/new.json") fields in
-      { M.messages=List.map (D.message ~root:None) (D.listing j); notifications=[]; after=D.after j }
+      { M.messages=List.map (D.message ~root:None) (D.listing j); after=D.after j }
     | Post id ->
       ignore (D.require_fullname "t3" id);
       if after <> None then raise (Error (Invalid_input "single post has no listing cursor"));
       let j = api t ~scope:"read" Get ("/by_id/" ^ id ^ ".json") [] in
-      { M.messages=List.map (D.message ~root:(Some id)) (D.listing j); notifications=[]; after=None }
+      { M.messages=List.map (D.message ~root:(Some id)) (D.listing j); after=None }
 
   let search t group ~query ~after = match group with
     | Notifications | Post _ -> raise (Error (Unsupported "search is scoped to a subreddit"))
@@ -186,7 +181,7 @@ module Make (Transport : Http.S) = struct
       if String.trim query = "" then raise (Error (Invalid_input "empty search"));
       let j = api t ~scope:"read" Get ("/r/" ^ name ^ "/search.json")
         (["q",query;"restrict_sr","on";"sort","new";"limit","25"] @ cursor after) in
-      { M.messages=List.map (D.message ~root:None) (D.listing j); notifications=[]; after=D.after j }
+      { M.messages=List.map (D.message ~root:None) (D.listing j); after=D.after j }
 
   (* A request at a time per session also enforces Reddit's morechildren limit.
      Every response is emitted immediately; no full-thread buffer is required. *)
@@ -395,10 +390,7 @@ let result_json result =
   let make kind fields = `Assoc (("kind",`String kind)::fields) in
   match result with
   | Identity_result name -> make "identity" ["name",`String name]
-  | Page p -> make "page" ["messages",messages p.messages; "after",json_option p.after;
-      "notifications",`List (List.map (fun (n:M.notification) -> `Assoc [
-        "event_id",`String n.event_id;"thread",`String n.thread;"target",`String n.target;
-        "title",`String n.title;"created",`Float n.created]) p.notifications)]
+  | Page p -> make "page" ["messages",messages p.messages; "after",json_option p.after]
   | Thread_batch b -> make "thread" ["thread",`String b.thread;"messages",messages b.messages;
       "complete",`Bool b.complete;"gaps",`List (List.map (fun (g:M.gap) ->
         `Assoc ["parent",`String g.parent;"count",`Int g.count]) b.gaps)]

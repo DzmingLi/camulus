@@ -86,7 +86,7 @@ module Make(H:R.Http.S)=struct
   let messages=match query with None->messages|Some q->List.filter(fun(m:C.message)->contains(m.title^" "^m.author)q)messages in
   let next=offset+List.length data in
   let more=match field "record-count"(field "meta" j)with `Int total->next<total|_->List.length data=30 in
-  {C.messages;notifications=[];after=if data=[] || not more then None else Some(Yojson.Safe.to_string(`List[`String group;scope;`Int next;`String fingerprint]))}
+  {C.messages;after=if data=[] || not more then None else Some(Yojson.Safe.to_string(`List[`String group;scope;`Int next;`String fingerprint]))}
  let list t group ~after=page t group None after
  let search t group ~query ~after=page t group (Some query) after
  let read t _group id=
