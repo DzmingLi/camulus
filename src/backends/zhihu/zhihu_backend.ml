@@ -19,12 +19,12 @@ let parts group=
   else invalid_arg "Zhihu expects articles.people.USER, articles.org.USER or answers.USER" in
  if user="" || not(String.for_all(function 'a'..'z'|'A'..'Z'|'0'..'9'|'.'|'_'|'-'->true|_->false)user) then invalid_arg "Invalid Zhihu user";
  kind,user_type,user
-let rec images=function
- | Html.Text _ as n->n
- | Html.Element(tag,attrs,xs)->
-   let actual=List.find_map(fun k->List.assoc_opt k attrs)["data-actualsrc";"data-original"] in
-   let attrs=match actual with None->attrs|Some src->("src",src)::List.remove_assoc "src" attrs in
-   Html.Element(tag,attrs,List.map images xs)
+let images node=
+ Soup.select "*" node |> Soup.iter(fun element->
+  let actual=match Soup.attribute "data-actualsrc" element with
+   |Some _ as value->value |None->Soup.attribute "data-original" element in
+  Option.iter(fun src->Soup.set_attribute "src" src element)actual);
+ node
 let decode kind j =
  let raw=numeric(str "id" j) and author=field "author" j in
  let article=kind="articles" in
@@ -50,7 +50,7 @@ module Make(H:R.Http.S)=struct
   let dc0=match List.assoc_opt "d_c0" cookies with Some s when s<>""->s|_->failwith "Log in to Zhihu in the configured Firefox profile first (d_c0 missing)" in
   let headers=["User-Agent","Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";"Cookie",Reader.Credentials.Firefox.header cookies;"Referer",referer;"x-api-version","3.0.91";
    "x-app-za","OS=Web";"x-requested-with","fetch";"x-zse-93",Sign.version;"x-zse-96",Sign.header ~url ~dc0] in
-  let r=H.request {R.Http.meth=Get;body="";url;headers;limit=16*1024*1024} in
+  let r=H.request {R.Http.meth=Get;body="";url;headers} in
   if r.status<>200 then failwith(Printf.sprintf "Zhihu HTTP %d; check login or complete verification in the configured Firefox profile" r.status);
   Yojson.Safe.from_string r.body
  let list t group ~after=
@@ -77,7 +77,7 @@ module Make(H:R.Http.S)=struct
   let a=decode kind j in if a.message.id<>id then failwith "Zhihu returned another article";
   Hashtbl.replace t.cache id a;a
  let invalidate t id=Hashtbl.remove t.cache id
- let download ~limit url=Download.download_url ~limit url
+ let download url=Download.download_url url
  let archive t group id=R.Article.archive ~download (read t group id)
  let attachment t group id part destination=R.Article.attachment ~download(read t group id)part destination
 end

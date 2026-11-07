@@ -91,7 +91,7 @@ summary 列表和回复树都支持 `+` 赞成、`-` 反对、`0` 取消投票�
 - POST 不自动重试。传输中断、取消、5xx、成功响应缺少确认等情况返回 `Uncertain_write`，供后续同步层核对结果，避免重复发帖。
 - `morechildren` 每批最多 100 个 ID，每次 thread 加载最多 200 次页面请求。未解决的分支保留 gap，不能假装完整加载。
 - libcurl 验证 TLS 证书和主机名，禁用重定向及 signal handling，要求 asynchronous DNS；使用 multi 接口，每 10ms 通过 Eio 挂起后推进。此轮尚未改为 socket-readiness 驱动。
-- HTTP 响应体限制 16 MiB，header 限制 64 KiB；读取过程取消或失败都会清理 easy/multi handles。
+- HTTP 响应体与响应头不设应用层大小配额；读取过程取消或失败都会清理 easy/multi handles。
 
 当前写入接口是真实 API 实现，但没有持久 outbox，也没有完整的乐观 UI 状态管理。断网自动同步仍需下一阶段的持久操作模型；不能把当前内存中的 service task 当成已实现的离线队列。
 

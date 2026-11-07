@@ -68,21 +68,21 @@ module Make (H:Http.S) = struct
   end
   let followed = Subscription.followed
   let header k r=List.assoc_opt k r.Http.headers
-  let fetch ?cached ?(limit=16*1024*1024) url =
+  let fetch ?cached url =
     let rec go visited url =
       ignore(Http.validate url);
       if List.length visited>=6 || List.mem url visited then failwith "Feed redirect loop or limit exceeded";
       let headers=match cached with
         | Some c when c.endpoint=url -> List.filter_map Fun.id [Option.map(fun v -> "If-None-Match",v)c.etag;Option.map(fun v -> "If-Modified-Since",v)c.modified]
         | _ -> [] in
-      let r=H.request (Http.get ~headers ~limit url) in
+      let r=H.request (Http.get ~headers url) in
       if List.mem r.status [301;302;303;307;308] then
         match header "location" r with None -> failwith "Redirect has no Location"
         | Some next -> go (url::visited) (Http.resolve url next)
       else url,r in
     go [] url
-  let download_url ?(limit=128*1024*1024) url =
-    let _,r=fetch ~limit url in
+  let download_url url =
+    let _,r=fetch url in
     if r.status<>200 then failwith(Printf.sprintf "Publication HTTP %d" r.status);
     r.body
   let load t url =
@@ -116,17 +116,13 @@ module Make (H:Http.S) = struct
     match List.find_opt(fun a -> a.Decode.message.id=id) articles with
     | Some a -> a
     | None -> failwith "Article is no longer in this feed; open its saved copy if archived")
-  let download ?(limit=128*1024*1024) enclosure =
-    let _,r=fetch ~limit enclosure.Decode.url in
+  let download enclosure =
+    let _,r=fetch enclosure.Decode.url in
     if r.status<>200 then failwith(Printf.sprintf "Enclosure HTTP %d" r.status);
     r.body
   let archive t url id =
     let a=read t url id in
-    let total=ref 0 in
-    let files=List.map(fun e -> let data=download ~limit:(128*1024*1024 - !total) e in
-      total:= !total+String.length data;
-      if !total>128*1024*1024 then failwith "Enclosures exceed 128 MiB";
-      e.Decode.part,data) a.enclosures in
+    let files=List.map(fun e -> e.Decode.part,download e) a.enclosures in
     a,files
   let attachment t url id part destination =
     let a=read t url id in

@@ -53,16 +53,18 @@ let status j=
 (* Douban's rich paragraphs use CSS pre-wrap; SHR otherwise collapses their
    literal newlines. Preserve text-node breaks only inside paragraphs. *)
 let paragraph_breaks node =
- let rec walk preserve = function
- | Html.Text text when preserve ->
-   let text=String.split_on_char '\r' text |> String.concat "" in
-   let lines=String.split_on_char '\n' text in
-   List.concat(List.mapi(fun i line->(if i=0 then [] else [Html.Element("br",[],[])])@[Html.Text line])lines)
- | Html.Text _ as node->[node]
- | Html.Element(tag,attrs,children) as node ->
-   if List.mem tag ["pre";"code"] then [node] else
-   [Html.Element(tag,attrs,List.concat_map(walk(preserve || tag="p"))children)] in
- match walk false node with [node]->node|_->assert false
+ Html.select Soup.is_text node |> List.iter(fun text_node->
+  let ancestors=Soup.ancestors text_node |> Soup.to_list |> List.map Soup.name in
+  if List.mem "p" ancestors && not(List.exists(fun tag->List.mem tag ["pre";"code"])ancestors)then(
+   let text=Soup.R.leaf_text text_node in
+   if String.contains text '\n' || String.contains text '\r' then(
+    let lines=String.split_on_char '\r' text |> String.concat "" |> String.split_on_char '\n' in
+    let fragment=Soup.create_soup()in
+    List.iteri(fun i line->
+     if i>0 then Soup.append_root fragment (Soup.create_element "br");
+     Soup.append_root fragment (Soup.create_text line))lines;
+    Soup.replace text_node fragment)));
+ node
 
 type reaction = {liked:bool;count:int option}
 let json_reaction j =
@@ -116,7 +118,7 @@ module Make(H:R.Http.S)=struct
    if depth>3 || not(allowed url) then failwith "Unsupported Douban destination or redirect";
    let cookies=t.cookies url in
    let r=H.request {R.Http.meth=Get;body="";url;headers=["User-Agent","Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0";"Cookie",Reader.Credentials.Firefox.header cookies;
-    "Referer",url];limit=16*1024*1024} in
+    "Referer",url]} in
    if List.mem r.status [301;302;303;307;308] then
     (match List.assoc_opt "location" r.headers with None->failwith "Douban redirect missing target"|Some loc->fetch(depth+1)(R.Http.resolve url loc))
    else if r.status<>200 then failwith(Printf.sprintf "Douban HTTP %d; check Firefox login or access challenge" r.status)
@@ -242,7 +244,7 @@ module Make(H:R.Http.S)=struct
       the same browser account; do not create a persistent Camulus session. *)
    let bootstrap="https://www.douban.com/mine/" in
    let r=H.request {R.Http.meth=Get;body="";url=bootstrap;headers=["Cookie",Reader.Credentials.Firefox.header(t.cookies bootstrap);"Referer","https://www.douban.com/";
-    "User-Agent","Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"];limit=2*1024*1024} in
+    "User-Agent","Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"]} in
    if r.status<>200 then failwith "Douban CSRF bootstrap failed; check Firefox login";
    let ck=List.find_map(fun(k,v)->
     if String.lowercase_ascii k<>"set-cookie" then None else
@@ -254,7 +256,7 @@ module Make(H:R.Http.S)=struct
    "Referer","https://www.douban.com/";"Origin","https://www.douban.com";
    "Content-Type","application/x-www-form-urlencoded; charset=UTF-8";"X-CSRF-TOKEN",ck;"X-Requested-With","XMLHttpRequest"] in
   let body=Uri.encoded_of_query(List.map(fun(k,v)->k,[v])(("ck",ck)::fields)) in
-  let r=try t.post {R.Http.meth=Get;body="";url;headers;limit=1024*1024} ~body with R.Http.Transport_error _->
+  let r=try t.post {R.Http.meth=Get;body="";url;headers} ~body with R.Http.Transport_error _->
     failwith "Douban like transfer failed or timed out; refresh to check the remote state" in
   if r.status<>200 then failwith(Printf.sprintf "Douban like failed (HTTP %d); refresh to check the remote state" r.status);
   let j=try Yojson.Safe.from_string r.body with _->failwith "Invalid Douban like response; refresh to check the remote state" in
@@ -265,7 +267,7 @@ module Make(H:R.Http.S)=struct
      match json_reaction j with Some r->r.count|None->None) in
   Hashtbl.replace t.reactions id {liked;count}
  let invalidate t id=Hashtbl.remove t.cache id
- let download ~limit url=Download.download_url ~limit url
+ let download url=Download.download_url url
  let archive_article _ a=R.Article.archive ~download a
  let archive t group id=archive_article t (read t group id)
  let attachment t group id part destination=R.Article.attachment ~download (read t group id)part destination

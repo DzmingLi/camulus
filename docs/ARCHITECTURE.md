@@ -22,6 +22,7 @@ src/
   content_state.ml            SQLite 内容状态与归档
   local_subscriptions.ml     后端选择使用的本地组订阅状态
   http.ml                    公共 HTTP 类型、URL 策略与 ocurl 执行
+  html.ml                    Lambda Soup DOM 上的阅读正文清理与媒体提取
   credentials.ml             凭据文件读写与 Firefox Cookie 提供器
   credentials_emacs.ml       Emacs auth-source 查询和延迟 secret 解析
   reader_backend.ml          当前 Emacs 能力注册与 worker 注册
@@ -252,7 +253,7 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 ## 公共 HTTP 与凭据读取
 
-[http.ml](../src/http.ml) 定义共享的请求、响应和 HTTP 方法，以及基于 ocurl multi 的 Eio 传输。RSS、Reddit、Discourse 和使用 RSS 传输的内容后端不再各自维护 `curl_transport.ml`。传输统一处理 TLS、证书、连接与总超时、解压后大小限制、响应头限制、取消及句柄清理；不自动重试、不跟随重定向，也不查找或注入凭据。
+[http.ml](../src/http.ml) 定义共享的请求、响应和 HTTP 方法，以及基于 ocurl multi 的 Eio 传输。RSS、Reddit、Discourse 和使用 RSS 传输的内容后端不再各自维护 `curl_transport.ml`。传输统一处理 TLS、证书、连接与总超时、取消及句柄清理；不自动重试、不跟随重定向，也不查找或注入凭据。
 
 后端在自己的 `Transport` 模块指定 URL 策略：RSS 接受 HTTP/HTTPS，Reddit 只接受 HTTPS，Discourse 允许 HTTPS 和测试用的 loopback HTTP。具体的认证请求头、凭据发送目标及重定向规则由后端决定。例如 Discourse 媒体下载只向同源且符合站点挂载路径的地址附加密钥，RSS 的跨域重定向不携带其他来源的认证信息。
 
@@ -262,13 +263,13 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 ## 通用辅助代码与外部库
 
-标准格式和并发容器适合交给已有库，来源特有规则则保留在后端。当前已经使用 Saturn、`jsonfeed` 和 Syndic，分别处理并发队列、JSON Feed 1.1 和 RSS/Atom。邮件 MIME 和 SMTP 依赖 Mrmime、Colombe 等库。RSS 标准字段和日期交给 Syndic；`feed_xml.ml` 只保留 XML 资源限制、站点扩展元数据和 XHTML 到阅读正文的适配；XHTML 序列化和转义使用 `Syndic.XML.to_string`。Blogger 直接使用 Syndic 的 Atom 链接读取分页；The Atlantic 只额外解析题图的 Media RSS 扩展。
+标准格式和并发容器适合交给已有库，来源特有规则则保留在后端。当前已经使用 Saturn、`jsonfeed`、Syndic 和 Lambda Soup，分别处理并发队列、JSON Feed 1.1、RSS/Atom 和 HTML DOM。邮件 MIME 和 SMTP 依赖 Mrmime、Colombe 等库。RSS 标准字段和日期交给 Syndic；`feed_xml.ml` 只保留站点扩展元数据和 XHTML 到阅读正文的适配；XHTML 序列化和转义使用 `Syndic.XML.to_string`。HTML 使用 Lambda Soup 的 DOM、遍历及序列化，不再维护自写节点类型或 HTML 大小、深度和节点配额；`Html.clean` 原地清理传入 DOM，站点特有的图片属性与段落换行通过 Soup 节点操作处理。Blogger 直接使用 Syndic 的 Atom 链接读取分页；The Atlantic 只额外解析题图的 Media RSS 扩展。
 
 下一步值得检查的部分：
 
 | 当前实现 | 可考虑的替代 | 需要保留的职责 |
 | --- | --- | --- |
-| [Html](../src/html.ml) 的树遍历、选择与序列化 | [Lambda Soup](https://github.com/aantron/lambdasoup) | 内容清理策略、结构与大小限制、站点正文选择规则 |
+| [Html](../src/html.ml) 的解析、DOM 遍历与序列化 | 已使用 [Lambda Soup](https://github.com/aantron/lambdasoup) | 内容清理策略、媒体提取、站点正文选择规则 |
 
 这些是后续替换候选，不表示当前代码已完成迁移。`Html` 已经借助 Markup 解析 HTML；继续引入 DOM 库的收益主要是查询和重写，不应把整个模块称为自写 HTML 解析器。重复的字符串搜索和 HTML 转义也可先复用已有辅助函数，无须为每个小函数增加一个依赖。
 

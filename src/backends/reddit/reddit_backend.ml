@@ -92,7 +92,7 @@ module Make (Transport : Http.S) = struct
       Http.meth=Post; url="https://www.reddit.com/api/v1/access_token";
       headers=["Authorization", "Basic " ^ Base64.encode_exn (t.config.client_id ^ ":");
                "User-Agent",user_agent t; "Content-Type","application/x-www-form-urlencoded"];
-      body=form fields;limit=16*1024*1024 }
+      body=form fields }
     with Http.Transport_error _ -> raise (Error (Authorization "token exchange failed; retry later")) in
     if response.status <> 200 then raise (Error (Authorization (Printf.sprintf "token endpoint HTTP %d" response.status)));
     let json = try D.parse response.body with Error _ -> raise (Error (Authorization "invalid token response")) in
@@ -123,7 +123,7 @@ module Make (Transport : Http.S) = struct
           Http.meth; url="https://oauth.reddit.com" ^ path ^ (if meth=Get then "?" ^ form fields else "");
           headers=["Authorization","Bearer " ^ access.bearer; "User-Agent",user_agent t;
                    "Content-Type","application/x-www-form-urlencoded"];
-          body=(if meth=Post then form fields else "");limit=16*1024*1024 })
+          body=(if meth=Post then form fields else "") })
         with
         | Eio.Cancel.Cancelled _ as ex -> if meth=Post then raise (Error Uncertain_write) else raise ex
         | Http.Transport_error _ -> if meth=Post then raise (Error Uncertain_write) else None

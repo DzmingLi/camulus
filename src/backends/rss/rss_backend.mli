@@ -23,7 +23,7 @@ module Make (_:Http.S) : sig
   val create : ?subscriptions_file:string -> ?decode:(url:string -> string -> article list) -> unit -> t
   val followed : t -> string list
   val fetch_articles : t -> string -> string * article list
-  val download_url : ?limit:int -> string -> string
+  val download_url : string -> string
   val read : t -> group -> string -> article
   val archive : t -> group -> string -> article * (int * string) list
   val attachment : t -> group -> string -> int -> string -> unit

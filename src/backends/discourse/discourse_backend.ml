@@ -56,7 +56,7 @@ module Make(H:Http.S)=struct
    let uri=Uri.of_string url in
    let url=if writing then url else Uri.add_query_params' uri params |> Uri.to_string in
    let body=if writing then Uri.encoded_of_query(List.map(fun(k,v)->k,[v])params) else "" in
-   let r=try H.request {meth;url;body;limit=16*1024*1024;headers=headers t @ (if writing then ["Content-Type","application/x-www-form-urlencoded"] else [])}
+   let r=try H.request {meth;url;body;headers=headers t @ (if writing then ["Content-Type","application/x-www-form-urlencoded"] else [])}
      with Http.Transport_error _ -> if writing then raise Uncertain_write else failwith "Discourse network failure" in
    if writing && (r.status>=500 || r.status=408) then raise Uncertain_write;
    if r.status=429 then failwith "Discourse rate limit reached; retry later";
@@ -139,15 +139,12 @@ module Make(H:Http.S)=struct
    let title=D.str "title" j in if title="" then failwith "Missing Discourse title";
    let stream=D.field "post_stream" j in
    let ids=D.list "stream" stream |> List.map(fun n -> D.positive(D.integer n)) in
-   if ids=[] || List.length ids>20000 || List.length(List.sort_uniq compare ids)<>List.length ids then failwith "Invalid or oversized Discourse post stream";
+   if ids=[] || List.length(List.sort_uniq compare ids)<>List.length ids then failwith "Invalid Discourse post stream";
    let known=Hashtbl.create 64 and floors=Hashtbl.create 64 in
-   let bytes=ref 0 in
    let ingest posts =
      let articles=List.map(D.post ~site:t.config.site ~topic ~title) posts in
      List.iter(fun a ->
        if not(List.mem a.D.post_id ids) || Hashtbl.mem known a.post_id || Hashtbl.mem floors a.floor then failwith "Unexpected or duplicate Discourse post";
-       bytes:= !bytes+String.length(Option.value a.message.html ~default:"");
-       if !bytes>128*1024*1024 then failwith "Discourse topic exceeds 128 MiB";
        Hashtbl.add known a.post_id ();Hashtbl.add floors a.floor a;
        emit_article a) articles;
      let remaining=List.filter(fun id -> not(Hashtbl.mem known id)) ids in
@@ -234,7 +231,7 @@ module Make(H:Http.S)=struct
        (D.list "topics" data) in
      rows,(if D.str "more_topics_url" data="" then None else cursor Latest scope page)
  end
- let download t ?(limit=128*1024*1024) url =
+ let download t url =
    let rec fetch visited url =
      ignore(Http.validate ~policy:Http.Https_or_loopback url);
      if List.length visited>=6 || List.mem url visited then failwith "Discourse attachment redirect limit";
@@ -242,18 +239,13 @@ module Make(H:Http.S)=struct
      let mount=Uri.path(Uri.of_string t.config.site) in
      let path=Uri.path uri in
      let authenticated=Http.same_origin t.config.site url && (mount="" || String.starts_with ~prefix:(mount^"/") path) in
-     let r=H.request {Http.meth=Get;url;body="";limit;headers=(if authenticated then headers t else [])} in
+     let r=H.request {Http.meth=Get;url;body="";headers=(if authenticated then headers t else [])} in
      if List.mem r.status [301;302;303;307;308] then
        match List.assoc_opt "location" r.headers with Some next->fetch(url::visited)(Http.resolve url next) | None->failwith "Attachment redirect missing location"
      else if r.status<>200 then failwith(Printf.sprintf "Discourse attachment HTTP %d" r.status) else r.body in
    fetch [] url
- let archive_article t a =
-   let total=ref(String.length(Option.value a.D.message.html ~default:"")) in
-   let files=List.map(fun file ->
-     let data=download t ~limit:(128*1024*1024 - !total) file.D.url in
-     total:= !total+String.length data;
-     if !total>128*1024*1024 then failwith "Discourse archive exceeds 128 MiB";
-     file.part,data) a.attachments in
+ let archive_article t (a:D.article) =
+   let files=List.map(fun file ->file.D.part,download t file.url) a.attachments in
    {Reader.Content_state.message=a.message;attachments=D.attachments_json a;raw=None;files}
  let attachment t id part destination =
    let a=read t id in

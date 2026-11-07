@@ -114,8 +114,8 @@ module Make(H:R.Http.S) = struct
       | Some a,_->a | None,Some next->find(Some next)
       | None,None->failwith "Article is no longer in this JSON Feed; use its saved copy" in
     match Hashtbl.find_opt t.articles(root,id) with Some a->a | None->find None
-  let archive t root id = R.Article.archive ~download:(fun ~limit url -> Feed.download_url ~limit url) (read t root id)
-  let attachment t root id part destination = R.Article.attachment ~download:(fun ~limit url -> Feed.download_url ~limit url) (read t root id) part destination
+  let archive t root id = R.Article.archive ~download:Feed.download_url (read t root id)
+  let attachment t root id part destination = R.Article.attachment ~download:Feed.download_url (read t root id) part destination
   module Subscription = struct
     type nonrec t=t
     type target=string

@@ -28,19 +28,17 @@ let gunzip bytes=
   Fun.protect ~finally:(fun()->Gzip.close_in input)(fun()->
    let result=Buffer.create 65536 and chunk=Bytes.create 65536 in
    let rec read()=let n=Gzip.input input chunk 0 (Bytes.length chunk) in
-    if n>0 then begin if Buffer.length result+n>128*1024*1024 then failwith "Public-inbox expands beyond 128 MiB";
+    if n>0 then begin
      Buffer.add_subbytes result chunk 0 n;read()end in
    read();Buffer.contents result))
 type article={article:D.article;raw:string}
 let parse_mbox ~url body=
  let base,_=group url in
- if String.length body>128*1024*1024 then failwith "Public-inbox mbox exceeds 128 MiB";
  let records=ref [] and current=Buffer.create 4096 and inside=ref false and header=ref true in
  let flush()=if !inside then (records:=Buffer.contents current::!records;Buffer.clear current) in
  String.split_on_char '\n' body |> List.iter(fun line->
   if String.starts_with ~prefix:"From mboxrd@z " line then begin
-   flush();inside:=true;header:=true;
-   if List.length !records>=10000 then failwith "Public-inbox thread exceeds 10000 messages"
+   flush();inside:=true;header:=true
   end else if !inside then begin
    let line=if !header then line else
     let rec quoted i=if i<String.length line && line.[i]='>' then quoted(i+1) else i in
@@ -75,7 +73,7 @@ module Make(H:R.Http.S)=struct
  let create()={cache=Hashtbl.create 128}
  let load t url=
   let url=canonical url in
-  let bytes=Download.download_url ~limit:(64*1024*1024) (url^"t.mbox.gz") in
+  let bytes=Download.download_url  (url^"t.mbox.gz") in
   let articles=Eio_unix.run_in_systhread(fun()->parse_mbox ~url (gunzip bytes)) in
   List.iter(fun a->Hashtbl.replace t.cache a.article.message.id a)articles;articles
  let list t group ~after=
@@ -103,7 +101,7 @@ module Make(H:R.Http.S)=struct
  let archive t group id=archive_article t (read t group id)
  let attachment t _ id part destination=
   let record=read_record t id in let bytes=Mime.extract record.raw part in
-  R.Article.attachment ~download:(fun ~limit:_ _->bytes) record.article part destination
+  R.Article.attachment ~download:(fun _->bytes) record.article part destination
 end
 module Live=Make(R.Transport)
 module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live

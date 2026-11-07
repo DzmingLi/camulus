@@ -66,7 +66,7 @@ module Make(H:R.Http.S)=struct
  let source=source
  let create ()={full=Hashtbl.create 64;revisions=Hashtbl.create 64;lock=Eio.Mutex.create ()}
  let get url=
-  let r=H.request{R.Http.meth=Get;body="";url;headers=["Accept","application/vnd.api+json";"Referer","https://www.gcores.com/"];limit=16*1024*1024}in
+  let r=H.request{R.Http.meth=Get;body="";url;headers=["Accept","application/vnd.api+json";"Referer","https://www.gcores.com/"]}in
   if r.status<>200 then failwith(Printf.sprintf "Gcores HTTP %d" r.status);
   Yojson.Safe.from_string r.body
  let page t group query after=
@@ -99,7 +99,7 @@ module Make(H:R.Http.S)=struct
      if a.message.id<>id then failwith "Gcores returned the wrong article";
      Hashtbl.replace t.full id a;Hashtbl.replace t.revisions id a.message.activity;a)
  let invalidate t id=Hashtbl.remove t.revisions id
- let download ~limit url=Download.download_url ~limit url
+ let download url=Download.download_url url
  let archive t group id=R.Article.archive ~download(read t group id)
  let attachment t group id part path=R.Article.attachment ~download(read t group id)part path
 end

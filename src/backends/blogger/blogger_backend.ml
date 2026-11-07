@@ -79,9 +79,9 @@ module Make(H:R.Http.S)=struct
   Eio.Mutex.lock t.lock;Fun.protect ~finally:(fun()->Eio.Mutex.unlock t.lock)(fun()->
    match Hashtbl.find_opt t.full(group,id)with
    |Some cached when cached.message.activity=a.message.activity->cached
-   |_->let body=Feed.download_url ~limit:(16*1024*1024)(R.Http.validate a.message.url) in
+   |_->let body=Feed.download_url (R.Http.validate a.message.url) in
      let full=full_post a body in Hashtbl.replace t.full(group,id)full;full)
- let download ~limit url=Feed.download_url ~limit url
+ let download url=Feed.download_url url
  let archive t group id=R.Article.archive ~download(read t group id)
  let attachment t group id part path=R.Article.attachment ~download(read t group id)part path
 end

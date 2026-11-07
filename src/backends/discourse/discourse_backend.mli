@@ -39,7 +39,7 @@ module Make (_:Http.S) : sig
  val stream_thread : t -> string -> emit_article:(Decode.article -> unit) -> emit:(Reader.Content.thread_batch -> unit) -> unit
  val archive_article : t -> Decode.article -> Reader.Content_state.archived
  val attachment : t -> string -> int -> string -> unit
- val download : t -> ?limit:int -> string -> string
+ val download : t -> string -> string
  val send : t -> draft -> receipt
  val track : t -> string -> tracking -> unit
  val topic_state : t -> string -> int

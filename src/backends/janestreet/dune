@@ -1,4 +1,4 @@
-(library (name janestreet_backend) (modules (:standard \ janestreet_emacs)) (libraries reader rss_backend eio eio.unix uri yojson unix))
+(library (name janestreet_backend) (modules (:standard \ janestreet_emacs)) (libraries reader rss_backend lambdasoup eio eio.unix uri yojson unix))
 
 (library
  (name janestreet_emacs)

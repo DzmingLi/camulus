@@ -1,4 +1,4 @@
-(library (name douban_backend) (modules (:standard \ douban_emacs)) (libraries reader rss_backend eio eio.unix yojson uri unix ptime curl))
+(library (name douban_backend) (modules (:standard \ douban_emacs)) (libraries reader rss_backend lambdasoup eio eio.unix yojson uri unix ptime curl))
 
 (library
  (name douban_emacs)

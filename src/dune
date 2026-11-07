@@ -1,7 +1,7 @@
 (library
  (name reader)
  (modules protocol runtime content backend host voting content_state html local_subscriptions firefox_cookies http credentials)
- (libraries unix threads saturn eio eio.unix eio_posix sqlite3 yojson markup uri curl)
+ (libraries unix threads saturn eio eio.unix eio_posix sqlite3 yojson markup lambdasoup uri curl)
  (foreign_stubs (language c) (names host_stubs)))
 
 (executable

@@ -1,4 +1,4 @@
-(library (name zhihu_backend) (modules (:standard \ zhihu_emacs)) (libraries reader rss_backend eio eio.unix yojson uri unix))
+(library (name zhihu_backend) (modules (:standard \ zhihu_emacs)) (libraries reader rss_backend lambdasoup eio eio.unix yojson uri unix))
 
 (library
  (name zhihu_emacs)

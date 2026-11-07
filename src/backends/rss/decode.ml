@@ -38,7 +38,7 @@ let of_atom (feed:A.feed)=List.map(fun(e:A.entry)->
    ~author:(String.concat ", "(List.map(fun(a:A.author)->a.name)(first::rest))) ~body ~html ~url
    ~created:(Ptime.to_float_s(Option.value e.published ~default:e.updated)) ~updated:(Syndic.Date.to_rfc3339 e.updated) enclosures)feed.entries
 let atom_page ~url body =
- let feed=parsed(fun()->A.parse ~xmlbase:(Uri.of_string url)(Xml.input body))in
+ let feed=parsed(fun()->A.parse ~xmlbase:(Uri.of_string url)(Xmlm.make_input ~strip:false (`String(0,body))))in
  of_atom feed,feed.links
 let parse ~url body =
  let root=Xml.read body in
@@ -68,6 +68,5 @@ let parse ~url body =
    article ~id ~title:i.title ~author:(field "creator") ~body:"" ~html:(Some(Option.value i.description ~default:""))
      ~url:(Uri.to_string i.link) ~created:(date(field "date")) ~updated:"" [])feed.item)
  else failwith "Expected RSS or Atom feed" in
- if List.length articles>5000 then failwith "Feed has more than 5000 entries";
  let seen=Hashtbl.create 64 in
  List.filter(fun a->if Hashtbl.mem seen a.message.id then false else(Hashtbl.add seen a.message.id();true))articles

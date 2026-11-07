@@ -31,17 +31,17 @@ let ()=
    (fun()->while true do Eio.Net.accept_fork ~sw socket ~on_error:(fun _->())handle done)
    (fun()->
     let url path=Printf.sprintf "http://127.0.0.1:%d%s" port path in
-    let get ?(limit=4096)path=H.request ~timeout_ms:1000(H.get ~limit(url path))in
+    let get path=H.request ~timeout_ms:1000(H.get(url path))in
     check((get "/ok").body="ok")"loopback HTTP";
     check((get "/redirect").status=302 && not(Hashtbl.mem calls "/target"))"no implicit credential-bearing redirects";
     List.iter(fun(meth,label)->let r=H.request ~timeout_ms:1000{(H.get(url "/echo"))with meth;body="A\000B"}in
       check(r.body=label^":A\000B")"binary write body and method") [H.Post,"POST";H.Delete,"DELETE";H.Patch,"PATCH"];
     check(Hashtbl.find calls "/echo"=3)"writes are never retried";
-    check(rejected(fun()->get ~limit:3 "/large"))"decoded response size limit";
-    check(rejected(fun()->get "/headers"))"response header size limit";
+    check((get "/large").body="1234")"complete response body";
+    check(List.assoc "x-filler" (get "/headers").headers=String.make 70000 'x')"complete response headers";
     check(rejected(fun()->H.request{(H.get(url "/ok"))with headers=["Authorization","fixture\r\nInjected: value"]}))"reject injected request headers";
     check(rejected(fun()->H.request ~timeout_ms:30(H.get(url "/slow"))))"transfer timeout";
     let cancelled=Eio.Fiber.first(fun()->ignore(get "/slow");false)(fun()->Eio.Time.Mono.sleep(Eio.Stdenv.mono_clock env)0.02;true)in
     check cancelled "Eio cancellation remains responsive";
     check((get "/ok").body="ok")"transport remains usable after cancellation")));
- print_endline "PASS shared HTTP: URL policies, no redirects/retries, binary methods, limits, timeout and cancellation"
+ print_endline "PASS shared HTTP: URL policies, no redirects/retries, binary methods, timeout and cancellation"

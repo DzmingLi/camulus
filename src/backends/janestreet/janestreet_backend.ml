@@ -20,13 +20,15 @@ let decode ~url body =
 let full_post (a:D.article) html =
  let document=Html.parse html in
  let article=Html.find(fun n -> Html.tag n="article" && Option.is_some(Html.find(Html.has_class "post-content")n))document
-   |> Option.value ~default:(Html.Text "") in
+   |> Option.value ~default:(Soup.create_text "") in
  let post=match Html.find(Html.has_class "post-content")article with Some n->n | None->failwith "Jane Street page has no post-content" in
  let hero=Html.find(Html.has_class "featimg-wrapper")article in
  let authors=Html.select(Html.has_class "name")article |> List.concat_map(Html.select(fun n->Html.tag n="a"))
    |> List.map(fun n->String.trim(Html.text n)) |> List.filter((<>)"") |> List.sort_uniq String.compare in
  let nodes=Option.to_list hero @ [post] in
- let tree=Html.Element("root",[],nodes) |> Html.clean ~base:a.message.url |> Option.get in
+ let fragment=Soup.create_soup()in
+ List.iter(Soup.append_root fragment)nodes;
+ let tree=Soup.coerce fragment |> Html.clean ~base:a.message.url |> Option.get in
  if String.trim(Html.text tree)="" then failwith "Jane Street returned an empty post";
  let enclosures=Html.media tree |> List.mapi(fun part url ->
    {D.part;url;name=Uri.path(Uri.of_string url)|>Filename.basename|>Uri.pct_decode;size=0;mime=""}) in
@@ -48,16 +50,11 @@ module Make(H:R.Http.S)=struct
    Fun.protect ~finally:(fun ()->Eio.Mutex.unlock t.lock) (fun () ->
      match Hashtbl.find_opt t.full id with
      | Some cached when cached.message.activity=a.message.activity -> cached
-     | _ -> let html=Feed.download_url ~limit:(16*1024*1024) (post_url a.message.url) in
+     | _ -> let html=Feed.download_url (post_url a.message.url) in
        let full=full_post a html in Hashtbl.replace t.full id full;full)
  let archive t group id =
    let a=read t group id in
-   let total=ref 0 in
-   let files=List.map(fun (e:D.enclosure)->
-     let data=Feed.download_url ~limit:(128*1024*1024 - !total) e.url in
-     total:= !total+String.length data;
-     if !total>128*1024*1024 then failwith "Jane Street attachments exceed 128 MiB";
-     e.part,data)a.enclosures in
+   let files=List.map(fun (e:D.enclosure)->e.part,Feed.download_url e.url)a.enclosures in
    {Reader.Content_state.message=a.message;attachments=D.attachments a;raw=None;files}
  let attachment t group id part destination =
    let a=read t group id in
