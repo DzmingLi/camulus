@@ -71,5 +71,4 @@ let notifications j =
     if not (fullname "t1" target && fullname "t3" thread) then None else
     Some { M.event_id = target; target; thread;
       title = Option.value (optional "link_title" d) ~default:(string "subject" d);
-      reason = (if string "subject" d = "username mention" then "mention" else "reply");
       created = number (get "created_utc" d) })

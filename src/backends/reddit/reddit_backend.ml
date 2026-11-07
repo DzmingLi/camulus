@@ -398,7 +398,7 @@ let result_json result =
   | Page p -> make "page" ["messages",messages p.messages; "after",json_option p.after;
       "notifications",`List (List.map (fun (n:M.notification) -> `Assoc [
         "event_id",`String n.event_id;"thread",`String n.thread;"target",`String n.target;
-        "title",`String n.title;"reason",`String n.reason;"created",`Float n.created]) p.notifications)]
+        "title",`String n.title;"created",`Float n.created]) p.notifications)]
   | Thread_batch b -> make "thread" ["thread",`String b.thread;"messages",messages b.messages;
       "complete",`Bool b.complete;"gaps",`List (List.map (fun (g:M.gap) ->
         `Assoc ["parent",`String g.parent;"count",`Int g.count]) b.gaps)]

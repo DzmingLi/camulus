@@ -23,7 +23,6 @@ type notification = {
   event_id : string;
   thread : string;
   target : string;
-  reason : string;
   title : string;
   created : float;
 }
