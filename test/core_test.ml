@@ -11,17 +11,18 @@ let wait_until f =
   in loop ()
 
 let spsc_queue_test () =
-  let q = Spsc_queue.create 3 in
-  check (Spsc_queue.push q 1 && Spsc_queue.push q 2 && Spsc_queue.push q 3) "spsc_queue capacity";
-  check (not (Spsc_queue.push q 4)) "spsc_queue overflow must reject";
-  check (Spsc_queue.pop q = Some 1 && Spsc_queue.pop q = Some 2 && Spsc_queue.pop q = Some 3) "FIFO";
-  check (Spsc_queue.pop q = None) "empty spsc_queue";
+  let module Queue = Saturn.Single_prod_single_cons_queue in
+  let q = Queue.create ~size_exponent:2 in
+  check (Queue.try_push q 1 && Queue.try_push q 2 && Queue.try_push q 3 && Queue.try_push q 4) "spsc_queue capacity";
+  check (not (Queue.try_push q 5)) "spsc_queue overflow must reject";
+  check (Queue.pop_opt q = Some 1 && Queue.pop_opt q = Some 2 && Queue.pop_opt q = Some 3 && Queue.pop_opt q = Some 4) "FIFO";
+  check (Queue.pop_opt q = None) "empty spsc_queue";
   let producer = Domain.spawn (fun () ->
     for i = 1 to 100_000 do
-      while not (Spsc_queue.push q i) do Domain.cpu_relax () done
+      while not (Queue.try_push q i) do Domain.cpu_relax () done
     done) in
   for i = 1 to 100_000 do
-    let rec take () = match Spsc_queue.pop q with
+    let rec take () = match Queue.pop_opt q with
       | None -> Domain.cpu_relax (); take () | Some x -> x in
     check (take () = i) "cross-domain FIFO"
   done;

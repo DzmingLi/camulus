@@ -1,6 +1,6 @@
 (library
  (name maildir_backend) (modules (:standard \ maildir_emacs process_emacs compose_emacs))
- (libraries reader yojson unix eio eio.unix mrmime rosetta uri
+ (libraries reader saturn yojson unix eio eio.unix mrmime rosetta uri
    angstrom sendmail colombe tls-eio ca-certs mirage-crypto-rng.unix ptime.clock.os))
 
 (library

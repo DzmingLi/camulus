@@ -1,5 +1,7 @@
 open Protocol
 
+module Queue = Saturn.Single_prod_single_cons_queue
+
 exception User_cancelled
 exception Shutdown
 
@@ -7,8 +9,8 @@ type handler = work -> emit:(payload -> unit) -> unit
 type extension = net:Eio_unix.Net.t -> now:(unit -> float) -> sleep:(float -> unit) -> handler
 
 type t = {
-  commands : command Spsc_queue.t;
-  events : event Spsc_queue.t;
+  commands : command Queue.t;
+  events : event Queue.t;
   stop_requested : bool Atomic.t;
   lifecycle : lifecycle Atomic.t;
   finished : bool Atomic.t;
@@ -34,7 +36,7 @@ let drain fd =
 let publish t event =
   let rec put () =
     if Atomic.get t.stop_requested then ()
-    else if Spsc_queue.push t.events event then t.notify_ui ()
+    else if Queue.try_push t.events event then t.notify_ui ()
     else (Eio_unix.sleep 0.001; put ())
   in put ()
 
@@ -96,7 +98,7 @@ let worker t () =
         let rec consume budget =
           if Atomic.get t.stop_requested then raise Shutdown;
           if budget = 0 then (Eio.Fiber.yield (); consume 32)
-          else match Spsc_queue.pop t.commands with
+          else match Queue.pop_opt t.commands with
           | None -> ()
           | Some (Submit request) -> start_job sw request; consume (budget - 1)
           | Some (Cancel id) ->
@@ -122,7 +124,7 @@ let create ?(extension = fun ~net:_ ~now:_ ~sleep:_ _ ~emit:_ -> failwith "Unsup
   Unix.set_nonblock command_read;
   Unix.set_nonblock command_write;
   let t = {
-    commands = Spsc_queue.create 256; events = Spsc_queue.create 512;
+    commands = Queue.create ~size_exponent:8; events = Queue.create ~size_exponent:9;
     stop_requested = Atomic.make false; lifecycle = Atomic.make Starting;
     finished = Atomic.make false; command_read; command_write; notify_ui; extension;
     domain = None;
@@ -133,7 +135,7 @@ let create ?(extension = fun ~net:_ ~now:_ ~sleep:_ _ ~emit:_ -> failwith "Unsup
 
 let submit t command =
   if Atomic.get t.stop_requested || Atomic.get t.finished then false
-  else if Spsc_queue.push t.commands command then (wake t.command_write; true)
+  else if Queue.try_push t.commands command then (wake t.command_write; true)
   else false
 
 let request_stop t =
@@ -142,7 +144,7 @@ let request_stop t =
     wake t.command_write
   end
 
-let take_event t = Spsc_queue.pop t.events
+let take_event t = Queue.pop_opt t.events
 let status t = Atomic.get t.lifecycle
 
 let reap t =

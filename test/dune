@@ -1,7 +1,7 @@
 (test
  (name core_test)
  (modules core_test)
- (libraries reader unix threads))
+ (libraries reader unix threads saturn))
 
 (test
  (name reddit_test)
