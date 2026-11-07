@@ -52,9 +52,9 @@ type view=Home|Groups|Subscriptions|Folders|Folder of string|Group of J.t|Settin
 let empty_settings=assoc["version",`Int 1;"groups",`List [];"priorities",`List [];"default_priority",`Int 2;"home_priorities",`List [];"backend_settings",assoc[]]
 type model={view:view;config:J.t;revision:string;subscriptions:J.t list;rows:J.t list;articles:J.t list;
  selected:J.t option;folders:string list;error:string;notice:string;busy:int;after:J.t;
- settings_text:string;query:string;save_dialog:bool;save_folder:string;new_name:string;new_url:string;new_kind:string;levels_text:string}
+ settings_text:string;query:string;save_dialog:bool;save_item:J.t option;save_folder:string;new_name:string;new_url:string;new_kind:string;levels_text:string}
 let initial={view=Home;config=empty_settings;revision="";subscriptions=[];rows=[];articles=[];selected=None;
- folders=[];error="";notice="";busy=0;after=`Null;settings_text="";query="";save_dialog=false;save_folder="";
+ folders=[];error="";notice="";busy=0;after=`Null;settings_text="";query="";save_dialog=false;save_item=None;save_folder="";
  new_name="";new_url="";new_kind="rss";levels_text=""}
 let generation=ref 0 and read_generation=ref 0
 let read_seen=Hash_set.create(module String)
@@ -154,7 +154,7 @@ let component graph =
      then change "unread"(`Bool(not read))item else item)})))in
  let dismiss row=let token= !generation in run(state["op",s "dismiss-timeline";"source",field "source"row;"id",field "id"row;"revision",field "revision"row])
   (fun e->if token= !generation&&String.equal(str "kind"e)"changed"then apply(fun m->{m with rows=List.filter m.rows ~f:(fun x->not(String.equal(str "id"x)(str "id"row)&&String.equal(str "source"x)(str "source"row)))}))in
- let save_dialog ()=Effect.Many[update(fun m->{m with save_dialog=true});async reload_folders]in
+ let save_dialog row=Effect.Many[update(fun m->{m with save_dialog=true;save_item=Some row});async reload_folders]in
  let save row name=run(state["op",s "favorite";"source",field "source"row;"id",field "id"row;
    "target",s(if String.is_empty(str "thread_id"row)then "article"else "thread");"folder",s name])
   (fun e->if String.equal(str "kind"e)"saved"then apply(fun m->{m with save_dialog=false;notice="已收藏并持久保存";
@@ -221,13 +221,13 @@ let component graph =
      [button ~attrs:[cls "row-open"] (str "title"row) (Effect.of_sync_fun(fun()->dispatch(open_row row))());
       node "div" ~attrs:[cls "row-meta"][label(str "author"row^" · "^date(field "occurred"row));
        node "span"[label(backend(str "source"row))]];
-      node "div" ~attrs:[cls "row-actions"][button "收藏"(Effect.Many[update(fun m->{m with selected=Some row});save_dialog()]);
+      node "div" ~attrs:[cls "row-actions"][button "收藏"(save_dialog row);
        (match m.view with Home->button "移除"(dismiss row)|Folder name->button "取消此收藏"(run(state["op",s "unfavorite";"source",field "source"row;
         "id",field "id"row;"target",field "target"row;"folder",s name])(fun e->if String.equal(str "kind"e)"changed"then dispatch(folder name)))|_->Vdom.Node.none)]])));
   (match m.view,m.after with Group e,(`String _ as after)->button "加载更多"(Effect.of_sync_fun(fun()->dispatch(browse e ~after()))())|_->Vdom.Node.none)]in
  let article_view ()=node "section" ~attrs:[cls "reader";attr "tabindex""0";attr "aria-label""阅读区";Vdom.Attr.on_scroll(fun _->Effect.of_sync_fun(fun()-> !scan_read())())]
   (match m.selected with None->[node "p" ~attrs:[cls "empty"][label "选择一篇文章开始阅读"]]|Some selected->
-   node "div" ~attrs:[cls "reader-toolbar"][button "收藏…"(save_dialog());button "关闭阅读"(update(fun m->{m with selected=None;articles=[]}))]::
+   node "div" ~attrs:[cls "reader-toolbar"][button "收藏…"(save_dialog selected);button "关闭阅读"(update(fun m->{m with selected=None;articles=[]}))]::
    (if List.is_empty m.articles then[node "p"[label "正在加载正文…"]]else List.map(tree m.articles)~f:(fun(depth,msg)->
     node "article" ~key:(str "id"msg) ~attrs:[cls "article";attr "data-message"(str "id"msg);attr "data-source"(str "source"selected);
        attr "style"(Printf.sprintf "margin-left:%dpx"(Int.min 6 depth*20))]
@@ -235,7 +235,7 @@ let component graph =
        (match field "html"msg with `String html when not(String.is_empty html)->Vdom.Node.inner_html ~tag:"div"~attrs:[cls "article-body"]
          ~this_html_is_sanitized_and_is_totally_safe_trust_me:html ()|_->node "div" ~attrs:[cls "article-body plain"][label(str "body"msg)]);
        node "footer"[node "a" ~attrs:[attr "href"(safe_url(str "url"msg));attr "target""_blank";attr "rel""noopener noreferrer"][label "打开原文"];
-        button "收藏此楼"(Effect.Many[update(fun m->{m with selected=Some(change "source"(field "source"selected)(change "thread_id"`Null msg))});save_dialog()])]])))in
+        button "收藏此楼"(save_dialog(change "source"(field "source"selected)(change "thread_id"`Null msg)))]])))in
  (* Mark only visible article bodies, not the summaries or background batches. *)
  let scan ()=
   let elements=Dom_html.document##querySelectorAll(Js.string ".reader .article")in
@@ -253,7 +253,7 @@ let component graph =
    let el:Dom_html.element Js.t=Js.Unsafe.coerce(Js.Opt.get body##.parentNode (fun()->assert false))in
    let rect=body##getBoundingClientRect in
    let id=Js.Opt.case(el##getAttribute(Js.string "data-message"))(fun()->"")Js.to_string in
-   if Float.(rect##.top < of_int Dom_html.document##.documentElement##.clientHeight && rect##.bottom > 150.) && not(Hash_set.mem read_seen id)then(
+   if Float.(rect##.top < of_int Dom_html.document##.documentElement##.clientHeight && rect##.bottom > 150. && rect##.bottom > rect##.top) && not(Hash_set.mem read_seen id)then(
     Hash_set.add read_seen id;visible:=id::!visible))done;
   match m.selected,!visible with
   |Some row,(_::_ as ids)->let source=str "source"row in
@@ -269,7 +269,7 @@ let component graph =
   let tag=Js.Opt.case ev##.target (fun()->"")(fun target->Js.to_string target##.tagName) in
   if List.mem["INPUT";"TEXTAREA";"SELECT"]tag ~equal:String.equal then Effect.Ignore else
   match Js.Optdef.case ev##.key (fun()->"") Js.to_string,m.selected with
-  |"m",Some _->save_dialog()
+  |"m",Some row->save_dialog row
   |"d",Some row when Poly.equal m.view Home->dismiss row
   |_->Effect.Ignore)][node "aside" ~attrs:[cls "sidebar"][node "h1"[label "Camulus"];node "p" ~attrs:[cls "subtitle"][label "阅读 · 讨论 · 收藏"];
   menu Home "时间线";menu Groups "组浏览";menu Subscriptions "订阅";menu Folders "收藏夹";menu Settings "设置";
@@ -290,7 +290,7 @@ let component graph =
       (list_view()::(if Option.is_some m.selected then[article_view()]else[])))];
   (if not m.save_dialog then Vdom.Node.none else node "div" ~attrs:[cls "modal-backdrop"][node "section" ~attrs:[cls "modal";attr "role""dialog";attr "aria-label""收藏到文件夹"]
    [node "h2"[label "收藏到文件夹"];node "p"[label "收藏会持久保存正文。同一篇内容可以加入多个文件夹。"];
-    node "div"(List.map m.folders ~f:(fun name->button name(match m.selected with None->Effect.Ignore|Some row->save row name)));
+    node "div"(List.map m.folders ~f:(fun name->button name(match m.save_item with None->Effect.Ignore|Some row->save row name)));
     input ~placeholder:"新文件夹，支持 父文件夹/子文件夹" m.save_folder(fun x->update(fun m->{m with save_folder=x}));
-    button "保存"(match m.selected with None->Effect.Ignore|Some row->save row m.save_folder);button "取消"(update(fun m->{m with save_dialog=false}))]])]
+    button "保存"(match m.save_item with None->Effect.Ignore|Some row->save row m.save_folder);button "取消"(update(fun m->{m with save_dialog=false}))]])]
 let ()=Bonsai_web.Start.start component
