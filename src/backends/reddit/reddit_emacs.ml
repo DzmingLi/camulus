@@ -136,11 +136,11 @@ let install_protocol ~ensure_ui ~idle ~submit =
 
 let install ~submit ~configured () =
   Interaction_emacs.install ();
-  custom ~kind:Customization.Type.(Option {doc_for_none="Unconfigured";t=String}) "camulus-reddit-username" Value.nil "Backend configuration option.";
-  custom ~kind:Customization.Type.File "camulus-reddit-token-file" (call "expand-file-name" [s "~/News/nnreddit/refresh-token"]) "Backend configuration option.";
-  custom ~kind:Customization.Type.String "camulus-reddit-client-id" (s "5oagOpX2_NKVDej_iuZjFA") "Backend configuration option.";
-  custom ~kind:Customization.Type.String "camulus-reddit-redirect-uri" (s "http://127.0.0.1:17973") "Backend configuration option.";
-  register_settings "reddit"(string_settings["username","camulus-reddit-username";"token_file","camulus-reddit-token-file"]);
+  setting "camulus-reddit-username" Value.nil;
+  setting "camulus-reddit-token-file" (call "expand-file-name" [s "~/News/nnreddit/refresh-token"]);
+  setting "camulus-reddit-client-id" (s "5oagOpX2_NKVDej_iuZjFA");
+  setting "camulus-reddit-redirect-uri" (s "http://127.0.0.1:17973");
+  register_settings "reddit"(string_settings["username","camulus-reddit-username";"token_file","camulus-reddit-token-file";"client_id","camulus-reddit-client-id";"redirect_uri","camulus-reddit-redirect-uri"]);
   register_local_groups ~accepts:all_groups { (base ~name:"Reddit" ~matches:(String.is_prefix ~prefix:"reddit:") ~threaded:true
     ~read:(fun ~source:_ ~id ~thread_id ~group:_ ->
       Value.of_int_exn (submit (Reddit_backend.Thread (Option.value thread_id ~default:id))))) with

@@ -1,0 +1,6 @@
+(executable
+ (name camulus_web)
+ (public_name camulus-web)
+ (package camulus)
+ (modules camulus_web web_backend)
+ (libraries reader rss_backend jsonfeed_backend discourse_backend feed_service discourse_service cohttp-eio eio_main yojson uri))

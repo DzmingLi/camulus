@@ -6,10 +6,10 @@ let request_mail = Maildir_emacs.submit_operation ~submit:submit_work
 let request_reddit = Reddit_emacs.submit_operation ~submit:submit_work
 let () =
   defun (Symbol.intern "camulus-firefox-cookies-get") [%here]
-    ~docstring:"Return Firefox cookies for HTTPS URL as an alist of string pairs.\nRead camulus-firefox-profile on each call, without starting the reader.\nThis synchronous callback reads only the local database; it does not log in."
+    ~docstring:"Return Firefox cookies for HTTPS URL as an alist of string pairs.\nRead shared browser settings on each call, without starting the reader.\nThis synchronous callback reads only the local database; it does not log in."
     (Returns Value.Type.value)
     (let open Defun.Let_syntax in let%map_open url=required "url" string in
-     ensure_ui ();
+     ensure_ui ();Reader_config.load ();
      let provider=Reader_backend.firefox_cookie_provider () in
      Value.list(List.map (Reader.Firefox_cookies.get_sync provider url) ~f:(fun(name,value)->
        Reader_backend.call "cons" [Value.of_utf8_bytes name;Value.of_utf8_bytes value])));

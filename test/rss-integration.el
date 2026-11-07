@@ -178,7 +178,7 @@
           (camulus-default-subscription-priority 2)
           (camulus-subscription-priorities (list (list source url 1) (list atom-source atom-url 3)))
           (camulus-home-priorities '(1))
-          (custom-file (expand-file-name "custom.el" directory))
+          (camulus-settings-file (expand-file-name "settings.json" directory))
           (user-init-file (expand-file-name "init.el" directory)))
      (dolist (feed (list url atom-url))
        (camulus-rss-test-await
@@ -199,7 +199,7 @@
      (cl-letf (((symbol-function 'read-number) (lambda (&rest _) 1)))
        (camulus-subscription-set-priority))
      (camulus-rss-test-idle)
-     (should (file-exists-p custom-file))
+     (should (file-exists-p camulus-settings-file))
      (should (equal (assoc atom-source camulus-subscription-priorities) (list atom-source atom-url 1)))
      (camulus) (camulus-rss-test-idle)
      (should (= 2 (length tabulated-list-entries)))

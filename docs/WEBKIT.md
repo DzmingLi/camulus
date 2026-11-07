@@ -2,7 +2,7 @@
 
 Camulus 的 `Reader_webkit` 模块向后端提供浏览器视图能力。Nix 的 `emacs-camulus` 包自动引入 `emacs-webkit`；模块按需加载，终端中仍可使用其他阅读功能。直接安装原生模块时，需要将 emacs-webkit 加入 Emacs 的 load-path。
 
-公共接口位于 `src/reader_webkit.mli`：
+公共接口位于 `src/frontends/emacs/reader_webkit.mli`：
 
 - `available ()`：检查当前图形环境并按需加载 WebKit 模块。内联视频也使用这个入口。
 - `open_page`：打开专用页面，指定标题、URL、页面加载后执行的 JavaScript、固定消息通道，以及收到消息、关闭和错误的回调。

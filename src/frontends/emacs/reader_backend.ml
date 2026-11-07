@@ -156,15 +156,15 @@ let string_settings fields value=
    |_->failwith("Invalid backend setting: "^key))
  |_->failwith "Backend settings must be an object"
 
-let customization_group = lazy (Customization.Group.defgroup "camulus" [%here]
-  ~docstring:"Read feeds and discussions." ~parents:[Customization.Group.emacs])
-let custom ?(kind=Customization.Type.Sexp) name default docstring =
-  ignore (Customization.defcustom (Symbol.intern name) [%here] ~docstring
-    ~group:(Lazy.force customization_group) ~type_:Value.Type.value
-    ~customization_type:kind ~standard_value:default () : Value.t Customization.t)
+(* Internal option mirrors for backend adapters. These are populated from the
+   shared service settings, not a second Customize configuration. *)
+let setting_defaults : (string * Value.t) list ref = ref []
+let setting name default =
+  variable name default;
+  setting_defaults := (name,default) :: !setting_defaults
 
 (* Worker sessions contain only OCaml data and run on the Eio domain. *)
-type worker = {
+type worker = Reader.Service.worker = {
   matches_source : string -> bool;
   page : source:string -> string -> after:string option -> query:string option -> Reader.Content.page;
   archive : source:string -> refresh:bool -> Reader.Content_state.target -> string -> native_thread:(string -> string) -> add:(Reader.Content_state.archived -> unit) -> bool;
@@ -183,7 +183,7 @@ let archive_extractors : (string -> (string -> int -> string) option) list ref =
 let configured_sources () = List.filter_map !source_providers ~f:(fun f -> f ())
 
 (* Backend-owned operations may publish the common presentation format. *)
-type Reader.Protocol.work += Subscription of string * string * string option
-type Reader.Protocol.payload += Presentation of string * Yojson.Safe.t
+type Reader.Protocol.work += Subscription = Reader.Service.Subscription
+type Reader.Protocol.payload += Presentation = Reader.Service.Presentation
 let reply emit kind fields =
   emit (Presentation ("content-state", `Assoc (("kind", `String kind) :: fields)))

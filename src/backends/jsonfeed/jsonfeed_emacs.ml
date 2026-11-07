@@ -15,7 +15,7 @@ end)
 let install_protocol = Connection.install_protocol
 let install ~submit () =
   let followed=Connection.followed ~submit and submit=Connection.request ~submit in
-  custom ~kind:Customization.Type.File "camulus-jsonfeed-subscriptions-file" (data_path "XDG_STATE_HOME" "~/.local/state" "jsonfeed-subscriptions.json") "Backend state file.";
+  setting "camulus-jsonfeed-subscriptions-file" (data_path "XDG_STATE_HOME" "~/.local/state" "jsonfeed-subscriptions.json");
   register { (base ~name:"JSON Feed" ~matches:Jsonfeed_backend.is_source ~threaded:false
     ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Value.of_int_exn (submit (Rss_backend.Read(Jsonfeed_backend.url_of_source source,id))))) with
     attachment=Some (fun ~source ~id ~group:_ ~part ~destination ->

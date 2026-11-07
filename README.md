@@ -1,6 +1,6 @@
 # Camulus
 
-使用 OCaml 5、Ecaml 和 Eio 构建的 Emacs 统一阅读器。将邮件、论坛讨论和个人 feed 放进同一个阅读界面，后端通过 OCaml 模块扩展。
+使用 OCaml 5 和 Eio 构建的统一阅读器，提供 Ecaml / Emacs 与 Bonsai / Web 前端。将邮件、论坛讨论和个人 feed 放进同一个阅读界面，后端通过 OCaml 模块扩展。
 
 **当前是可试用的开发原型。** 已有浏览、阅读、收藏归档，以及部分后端写入能力；完整后台同步、持久离线写入队列和邮件 WebKit 阅读仍待实现。目前构建目标为 **x86_64 Linux / Emacs 31**。
 
@@ -72,33 +72,42 @@ emacsWithPackages (epkgs: [
 
 建议使用支持动态模块的 Emacs 31。打包后加载的是原生 OCaml runtime；更新原生模块需要启动新的 Emacs 进程。
 
-## 配置
+## 网页前端
 
-使用 `M-x customize-group RET camulus` 管理组选项和后端设置。也可以直接在 Emacs 配置中设置。
-
-```elisp
-(setq camulus-groups
-      '(((name . "NixOS forum")
-         (source . "discourse:https://discourse.nixos.org")
-         (group . "latest"))
-        ((name . "Jane Street")
-         (source . "janestreet")
-         (group . "posts"))))
+```sh
+nix run .#web
+# 浏览器打开 http://127.0.0.1:8765
 ```
 
-首页或组目录按 `U`，或运行 `M-x camulus-subscriptions`，查看当前订阅来源。该页面重新读取后端的关注入口，按 `s` 修改所选来源的关注状态，按 `g` 刷新；取消关注后注册组仍保留。Discourse 的通知来源自动按已注册且已认证站点提供，按 `T` 管理远端会话追踪。
+首版网页接通 RSS / Atom、JSON Feed 1.1 和 Discourse 浏览，支持组内搜索、分页、渐进回复树、可见内容已读、收藏夹、归档正文、来源优先级和共享设置。点击“组浏览”查看已登记入口，点击“订阅”管理 RSS / JSON Feed 的关注选择。普通列表的收藏显示红色，收藏夹内不标红。
 
-首页按 `B` 进入组目录，`C` 定制浏览组，支持组订阅的组上按 `s` 订阅或取消订阅。列表中 `S` 管理当前来源组；`s` 管理后端提供的具体关注目标，例如 Discourse 话题。注册和浏览不会订阅，取消订阅也不会删除浏览入口。
+原生服务端使用 OCaml 5.3 + Eio + Cohttp-eio，浏览器使用 Jane Street Bonsai v0.17 + js_of_ocaml 5.6、独立 OCaml 5.1 工具链。网页能力、认证配置和开发方式见 [WEB.md](docs/WEB.md)。其他后端目前仍通过 Emacs 使用；网页不自动获得其他网站的登录 Cookie。
 
-订阅来源的本地优先级通过 `camulus-subscription-priorities` 设置，未设置的来源默认为 2 级。`camulus-home-priorities` 选择主页显示的级别，`nil` 显示全部；例如 `(setopt camulus-home-priorities '(1 2))`。筛选不取消订阅，不影响组浏览、已读或收藏；`U` 面板仍列出全部订阅。
+## 配置
 
-订阅是由后端读取和修改的运行状态。Discourse 话题追踪保存在远端；本地组关注及 RSS / JSON Feed 关注保存在 `~/.local/state/camulus/`（遵循 `XDG_STATE_HOME`），由命令维护，不需要手写订阅配置。首页汇集后端返回的时间线来源；Discourse 直接使用远端通知，不保存本地订阅开关。
+来源和显示设置统一保存在 `$XDG_CONFIG_HOME/camulus/settings.json`，默认 `~/.config/camulus/settings.json`。网页通过设置页面提交给服务端，服务端校验并原子保存；Emacs 的 `C` / `M-x camulus-reader-edit-config` 编辑同一个文件，保存前校验。连接参数变动后需重启对应会话。
 
-后端各自定义可定制选项，Customize 保存到用户的 `custom-file`。旧 JSON 数据可用 `(camulus-import-json-config CONFIG-PATH GROUPS-PATH)` 一次性导入变量，再通过 Customize 保存。正常启动读取 Emacs 选项。
+```json
+{
+  "version": 1,
+  "groups": [
+    {"name": "NixOS", "source": "discourse:https://discourse.nixos.org", "group": "latest"},
+    {"name": "Anil", "source": "jsonfeed:https://anil.recoil.org/feeds/feed.json", "group": "https://anil.recoil.org/feeds/feed.json"}
+  ],
+  "priorities": [],
+  "default_priority": 2,
+  "home_priorities": [],
+  "backend_settings": {}
+}
+```
 
-密钥使用 auth-source 或独立凭据文件。完整说明见 [入口与订阅](docs/ENTRIES.md)、[邮件](docs/MAIL.md)、[Reddit](docs/REDDIT.md)、[Discourse](docs/DISCOURSE.md)、[RSS](docs/RSS.md) 和 [知乎](docs/ZHIHU.md)。
+注册只建立浏览入口。订阅仍是后端管理的运行状态：Discourse 会话追踪保存在远端，RSS / JSON Feed 关注列表等本地状态保存在 `$XDG_STATE_HOME/camulus/`。设置文件不包含订阅列表。
 
-本地内容状态默认为 `~/.local/state/camulus/state.sqlite3`，遵循 `XDG_STATE_HOME`。已读、移除、收藏归属和归档相互独立。普通条目保存列表元数据及操作状态；收藏才持久保存正文和附件。最后一个收藏归属移除后可清理归档，不会阻止以后重新获取内容。
+Emacs `U` 打开订阅面板，`p` 设置来源优先级，主页 `P` 选择显示级别。网页订阅卡片也能设置级别，主页筛选为空表示全部。优先级按 `(source, group)` 设置，筛选不改变订阅、已读或收藏。
+
+不再使用 Customize / `setopt` 维护另一份 Camulus 配置，也不保留旧 JSON 导入命令。Emacs 中同名变量只作为后端适配器的内部镜像。密钥存放在独立凭据文件或 auth-source，设置中只引用路径。
+
+详情见 [入口与订阅](docs/ENTRIES.md)、[邮件](docs/MAIL.md)、[Reddit](docs/REDDIT.md)、[Discourse](docs/DISCOURSE.md) 和 [网页前端](docs/WEB.md)。
 
 ## 开发
 

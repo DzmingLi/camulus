@@ -3,10 +3,27 @@
 (require 'camulus)
 (setq camulus-probe-record-events t)
 
+;; Build complete shared settings fixtures. Groups may be supplied separately by
+;; a test for readability; the reader receives exactly one settings.json file.
+(defun camulus-entries-test-load (path groups)
+  (let* ((json-object-type 'alist) (json-array-type 'vector)
+         (settings (if (file-exists-p path) (json-read-file path) '((version . 1))))
+         (registry (and (file-exists-p groups) (json-read-file groups))))
+    (setf (alist-get 'groups settings) (or (alist-get 'groups registry) []))
+    (setf (alist-get 'priorities settings) [])
+    (setf (alist-get 'default_priority settings) 2)
+    (setf (alist-get 'home_priorities settings) [])
+    (unless (assq 'backend_settings settings)
+      (setf (alist-get 'backend_settings settings) (make-hash-table)))
+    (with-temp-file path (insert (json-encode settings)))
+    (camulus-reader-load-config)))
+
+
 (ert-deftest camulus-options-and-commands-use-package-namespace ()
   (dolist (option '(camulus-groups camulus-firefox-profile camulus-mail-accounts
                     camulus-discourse-auth-sources camulus-reddit-username))
-    (should (custom-variable-p option)))
+    (should (boundp option))
+    (should-not (custom-variable-p option)))
   (dolist (command '(camulus-reader-browse-groups camulus-mail-compose
                      camulus-reader-discourse-like camulus-reddit-upvote))
     (should (commandp command)))
@@ -20,23 +37,23 @@
 
 (ert-deftest entries-config-is-data-and-does-not-subscribe ()
   (let* ((directory (make-temp-file "reader-entries" t))
-         (camulus-reader-config-file (expand-file-name "config.json" directory))
-         (camulus-reader-groups-file (expand-file-name "groups.json" directory))
+         (camulus-settings-file (expand-file-name "config.json" directory))
+         (camulus-test-groups-file (expand-file-name "groups.json" directory))
           (camulus-group-subscriptions-file (expand-file-name "group-subscriptions.json" directory))
          (camulus-groups nil) (camulus-discourse-sites nil))
     (unwind-protect
         (progn
-          (with-temp-file camulus-reader-groups-file
+          (with-temp-file camulus-test-groups-file
             (insert "{\"version\":1,\"groups\":[{\"name\":\"Forum\",\"source\":\"discourse:https://example.test\",\"group\":\"watching\"},{\"name\":\"Browse\",\"source\":\"reddit:alice\",\"group\":\"ocaml\"}]}"))
           (cl-letf (((symbol-function 'camulus-subscription-submit) (lambda (&rest _) (ert-fail "Configuration caused a subscription"))))
-            (camulus-import-json-config camulus-reader-config-file camulus-reader-groups-file))
+            (camulus-entries-test-load camulus-settings-file camulus-test-groups-file))
           (should (= 2 (length camulus-groups)))
           (should-not (camulus-reader-home--merge-entries nil))
           (should (equal camulus-discourse-sites '("https://example.test")))
           (let ((previous camulus-groups))
-            (with-temp-file camulus-reader-groups-file
+            (with-temp-file camulus-test-groups-file
               (insert "{\"version\":1,\"groups\":[{\"name\":\"Invalid\"}]}"))
-            (should-error (camulus-import-json-config camulus-reader-config-file camulus-reader-groups-file) :type 'user-error)
+            (should-error (camulus-entries-test-load camulus-settings-file camulus-test-groups-file) :type 'user-error)
             (should (equal previous camulus-groups))))
       (delete-directory directory t))))
 
@@ -71,29 +88,29 @@
 
 
 (ert-deftest entries-backend-settings-validated-before-application ()
-  (let ((camulus-reader-config-file (make-temp-file "backend-settings"))
-        (camulus-reader-groups-file "/nonexistent-camulus-groups.json")
+  (let ((camulus-settings-file (make-temp-file "backend-settings"))
+        (camulus-test-groups-file "/nonexistent-camulus-groups.json")
         (camulus-mail-sender "before") (camulus-mail-accounts nil)
         (camulus-groups nil) (camulus-discourse-sites nil)
         (camulus-firefox-profile nil))
     (unwind-protect
         (progn
-          (with-temp-file camulus-reader-config-file
+          (with-temp-file camulus-settings-file
             (insert "{\"version\":1,\"backend_settings\":{\"maildir\":{\"sender\":\"after\",\"accounts\":[[\"/a\",\"a@test\",\"a\"]]},\"browser\":{\"firefox_profile\":\"/profile\"}}}"))
-          (camulus-import-json-config camulus-reader-config-file camulus-reader-groups-file)
+          (camulus-entries-test-load camulus-settings-file camulus-test-groups-file)
           (should (equal camulus-mail-sender "after"))
           (should (equal camulus-mail-accounts '(("/a" "a@test" "a"))))
           (should (equal camulus-firefox-profile "/profile"))
-          (with-temp-file camulus-reader-config-file
+          (with-temp-file camulus-settings-file
             (insert "{\"version\":1,\"backend_settings\":{\"maildir\":{\"sender\":\"bad\",\"smtp_profiles\":[[\"a\",\"smtp.test\",70000,\"a\",\"/secret-file\",\"\"]]}}}"))
-          (should-error (camulus-import-json-config camulus-reader-config-file camulus-reader-groups-file) :type 'user-error)
+          (should-error (camulus-entries-test-load camulus-settings-file camulus-test-groups-file) :type 'user-error)
           (should (equal camulus-mail-sender "after"))
           (dolist (settings '("[]" "{\"maildir\":[]}" "{\"maildir\":{\"sender\":null}}"))
-            (with-temp-file camulus-reader-config-file
+            (with-temp-file camulus-settings-file
               (insert "{\"version\":1,\"backend_settings\":" settings "}"))
-            (should-error (camulus-import-json-config camulus-reader-config-file camulus-reader-groups-file) :type 'user-error)
+            (should-error (camulus-entries-test-load camulus-settings-file camulus-test-groups-file) :type 'user-error)
             (should (equal camulus-mail-sender "after"))))
-      (delete-file camulus-reader-config-file))))
+      (delete-file camulus-settings-file))))
 
 (ert-deftest entries-publication-sources-use-article-target-except-douban ()
   (dolist (command '(camulus-zhihu-login camulus-zhihu-logout camulus-zhihu-login-code camulus-zhihu-login-cancel))
@@ -142,16 +159,16 @@
 
 (ert-deftest home-backend-buttons-open-filtered-registered-groups ()
   (let* ((directory (make-temp-file "reader-backend-groups" t))
-         (camulus-reader-config-file (expand-file-name "config.json" directory))
-         (camulus-reader-groups-file (expand-file-name "groups.json" directory))
+         (camulus-settings-file (expand-file-name "config.json" directory))
+         (camulus-test-groups-file (expand-file-name "groups.json" directory))
          (camulus-state-file (expand-file-name "state.sqlite3" directory))
          (camulus-group-subscriptions-file (expand-file-name "group-subscriptions.json" directory))
          (camulus-groups nil) (camulus-discourse-sites nil) opened)
     (unwind-protect
         (progn
-          (with-temp-file camulus-reader-groups-file
+          (with-temp-file camulus-test-groups-file
             (insert "{\"version\":1,\"groups\":[{\"name\":\"NixOS Forum\",\"source\":\"discourse:https://nixos.test\",\"group\":\"latest\"},{\"name\":\"Emacs Forum\",\"source\":\"discourse:https://emacs.test\",\"group\":\"latest\"},{\"name\":\"OCaml Subreddit\",\"source\":\"reddit:alice\",\"group\":\"ocaml\"}]}"))
-          (camulus-import-json-config camulus-reader-config-file camulus-reader-groups-file)
+          (camulus-entries-test-load camulus-settings-file camulus-test-groups-file)
           (camulus)
           (let ((home (current-buffer)))
             (dolist (case '(("[Discourse]" "NixOS Forum" "Emacs Forum" "OCaml Subreddit")
@@ -212,8 +229,8 @@
 
 (ert-deftest subscriptions-view-reads-backends-and-keeps-browsing-registry ()
   (let* ((directory (make-temp-file "subscriptions-view" t))
-         (camulus-reader-config-file (expand-file-name "config.json" directory))
-         (camulus-reader-groups-file (expand-file-name "groups.json" directory))
+         (camulus-settings-file (expand-file-name "config.json" directory))
+         (camulus-test-groups-file (expand-file-name "groups.json" directory))
          (state (expand-file-name "subscriptions.json" directory))
          (entry '((name . "Jane Street") (source . "janestreet") (group . "posts")))
          (camulus-groups (list entry '((name . "Browse only") (source . "zhihu") (group . "answers.test")))))

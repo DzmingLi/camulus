@@ -69,7 +69,7 @@ let like unlike=
   if not(truth(get "camulus-reader--archive")) && truth item then(run "puthash"[id;assign "liked"(b liked)item;table];run "camulus-reader--render"[]))
 let install ()=
  run "require"[sym "auth-source"];
- custom ~kind:(Customization.Type.Repeat String) "camulus-discourse-auth-sources" nil "Auth-source files used for Discourse authentication.";
+ setting "camulus-discourse-auth-sources" nil;
  variable "camulus-discourse-sites" nil;
  variable "camulus-discourse--authenticated-sites" nil;
  List.iter["camulus-discourse--callbacks","eql";"camulus-discourse--likes","equal";"camulus-discourse--like-values","equal"]~f:(fun(n,test)->variable n(call "make-hash-table"[sym ":test";sym test]));

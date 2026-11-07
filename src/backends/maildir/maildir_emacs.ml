@@ -152,14 +152,14 @@ let start_sync ~submit () =
 let install ~submit ~configured () =
   Process_emacs.install ();
   Compose_emacs.install ();
-  custom ~kind:Customization.Type.Directory "camulus-mail-root" (call "expand-file-name" [s "~/Maildir"]) "Backend configuration option.";
-  custom ~kind:Customization.Type.Directory "camulus-mail-muhome" (call "expand-file-name" [s "~/.cache/mu"]) "Backend configuration option.";
-  custom ~kind:(Customization.Type.Option {doc_for_none="Unconfigured";t=String}) "camulus-mail-sender" nil "Default sender address.";
-  custom ~kind:(Customization.Type.Repeat (List [String;String;Integer;String;File;String])) "camulus-mail-smtp-profiles" nil "SMTP profiles as name, host, port, username, password file and CA file (empty for system trust).";
-  custom ~kind:(Customization.Type.Repeat (List [Directory;String;String])) "camulus-mail-accounts" nil "Account routes as Maildir prefix, sender and SMTP profile name.";
-  custom ~kind:Customization.Type.String "camulus-mail-account" (s "") "Backend configuration option.";
-  custom ~kind:Customization.Type.(Repeat String) "camulus-mail-sync-command" nil "Backend configuration option.";
-  custom ~kind:Customization.Type.Integer "camulus-mail-sync-interval" (i 300) "Backend configuration option.";
+  setting "camulus-mail-root" (call "expand-file-name" [s "~/Maildir"]);
+  setting "camulus-mail-muhome" (call "expand-file-name" [s "~/.cache/mu"]);
+  setting "camulus-mail-sender" nil;
+  setting "camulus-mail-smtp-profiles" nil;
+  setting "camulus-mail-accounts" nil;
+  setting "camulus-mail-account" (s "");
+  setting "camulus-mail-sync-command" nil;
+  setting "camulus-mail-sync-interval" (i 300);
   define0 ~interactive:true "camulus-mail-sync" (fun () ->
     run "camulus-reader-start" [];sync ~submit ~manual:true ());
   register_settings "maildir"(fun j->

@@ -32,10 +32,23 @@
             patches = (old.patches or []) ++ [ ./patches/eio-host-signals.patch ];
           });
         });
+      webScope = on.buildOpamProject { inherit pkgs; } "camulus-web-client"
+        ./src/frontends/web/client { ocaml-base-compiler = "5.1.1"; };
     in {
       packages.${system} = {
         default = scope.camulus;
+        web-client = webScope.camulus-web-client;
+        web = pkgs.writeShellApplication {
+          name = "camulus-web";
+          text = ''
+            exec ${scope.camulus}/bin/camulus-web --assets ${webScope.camulus-web-client}/share/camulus-web-client "$@"
+          '';
+        };
         emacs-camulus = self.lib.mkEmacsPackage pkgs.emacsPackages;
+      };
+      apps.${system}.web = {
+        type = "app";
+        program = "${self.packages.${system}.web}/bin/camulus-web";
       };
       checks.${system} = {
         startup =
@@ -79,9 +92,15 @@
           EOF
         '';
       };
-      devShells.${system}.default = pkgs.mkShell {
-        inputsFrom = [ scope.camulus ];
-        packages = [ pkgs.gnumake pkgs.python3 pkgs.emacs-nox pkgs.openssl pkgs.mu ];
+      devShells.${system} = {
+        web-client = pkgs.mkShell {
+          inputsFrom = [ webScope.camulus-web-client ];
+          packages = [ pkgs.nodejs ];
+        };
+        default = pkgs.mkShell {
+          inputsFrom = [ scope.camulus ];
+          packages = [ pkgs.gnumake pkgs.python3 pkgs.emacs-nox pkgs.openssl pkgs.mu ];
+        };
       };
     };
 }

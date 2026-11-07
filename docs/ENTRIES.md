@@ -4,24 +4,11 @@
 
 ## 配置与交互
 
-通过 `M-x customize-group RET camulus` 管理选项，也可以在 Emacs 配置中设置变量。`camulus-groups` 登记浏览组，每项包含 `name`、`source`、`group`。
+来源配置统一由 [Settings](../src/settings.ml) 解析，持久存储在 `$XDG_CONFIG_HOME/camulus/settings.json`。Emacs `C` 编辑该文件并在保存前校验；网页“设置”通过 HTTP 提交给服务端校验和保存。文件示例见 [README](../README.md#配置)。
 
-```elisp
-(with-eval-after-load 'camulus_native
-  (setopt camulus-groups
-      '(((name . "NixOS")
-         (source . "discourse:https://discourse.nixos.org")
-         (group . "latest"))
-        ((name . "Emacs China")
-         (source . "discourse:https://emacs-china.org")
-         (group . "latest")))))
-```
+`groups` 每项包含 `name`、`source`、`group`，用于组浏览；`backend_settings` 放后端连接参数。`priorities` 是 `{source, group, level}` 数组，`default_priority` 默认为 2，`home_priorities` 空数组表示全部级别。配置不包含订阅列表，不调用订阅接口。
 
-后端各自声明 Customize 选项，例如 `camulus-reddit-username`、`camulus-mail-root` 和 `camulus-discourse-auth-sources`。Customize 保存到用户的 `custom-file`。组注册不会订阅该组。
-
-所有 Emacs 选项、命令、模式和 hook 统一使用 `camulus-` 前缀，不提供旧 `ef-` 名称的兼容别名。此改名不改变订阅、已读、收藏或草稿的存储路径与内容。
-
-旧 JSON 数据可通过 `(camulus-import-json-config CONFIG-PATH GROUPS-PATH)` 一次性导入当前变量，再通过 Customize 保存。正常启动只读取 Emacs 选项。
+Emacs 不再声明这批设置的 `defcustom`，也不读取旧 `config.json` / `groups.json`。两端共享文件，但目前仍各自运行后端会话；将 Emacs 改为连接唯一守护进程尚未完成。连接参数在会话启动时读取，显示设置可刷新生效。
 
 订阅是可变状态，由后端的可选能力决定。首页完全使用各后端 `followed` 返回的入口；注册组仅为这些入口提供名字及浏览目录。没有任何订阅时，注册再多组也不会使首页出现内容。
 
@@ -34,7 +21,7 @@ Discourse 会话 `s` 调用服务器的追踪设置；浏览组不支持 `S`，�
 首页先显示选入 feed 的本地缓存，并异步刷新；最多同时刷新 4 个入口，每个来源返回后逐步更新列表。按活动时间倒序排列，同一来源内的讨论跨入口合并，邮件继续按回复与 References 关系合并。每个来源维护自己的分页游标，`n` 加载尚有下一页的来源。失败时保留该来源缓存，页首显示失败数，`e` 查看详情。`b` 浏览所选条目的来源入口，`h` 返回统一首页。
 
 - 首页顶部的后端按钮打开对应的已登记组目录。Discourse 可登记多个站点及各自的列表，Reddit 可登记多个 subreddit；`B` 打开所有组。目录中可单独选择临时浏览未登记的组。浏览不会订阅或加入首页。论坛内 `c` 选择分类，`/` 搜索。
-- 组目录 `C` 打开浏览组选项；首页 `C` 打开 Camulus Customize 页面。应用后重新打开目录或刷新。
+- 组目录和首页 `C` 都打开共享设置文件。保存后重新打开目录或刷新。
 - 后端针对具体来源和 group 声明是否提供订阅。组目录只在支持的条目旁显示 `s` 提示；浏览列表也只在支持时绑定 `S` 并显示提示。不可订阅的组仍可浏览和搜索。取消订阅立即重新计算首页，浏览入口保留。
 - `G` 同时显示 RSS 后端已关注的 feed；取消关注移除这个发现入口，但不会移除配置文件里显式声明的入口。
 - 首页不提供全局搜索；在 `G` / `b` 打开的入口中，`/` 搜索当前入口，空查询恢复列表。搜索结果不写入入口活动缓存，不改变订阅关系。

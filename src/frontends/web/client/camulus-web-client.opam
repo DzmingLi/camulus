@@ -1,0 +1,16 @@
+opam-version: "2.0"
+version: "0.1.0"
+synopsis: "Camulus browser frontend built with Bonsai"
+maintainer: "DzmingLi"
+authors: "DzmingLi"
+license: "AGPL-3.0-or-later"
+depends: [
+  "ocaml" {>= "5.1" & < "5.2"}
+  "dune" {>= "3.11"}
+  "bonsai" {= "v0.17.0"}
+  "js_of_ocaml" {= "5.6.0"}
+  "js_of_ocaml-ppx" {= "5.6.0"}
+  "yojson" "ppx_jane" {>= "v0.17" & < "v0.18"}
+]
+build: ["dune" "build" "-j" jobs "@install"]
+install: ["dune" "install" "--prefix" prefix "camulus-web-client"]

@@ -1,0 +1,2 @@
+; The browser has its own OCaml 5.1/js_of_ocaml project and Nix scope.
+(dirs server)

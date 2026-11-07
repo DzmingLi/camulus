@@ -25,7 +25,7 @@ nix develop -c make reader-demo
 
 账户映射通过 `camulus-mail-accounts` 配置 Maildir 前缀、发件地址和 SMTP profile。`camulus-mail-smtp-profiles` 指定 SMTP 主机、端口、用户名、密码文件及 CA 文件；凭据只在发送时读取。账户配置示例见 [ENTRIES.md](ENTRIES.md)。
 
-设置 `(setq camulus-mail-sync-command '("mbsync" "-a"))`，Camulus 会在启动时同步一次，随后每 300 秒同步。命令按参数数组执行；也可以把 `-a` 换成要同步的 channel 名。每次同步成功后运行 `mu index`，更新首页的邮件来源和打开的邮件列表。同一次同步尚未完成时跳过定时触发；切换 buffer 不停止同步，停止 Camulus 会话时取消定时器。`camulus-mail-sync-interval` 可改为其他秒数，设为 `0` 只保留手动命令 `M-x camulus-mail-sync`。未配置 `camulus-mail-sync-command` 时使用纯本地 Maildir。修改间隔后重启会话生效。
+在共享设置 `backend_settings.maildir` 中设置 `"sync_command": ["mbsync", "-a"]`，Camulus 会在启动时同步一次，随后每 300 秒同步。命令按参数数组执行；也可以把 `-a` 换成要同步的 channel 名。每次同步成功后运行 `mu index`，更新首页的邮件来源和打开的邮件列表。同一次同步尚未完成时跳过定时触发；切换 buffer 不停止同步，停止 Camulus 会话时取消定时器。`backend_settings.maildir.sync_interval` 可改为其他秒数，设为 `0` 只保留手动命令 `M-x camulus-mail-sync`。未配置 `sync_command` 时使用纯本地 Maildir。修改间隔后重启会话生效。
 
 原生阅读界面采用文本 / SHR，Olivetti 已加载时会启用它。**约定的默认 WebKit 整树阅读尚未接入**。界面、窗口、撰写和草稿回调均使用 Ecaml。
 
