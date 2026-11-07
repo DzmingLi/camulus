@@ -172,8 +172,7 @@
       "original": {
         "owner": "ocaml",
         "repo": "opam-repository",
-        "type": "github",
-        "rev": "7b5e9a2b084fe7ff750c4a9449289065ef9f9216"
+        "type": "github"
       }
     },
     "opam2json": {

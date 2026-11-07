@@ -2,7 +2,7 @@
 
 `Reader.Firefox_cookies` 是 Camulus 提供给后端的只读凭据能力，和公共 WebKit 视图一样，不属于某一个网站后端。
 
-用户通过共享设置 `backend_settings.browser.firefox_profile` 指定 Firefox profile。Camulus 启动时创建 provider，并将它的读取函数交给需要浏览器凭据的后端：
+用户通过 Emacs 可定制选项 `camulus-firefox-profile` 指定 Firefox profile。Camulus 启动时创建 provider，并将它的读取函数交给需要浏览器凭据的后端：
 
 ```ocaml
 let provider = Reader.Firefox_cookies.create ~profile () in
@@ -19,14 +19,12 @@ Douban_backend.create_live ~cookies:(Reader.Firefox_cookies.get provider) ()
 
 `camulus-firefox-cookies-get` 接受一个 HTTPS URL，返回字符串键值对 alist，可以直接用作 `zhihu.el` 的 Cookie 回调：
 
-```json
-{"browser": {"firefox_profile": "/home/USER/.config/mozilla/firefox/default/"}}
-```
-
 ```elisp
+(with-eval-after-load 'camulus_native
+  (setopt camulus-firefox-profile "~/.config/mozilla/firefox/default/"))
 (autoload 'camulus-firefox-cookies-get "camulus" nil nil)
 (with-eval-after-load 'zhihu
   (setopt zhihu-cookie-function #'camulus-firefox-cookies-get))
 ```
 
-该函数由 Ecaml 定义，调用时按需加载原生模块，不启动时间线或同步任务。每次调用读取当前共享 profile 设置和 Firefox 数据库，不缓存凭据。它遵循外部包的同步回调约定，读取期间会短暂占用 Emacs 主线程；Eio 后端仍使用异步 `get`，不能用 `get_sync` 替代。没有配置或读取失败会向调用方报错。
+该函数由 Ecaml 定义，调用时按需加载原生模块，不启动时间线或同步任务。每次调用读取当前 profile 选项和 Firefox 数据库，不缓存凭据。它遵循外部包的同步回调约定，读取期间会短暂占用 Emacs 主线程；Eio 后端仍使用异步 `get`，不能用 `get_sync` 替代。没有配置或读取失败会向调用方报错。

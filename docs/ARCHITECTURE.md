@@ -2,11 +2,11 @@
 
 Camulus 把邮件、论坛和 feed 转换为统一的内容模型，提供时间线、回复树、已读状态和收藏归档。后端负责来源协议及其订阅语义；共享业务负责内容状态；前端负责呈现和交互。OCaml 的模块系统描述能力边界，Eio 负责可取消的并发任务，Ecaml 将当前实现接入 Emacs。
 
-当前提供 Emacs 和首版 Bonsai 网页前端。两者位于 `src/frontends/emacs/` 与 `src/frontends/web/`，公共内容模型、持久状态、设置和服务操作仍在 `src/`。RSS / JSON Feed、Discourse 的 worker 已脱离 Ecaml；其他后端的宿主注册仍需迁移。没有集中分派具体后端的 `application.ml`。
+当前可运行的前端是 Emacs。多前端是下一步架构方向：本文先解释已经存在的代码，再说明如何让网页前端复用业务层。`core/`、`frontends/`、`platform/` 是目标目录，尚未完成物理迁移；当前公共模块仍在 `src/`。已经移除了集中分派具体后端的 `application.ml`。
 
 ## 阅读源码的顺序
 
-建议先读 [content.ml](../src/content.ml)，理解列表和正文交换哪些数据；再读 [backend.ml](../src/backend.ml)，理解必需接口与可选能力。接着用一个实际请求串起 [reader_ui.ml](../src/frontends/emacs/reader_ui.ml)、[runtime_ui.ml](../src/frontends/emacs/runtime_ui.ml)、[protocol.ml](../src/protocol.ml) 和 [runtime.ml](../src/runtime.ml)。最后查看某个后端及 [content_state.ml](../src/content_state.ml)。
+建议先读 [content.ml](../src/content.ml)，理解列表和正文交换哪些数据；再读 [backend.ml](../src/backend.ml)，理解必需接口与可选能力。接着用一个实际请求串起 [reader_ui.ml](../src/reader_ui.ml)、[runtime_ui.ml](../src/runtime_ui.ml)、[protocol.ml](../src/protocol.ml) 和 [runtime.ml](../src/runtime.ml)。最后查看某个后端及 [content_state.ml](../src/content_state.ml)。
 
 不要先从 `camulus_native.ml` 的命令定义逐行读起。它是装配入口，理解各模块的职责后，里面的大部分注册调用才容易解释。
 
@@ -18,22 +18,15 @@ src/
   backend.ml                 后端模块签名
   protocol.ml                任务、事件、取消和所有权
   runtime.ml                 后台 domain 与 Eio 调度
-  service.ml                 不依赖前端的 worker 契约与通用状态操作
-  settings.ml                来源注册、优先级与共享设置持久化
+  runtime_ui.ml              Emacs 会话宿主、结果收发、通用状态操作
   content_state.ml            SQLite 内容状态与归档
-  local_subscriptions.ml     后端可选的本地组订阅状态
-  frontends/
-    emacs/
-      runtime_ui.ml          Emacs 会话宿主、结果收发
-      reader_backend.ml      Emacs 能力注册与 host 包装
-      reader_config.ml       共享设置的 Emacs 适配
-      reader_ui.ml           时间线、组、收藏、阅读窗口
-      reader_tracking_ui.ml  通用远端会话追踪面板
-      reader_media.ml        正文媒体的 Emacs 呈现
-      reader_webkit.ml       Emacs WebKit 页面与消息通道
-    web/
-      server/                Cohttp-eio 服务与后端组装
-      client/                独立 Bonsai / js_of_ocaml 工程
+  local_subscriptions.ml     后端选择使用的本地组订阅状态
+  reader_backend.ml          当前 Emacs 能力注册与 worker 注册
+  reader_config.ml           Customize 配置、入口校验和优先级选项
+  reader_ui.ml               时间线、组、收藏、阅读窗口
+  reader_tracking_ui.ml      通用远端会话追踪面板
+  reader_media.ml            正文媒体的 Emacs 呈现
+  reader_webkit.ml           Emacs WebKit 页面与消息通道
   firefox_cookies.ml         可复用的 Firefox 凭据读取能力
   host.ml / host_stubs.c     宿主通知和信号保护
   camulus_native.ml          链接后端、注册命令、装配前端
@@ -50,16 +43,13 @@ patches/                    Ecaml 与 Eio 的宿主适配补丁
 test/                       OCaml 测试、Emacs 集成测试、协议模拟服务
 ```
 
-编译边界由 [src/dune](../src/dune) 和各前端目录的 Dune 文件定义：
+物理上同在 `src/`，不意味着所有模块都依赖 Emacs。[src/dune](../src/dune) 定义了三个主要编译单元：
 
 | 编译单元 | 内容 | 是否依赖 Ecaml |
 | --- | --- | --- |
 | `reader` | 内容、状态、协议、运行时和一些宿主工具 | 否 |
 | `reader_emacs_backend` | `reader_backend`、`reader_webkit` | 是 |
-| `camulus_emacs_frontend` | Emacs 公共界面、配置适配、运行时宿主 | 是 |
-| `camulus_native` | 原生模块入口与后端装配 | 是 |
-| `camulus-web` | 原生 HTTP 服务、共享服务与网页后端装配 | 否 |
-| `camulus-web-client` | 单独 OCaml 5.1 工程中的 Bonsai 浏览器程序 | 否 |
+| `camulus_native` | 原生入口、公共界面、配置、运行时宿主 | 是 |
 
 每个后端也区分协议库和 Emacs 适配库。例如 `reddit_backend` 处理 HTTP、OAuth 和内容，`reddit_emacs` 注册命令、快捷键及 worker。源码归入同一个后端目录，是为了便于按功能查找；Dune 的库依赖才决定代码能否在没有 Emacs 的情况下使用。
 
@@ -85,7 +75,7 @@ JSON Feed 的格式解析交给外部 `jsonfeed` 库，当前只接受 1.1。Cam
 
 ### 注册把能力接入运行中的程序
 
-[reader_backend.ml](../src/frontends/emacs/reader_backend.ml) 目前提供两类注册：
+[reader_backend.ml](../src/reader_backend.ml) 目前提供两类注册：
 
 | 注册对象 | 谁调用 | 用途 |
 | --- | --- | --- |
@@ -130,7 +120,7 @@ sequenceDiagram
     U->>U: 检查视图有效性并更新 buffer
 ```
 
-以组刷新为例，`Reader_ui.load_list` 提交 `Content_state.Refresh`。`service.ml` 的状态处理调用匹配的 worker，拿到 `Content.page` 后写入入口快照，再返回列表行和已读、收藏状态。`reader_ui.ml` 更新对应 buffer。搜索也走后端，但搜索结果不会被当作新的订阅入口。
+以组刷新为例，`Reader_ui.load_list` 提交 `Content_state.Refresh`。`runtime_ui.ml` 的状态处理调用匹配的 worker，拿到 `Content.page` 后写入入口快照，再返回列表行和已读、收藏状态。`reader_ui.ml` 更新对应 buffer。搜索也走后端，但搜索结果不会被当作新的订阅入口。
 
 文章阅读通常由后端注册的 `read` 能力提交专属任务；后端可以逐批返回正文和回复树。用户关闭或切换视图后，即使响应已经在路上，前端仍需要判断它是否属于当前视图，不能仅凭“请求成功”更新屏幕。
 
@@ -172,7 +162,7 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 ## 组 订阅 时间线与优先级
 
-组是浏览入口，由来源和组标识组成。共享设置中的 `groups` 为它增加名字，注册组不会订阅，取消订阅也不删除浏览入口。首页顶部的后端按钮按后端筛选这些已注册入口。
+组是浏览入口，由来源和组标识组成。`camulus-groups` 为它增加名字，注册组不会订阅，取消订阅也不删除浏览入口。首页顶部的后端按钮按后端筛选这些已注册入口。
 
 订阅是后端提供的可选能力。RSS 只需要记录关注哪些 URL；Discourse 从服务器读取会话追踪状态，并提供远端追踪管理面板。Discourse 时间线使用已注册且已认证站点的会话通知，不把浏览全站等同于订阅全站，也不保留另一套“回复我的”组订阅。
 
@@ -180,13 +170,25 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 优先级属于本地呈现偏好，作用于一个完整订阅来源 `(source, group)`。同一 Discourse 站点的通知流共用一个优先级，当前不区分其中各话题。
 
-| 共享设置字段 | 含义 |
+| Emacs 选项 | 含义 |
 | --- | --- |
-| `priorities` | `{source, group, level}` 数组 |
-| `default_priority` | 未单独设置的来源级别，默认为 2 |
-| `home_priorities` | 主页显示的级别集合，空数组表示全部 |
+| `camulus-subscription-priorities` | `(SOURCE GROUP LEVEL)` 列表 |
+| `camulus-default-subscription-priority` | 没有单独设置的来源级别，默认为 2 |
+| `camulus-home-priorities` | 主页显示哪些级别，`nil` 表示全部 |
 
-级别为非负整数，较小值代表较高优先级。列表仍按来源时间排序。Emacs `U` → `p` 和主页 `P` 更新共享设置；网页也使用相同字段。`Settings.update` 在文件锁内读取、修改、原子替换，权限为 0600；HTTP 保存还检查版本摘要，防止过期页面覆盖新设置。
+级别为非负整数，较小值代表较高优先级；可以约定 1 为重要、2 为普通、3 为稍后阅读。筛选采用明确的级别集合，不是阈值。列表内部仍按来源时间排序，不因优先级改变文章时间顺序。
+
+```elisp
+(setopt camulus-subscription-priorities
+        '(("reddit:alice" "ocaml" 1)
+          ("discourse:https://emacs-china.org" "notifications" 2)
+          ("jsonfeed:https://anil.recoil.org/feeds/feed.json"
+           "https://anil.recoil.org/feeds/feed.json" 3))
+        camulus-default-subscription-priority 2
+        camulus-home-priorities '(1 2))
+```
+
+`U` 打开全部订阅，`p` 设置光标处来源的优先级；主页 `P` 或顶部 Priorities 按钮选择显示级别。这些交互通过 Customize 保存。修改配置文件中的 `setopt` 后刷新主页生效。
 
 筛选不会执行取消订阅、已读或移除。被隐藏的来源仍出现在订阅面板，注册的组也仍可浏览；主页不为被筛掉的入口发起列表刷新。重新显示某一级别时，原有内容状态保持不变。
 
@@ -227,7 +229,7 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 未来 JMAP 后端可以直接使用 HTTP，不需要实现相同的外部进程机制。公共 `Runtime` 不要求所有后端都能启动子进程。
 
-[reader_webkit.ml](../src/frontends/emacs/reader_webkit.ml) 的接口负责打开页面、接收受限消息和关闭页面，属于 Emacs 宿主能力。正文的 SHR、图片和内联视频呈现也属于前端。它们不应变成来源协议库的硬依赖。
+[reader_webkit.ml](../src/reader_webkit.ml) 的接口负责打开页面、接收受限消息和关闭页面，属于 Emacs 宿主能力。正文的 SHR、图片和内联视频呈现也属于前端。它们不应变成来源协议库的硬依赖。
 
 [firefox_cookies.ml](../src/firefox_cookies.ml) 读取明确配置的 Firefox profile，筛选适用于 HTTPS 目标的未过期 Cookie。它不自行登录网站，也不是用户所有后端必须使用的全局认证系统。知乎和豆瓣可以选择它，其他后端可以使用 OAuth、User API Key 或自己的凭据机制。
 
@@ -242,7 +244,7 @@ src/
   core/                     内容、状态、来源优先级、业务操作与任务编排
   backends/                 各来源的协议与会话实现
   frontends/
-    emacs/                  Ecaml、窗口、按键和 WebKit 适配
+    emacs/                  Ecaml、窗口、按键、Customize 和 WebKit 适配
     web/                    浏览器界面与服务接口适配
   platform/                 凭据、Cookie、进程等宿主能力的实现
 ```
@@ -252,10 +254,10 @@ src/
 | 当前代码 | 多前端时的归属 |
 | --- | --- |
 | `content`、`backend`、`content_state`、`protocol` | 共享业务层 |
-| 通用状态操作和后端 worker 协调 | 已抽到 `Service`，不依赖 Ecaml |
+| `runtime_ui` 中的状态操作和后端 worker 协调 | 抽到不依赖 Ecaml 的服务模块 |
 | `runtime_ui` 中的 Emacs process、timer、`Value.t` 转换 | Emacs 前端 |
-| worker 类型和工厂契约 | 已归入 `Service`，Emacs host 包装生命周期回调 |
-| `reader_backend` 中命令、按键和 Lisp 值辅助函数 | Emacs 前端 |
+| `reader_backend` 中纯 worker 注册接口 | 共享业务层 |
+| `reader_backend` 中命令、按键、Customize 和 Lisp 值辅助函数 | Emacs 前端 |
 | `*_emacs.ml` 中的会话创建与请求执行 | 后端的普通 OCaml 实现或服务注册 |
 | `*_emacs.ml` 中的按钮、buffer 和命令 | Emacs 前端中的后端适配 |
 | Firefox Cookie、外部进程的具体实现 | 可选宿主能力，通过接口注入 |
@@ -266,14 +268,14 @@ src/
 
 网页原生适合显示 HTML 和视频，可以省去 Emacs WebKit 嵌入适配。不过普通网页不能直接读取其他站点的 Cookie，跨站 API 请求也受 CORS 约束。后端仍需合法可用的认证来源；是否能完全移除 Firefox Cookie 提供器取决于各网站的授权能力。[Cookie 行为](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cookies)、[CORS 行为](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS)。
 
-网页前端、独立 HTTP 服务和共用的内容操作已实现，见 [WEB.md](WEB.md)。Emacs 目前仍嵌入自己的 Eio 运行时，没有通过 HTTP 连接同一个服务进程。共享文件和 SQLite 可保留一致的持久状态，但双前端的即时推送、唯一调度器和其他后端的 worker 迁移仍待完成。
+目前尚未提供网页前端、共享守护进程或浏览器 HTTP API。现有协议库已经可在不链接 Ecaml 时测试，但 worker 注册和内容操作编排仍有 Emacs 适配依赖，这是下一轮分离的实际工作量。
 
 ## 添加后端时需要改什么
 
 1. 在 `src/backends/` 中建立来源目录，定义会话、组、分页与认证模型，实现需要的基础和可选能力。先确认内容 ID 和来源 ID 的稳定规则。
 2. 使用外部库处理标准协议或格式；只保留来源特有的数据转换、HTML 选择和业务规则。网络请求应可取消，避免在 worker domain 中长期阻塞。
 3. 注册 worker 的来源匹配、分页、归档与执行能力。可扩展 `Protocol.work`；普通内容结果也可使用共享呈现格式。
-4. 在共享设置中定义后端连接参数，向各前端注册可用操作和时间线来源。协议模块不应调用 Ecaml。
+4. 为当前 Emacs 前端注册可用操作、可定制选项和时间线来源。协议模块不应调用 Ecaml。
 5. 在 Dune 和 `camulus_native.ml` 的装配清单加入该适配模块。公共运行时不应新增后端名称分支。
 6. 验证稳定身份、分页、错误与取消、订阅权威来源、归档，以及至少一条真实前端操作路径。
 
@@ -301,7 +303,7 @@ src/
 
 仍需持续注意：
 
-- `runtime_ui` 已只负责 Emacs 宿主；Web 使用独立 Eio 服务，共享 `Service` 操作，但尚未统一为一个后台进程。
+- `runtime_ui` 目前兼有会话宿主与通用业务协调职责，多前端分离尚未完成。
 - 界面边界有 `Yojson` 与 Lisp alist 的动态字段约定，OCaml 模块签名不能检查所有呈现字段。
 - 邮件已有启动及定时同步，默认间隔 300 秒；这不等于所有来源都已有统一后台同步或持久离线写入队列。
 - 归档刷新当前由任务触发；不同来源的增量更新能力、写入支持和编辑界面完整度仍不同。

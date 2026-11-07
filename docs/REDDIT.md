@@ -30,10 +30,12 @@ nix develop -c make reader-demo
 
 启动全新 `emacs -Q` 后输入 subreddit 和 Reddit 用户名。默认读取 `~/News/nnreddit/refresh-token`。身份和凭据路径由 Camulus 配置声明，不读取旧后端变量。
 
-在共享设置的 `backend_settings.reddit` 中设置 `username` 和 `token_file`，然后从已注册 subreddit 浏览，或运行 `M-x camulus-reddit-browse`。
+可在 Emacs 配置中设置下列变量，或通过 Camulus 的 Customize 页面管理。
 
-```json
-{"reddit": {"username": "YOUR_USERNAME", "token_file": "/path/to/private/refresh-token"}}
+```elisp
+(setq camulus-reddit-username "YOUR_USERNAME"
+      camulus-reddit-token-file "/path/to/private/refresh-token")
+(camulus-reddit-browse "ocaml")
 ```
 
 列表中 `RET` 在右侧打开整个回复树，默认展开；`s` 在当前 subreddit 搜索，空查询回到普通列表；`n` 加载下一页，`g` 刷新。关闭阅读 buffer 会取消其请求；同一阅读 buffer 切换帖子时，旧请求结果不会覆盖新帖子。
@@ -60,7 +62,7 @@ Reddit_backend.Make(Http)           身份、授权、分页、解析、操作�
 Reddit_backend.Curl_transport       libcurl multi，Eio 等待/取消
           │
 src/backends/reddit/reddit_emacs.ml  扩展任务与结果类型并注册后端
-src/frontends/emacs/runtime_ui.ml             通用会话与结果交付
+src/runtime_ui.ml             通用会话与结果交付
           │
 Reader.Runtime                 与具体后端无关的调度和生命周期
 ```

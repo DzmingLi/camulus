@@ -114,7 +114,7 @@
                     camulus-reddit-request camulus-discourse-request camulus-content-request camulus-subscription-request
                     camulus-reader--request camulus-reader--event camulus-reader--load-archive))
     (should-not (fboundp command)))
-  (should-not (custom-variable-p 'camulus-groups)))
+  (should (custom-variable-p 'camulus-groups)))
 
 (defun reader-test-rows (ids)
   (mapcar (lambda (id) `((source . "test") (id . ,id) (author . "A") (title . ,id))) ids))

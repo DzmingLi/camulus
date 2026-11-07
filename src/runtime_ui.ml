@@ -5,10 +5,8 @@ open! Ecaml
 module Runtime = Reader.Runtime
 module Protocol = Reader.Protocol
 module CS = Reader.Content_state
-type Protocol.work += Local = Reader.Service.Local
-type Protocol.work += Group_followed = Reader.Service.Group_followed
-type Protocol.work += Group_subscription = Reader.Service.Group_subscription
-type Protocol.payload += State_result = Reader.Service.State_result
+type Protocol.work += Local of CS.operation | Group_followed of string | Group_subscription of Reader.Local_subscriptions.target * string option
+type Protocol.payload += State_result of Yojson.Safe.t
 external open_channel : Value.t -> Os.file_descr = "ecaml_probe_open_channel"
 
 let owner_thread = Host_thread.id (Host_thread.self ())
@@ -45,9 +43,138 @@ let start_runtime process =
     let subscribable (target : Reader.Local_subscriptions.target) =
       Option.value_map (List.Assoc.find group_rules target.backend ~equal:String.equal) ~default:false
         ~f:(fun accepts -> accepts ~source:target.source ~group:target.group) in
-    let extension = Reader.Service.create ~state_file:!state_file ~subscriptions_file:!group_subscriptions_file
-      ~subscribable ~factories:(List.map hosts ~f:(fun h -> h.Reader_backend.create))
-      ~archive_extractors:!Reader_backend.archive_extractors in
+    let extension ~net ~now ~sleep =
+      let group_subscriptions=Option.map !group_subscriptions_file ~f:Reader.Local_subscriptions.create in
+      let groups () = Option.value_exn ~message:"Configure group subscriptions state before startup" group_subscriptions in
+      let db_lock = Eio.Mutex.create () in
+      (* A late response must not replace a newer entry snapshot in storage.
+         Atomics are read by the storage system thread under db_lock. *)
+      let entry_versions = Stdlib.Hashtbl.create 16 in
+      let storage f =
+        let path=Option.value_exn !state_file in
+        Eio.Mutex.lock db_lock;
+        Exn.protect ~finally:(fun () -> Eio.Mutex.unlock db_lock) ~f:(fun () ->
+          Eio_unix.run_in_systhread (fun () -> CS.with_db path f)) in
+      let reply emit kind fields = emit (State_result (`Assoc (("kind",`String kind)::fields))) in
+      let observe ?(replace=false) emit source group messages =
+        if Option.is_some !state_file then begin
+          let data=storage(fun db -> CS.observe ~replace db ~source ~group messages;
+            CS.snapshots db ~source (List.map messages ~f:(fun m -> m.Reader.Content.id))) in
+          reply emit "states" ["data",data]
+        end in
+      let workers=List.map hosts ~f:(fun host -> host.Reader_backend.create ~net ~now ~sleep
+        ~groups:(fun ~source ~id -> storage(fun db -> CS.groups_for_item db ~source ~id))) in
+      let worker source=List.find workers ~f:(fun w -> w.Reader_backend.matches_source source)
+        |> Option.value_exn ~message:"Source is not configured" in
+      let archived ~refresh source target id =
+        let complete=ref false and bytes=ref 0 in
+        let articles=Stdlib.Hashtbl.create 64 in
+        let add a =
+          bytes := !bytes + String.length a.CS.message.body +
+            Option.value_map a.message.html ~default:0 ~f:String.length +
+            Option.value_map a.raw ~default:0 ~f:String.length +
+            List.sum (module Int) a.files ~f:(fun (_,data) -> String.length data);
+          if !bytes > 128 * 1024 * 1024 then failwith "Archive exceeds the 128 MiB operation limit";
+          Stdlib.Hashtbl.replace articles a.message.id a in
+        complete:=(worker source).archive ~source ~refresh target id ~add
+          ~native_thread:(fun id -> storage(fun db -> CS.native_thread db ~source ~id) |> Option.value_exn);
+        if Poly.equal target CS.Thread && not !complete then failwith "Thread is incomplete; archive was not committed";
+        let articles=Stdlib.Hashtbl.fold(fun _ a xs -> a::xs) articles [] in
+        if List.is_empty articles then failwith "Requested article is unavailable";
+        articles in
+      let state operation emit =
+        let changed ()=reply emit "changed" [] in
+        match operation with
+        | CS.States(source,ids) -> reply emit "states" ["data",storage(fun db -> CS.snapshots db ~source ids)]
+        | Read(source,ids,value) ->
+          let data=storage(fun db -> CS.mark_read db ~source ids value;CS.snapshots db ~source ids) in
+          reply emit "states" ["data",data];changed()
+        | Feed(source,group) -> reply emit "feed" ["rows",storage(fun db -> CS.feed db ~source ~group)]
+        | Timeline entries -> reply emit "feed" ["rows",storage(fun db -> CS.timeline db ~entries)]
+        | Dismiss_timeline(source,id,through) -> storage(fun db -> CS.dismiss_timeline db ~source ~id ~through);changed()
+        | Dismiss(source,group,id,through) -> storage(fun db -> CS.dismiss db ~source ~group ~id ~through);changed()
+        | Legacy_groups -> reply emit "groups" ["rows",`List(storage CS.legacy_groups |> List.map ~f:(fun(source,group)->
+            `Assoc["source",`String source;"group",`String group]))]
+        | Folders -> reply emit "folders" ["rows",`List(List.map (storage CS.folders) ~f:(fun s -> `String s))]
+        | Mkdir folder -> storage(fun db -> CS.mkdir db folder);changed()
+        | Remove_folder folder -> storage(fun db -> CS.remove_folder db folder);changed()
+        | Favorites folder -> reply emit "favorites" ["folder",`String folder;"rows",storage(fun db -> CS.favorites db ~folder)]
+        | Favorite(source,target,id,folder) ->
+          if not(storage(fun db -> CS.copy_favorite db ~source ~target ~id ~folder)) then begin
+            let articles=archived ~refresh:false source target id in
+            storage(fun db -> CS.save_archive db ~source ~target ~id ~folder articles)
+          end;
+          reply emit "saved" ["folder",`String folder;"id",`String id];changed()
+        | Unfavorite(source,target,id,folder) ->
+          storage(fun db -> CS.remove_favorite db ~source ~target ~id ~folder);changed()
+        | Archive(source,target,id) ->
+          reply emit "archive" ["source",`String source;"id",`String id;
+            "articles",storage(fun db -> CS.load_archive db ~source ~target ~id)]
+        | Attachment(source,id,part,destination) ->
+          let data=match storage(fun db -> CS.attachment_archive db ~source ~id ~part) with
+            | Some data -> data
+            | None -> let raw=storage(fun db -> CS.raw_archive db ~source ~id) in
+              let extract=List.find_map !Reader_backend.archive_extractors ~f:(fun f -> f source)
+                |> Option.value_exn ~message:"No backend can extract this archived attachment" in
+              extract raw part in
+          Eio_unix.run_in_systhread(fun () ->
+            let fd=Os.openfile destination [Os.O_WRONLY;Os.O_CREAT;Os.O_EXCL;Os.O_CLOEXEC] 0o600 in
+            let ch=Os.out_channel_of_descr fd in
+            try Stdlib.output_string ch data;Stdlib.flush ch;Os.fsync fd;Stdlib.close_out ch
+            with ex -> Stdlib.close_out_noerr ch;(try Os.unlink destination with _ -> ());raise ex);
+          reply emit "saved" ["path",`String destination]
+        | Refresh(source,group,after,query) ->
+          let version=match Stdlib.Hashtbl.find_opt entry_versions (source,group) with
+            | Some v -> v
+            | None -> let v=Atomic.make 0 in Stdlib.Hashtbl.add entry_versions (source,group) v;v in
+          let epoch=Atomic.fetch_and_add version 1 + 1 in
+          let page=(worker source).page ~source group ~after ~query in
+          let result=storage(fun db ->
+            if Atomic.get version <> epoch then None else begin
+              CS.observe ~replace:(Option.is_none after) db ~source
+                ~group:(if Option.is_none query then Some group else None) page.messages;
+              let states=CS.snapshots db ~source (List.map page.messages ~f:(fun m -> m.Reader.Content.id)) in
+              let rows=match query with None -> CS.feed db ~source ~group
+                | Some _ -> CS.search_rows db ~source page.messages in
+              Some(states,rows)
+            end) in
+          (match result with
+           | None -> reply emit "superseded" []
+           | Some(states,rows) ->
+             reply emit "states" ["data",states];
+             reply emit "feed" ["rows",rows;"after",(match page.after with None -> `Null | Some c -> `String c)])
+        | Refresh_archives ->
+          let errors=ref [] in
+          (* Refresh each saved target once, then update every existing folder copy. *)
+          let done_=Stdlib.Hashtbl.create 32 in
+          List.iter (storage CS.memberships) ~f:(fun(source,target,id,_) ->
+            if not(Stdlib.Hashtbl.mem done_ (source,target,id)) then begin
+              Stdlib.Hashtbl.add done_ (source,target,id) ();
+              try
+                let articles=archived ~refresh:true source target id in
+                storage(fun db -> CS.refresh_archive db ~source ~target ~id articles)
+              with ex -> errors:=(source^" archive: "^Exn.to_string ex)::!errors
+            end);
+          reply emit "archives-refreshed" ["errors",`List(List.map !errors ~f:(fun s -> `String s))]
+      in
+      fun work ~emit -> match work with
+      | Local operation -> state operation emit
+      | Group_followed backend ->
+        reply emit "entries" ["rows",`List(List.map (List.filter (Reader.Local_subscriptions.followed (groups ()) ~backend) ~f:subscribable) ~f:(fun target ->
+          `Assoc["name",`String(target.source^" · "^target.group);"source",`String target.source;"group",`String target.group]))]
+      | Group_subscription(target,setting) ->
+        if not(subscribable target)then invalid_arg "This backend does not offer a subscription for this group";
+        Option.iter setting ~f:(fun setting -> Reader.Local_subscriptions.set (groups ()) target
+          (match setting with "subscribed"->true | "unsubscribed"->false | _->invalid_arg "Invalid group subscription setting"));
+        let subscribed=Reader.Local_subscriptions.get (groups ()) target in
+        reply emit "subscription" ["source",`String target.source;"target",`String target.group;
+          "setting",`String(if subscribed then "subscribed" else "unsubscribed");
+          "choices",`List[`String "unsubscribed";`String "subscribed"]]
+      | work ->
+        if not(List.exists workers ~f:(fun worker ->
+          worker.execute work ~observe:(fun ~source messages -> observe emit source None messages) ~emit)) then
+          failwith "Unknown backend task"
+    in
     let t = Runtime.create ~extension ~notify_ui () in
     backend_hosts := hosts;
     runtime := Some t; wake_fd := Some fd;

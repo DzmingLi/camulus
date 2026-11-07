@@ -43,10 +43,3 @@ reddit-live: build
 
 mail-live: build
 	timeout 180s $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -L test -l test/mail-live.el
-
-.PHONY: web-server test-web
-web-server:
-	dune build --build-dir $(BUILD_ABS) src/frontends/web/server/camulus_web.exe
-
-test-web: web-server
-	python3 test/web-integration.py $(BUILD_ABS)/default/src/frontends/web/server/camulus_web.exe src/frontends/web/client/_build/default

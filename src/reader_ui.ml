@@ -564,7 +564,11 @@ let set_subscription_priority () =
   if not(truth entry) then user_error "Choose a source in the subscriptions list";
   let level=call "read-number" [s "Subscription priority (smaller = higher): ";i(Reader_config.subscription_priority entry)] in
   ignore(Reader_config.priority level : int);
-  Reader_config.save_priority entry (number level);
+  let key=entry_key entry in
+  let rules=values(get "camulus-subscription-priorities") |> List.filter ~f:(fun row ->
+    not(Value.equal (list [call "nth" [i 0;row];call "nth" [i 1;row]]) key)) in
+  let rule=list [field "source" entry;field "group" entry;level] in
+  run "customize-save-variable" [sym "camulus-subscription-priorities";list(rule::rules)];
   subscriptions_render ();
   List.iter (Buffer.all_live ()) ~f:(fun target -> in_buffer target (fun () ->
     if flag "camulus-reader--home" then home_refresh false))
@@ -576,7 +580,7 @@ let select_home_priorities () =
   let levels=values chosen |> List.map ~f:(fun value ->
     let number=try Int.of_string(str value) with _ -> user_error "Enter comma-separated nonnegative integers";0 in
     if number<0 then user_error "Priorities must be nonnegative";i number) in
-  Reader_config.save_home_priorities (List.map levels ~f:number);
+  run "customize-save-variable" [sym "camulus-home-priorities";list levels];
   run "camulus" []
 let subscriptions_refresh () =
   run "camulus-reader-start" [];run "camulus-reader-load-config" [];
