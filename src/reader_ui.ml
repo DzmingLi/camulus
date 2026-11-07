@@ -391,7 +391,9 @@ let groups ?backend () =
       List.iter entries ~f:(fun entry -> if Value.equal source (field "source" entry) then (
         let start=point () in Point.insert "  ";
         button (text "name" entry) (fun () -> browse_entry entry);Point.insert ("  · "^text "group" entry^"\n");
-        properties start (point ()) [sym "camulus-reader-entry";entry])));
+        properties start (point ()) [sym "camulus-reader-entry";entry]));
+      Option.iter (Option.bind (capability source) ~f:(fun backend -> backend.topic_tracking)) ~f:(fun _ ->
+        Point.insert "  ";button "远端追踪管理…" (fun () -> run "camulus-manage-subscriptions" [source]);Point.insert "\n"));
     if List.is_empty entries then Point.insert "\nNo registered groups here. Press C to register groups.\n";
     Option.iter backend ~f:(fun b -> Option.iter b.browser ~f:(fun (_,command) ->
       Point.insert "\n";browse_unregistered "Browse an unregistered group…" command;Point.insert "\n"));
@@ -741,6 +743,8 @@ let choose_subscription ?(label="Following policy") submit =
         let id=submit (Some(str choice)) in
         put (get "camulus-reader--requests") id (callback_unit (fun result ->
           if String.equal (text "kind" result) "subscription" then (
+            (* Reading and the management panel share the backend's policy. *)
+            if truth (field "source" result) then Reader_tracking_ui.changed (text "source" result);
             List.iter (Buffer.all_live ()) ~f:(fun target -> in_buffer target (fun () ->
               if flag "camulus-reader--home" then home_refresh false
               else if derived "camulus-subscriptions-mode" then subscriptions_refresh ()));
@@ -768,7 +772,11 @@ let subscription () =
       Option.bind backend.subscription_target ~f:(fun target -> target ~source:(str source) ~selected:(fun () -> selected ()))) in
     match target with
     | None -> group_subscription ()
-    | Some target -> choose_subscription (fun setting -> i (Application.request_subscription (str source) target setting)))
+    | Some target ->
+      let tracking=Option.bind (capability source) ~f:(fun backend -> backend.topic_tracking) in
+      choose_subscription (fun setting -> match tracking with
+        | Some tracking -> tracking.change ~source:(str source) ~target ~setting
+        | None -> i (Application.request_subscription (str source) target setting)))
 let attachment button =
   let prop name=call "button-get" [button;sym name] in
   let source=prop "source" and id=prop "message-id" and part=prop "part" in
@@ -861,6 +869,8 @@ let event event =
       if Value.eq (find (get "camulus-reader--reading") key) id then remove (get "camulus-reader--reading") key)
   | tag when List.exists (Reader_backend.all ()) ~f:(fun backend -> List.mem backend.events tag ~equal:String.equal) ->
     let data=nth 3 in
+    let callback=find (get "camulus-reader--requests") id in
+    if truth callback then ignore (Value.funcallN callback [data] : Value.t);
     if truth (find (get "camulus-reader--requests") id) && String.equal (text "kind" data) "saved" then
       message ("Saved: "^text "path" data);
     let value=find (get "camulus-reader--loads") id in
@@ -912,9 +922,9 @@ let install_modes () =
   mode "camulus-reader-folders-mode" "special-mode" "Favorite folders" None
     "RET / click: open folder  TAB: next folder  g: refresh  h: home" ignore;
   mode "camulus-reader-groups-mode" "special-mode" "Reader groups" None
-    "Groups · RET / click: browse  TAB: next entry  h: home  g: reload  U: subscriptions  s: follow group  B: all groups  C: edit groups" ignore;
+    "Groups · RET / click: browse  TAB: next entry  T: remote tracking  h: home  g: reload  U: subscriptions  s: follow group  B: all groups  C: edit groups" ignore;
   mode "camulus-subscriptions-mode" "camulus-reader-groups-mode" "Subscriptions" None
-    "Subscriptions · RET / click: browse  s: change subscription  g: refresh  B: all groups  h: home" ignore;
+    "Subscriptions · RET / click: browse  s: change subscription  T: remote tracking  g: refresh  B: all groups  h: home" ignore;
   mode "camulus-reader-article-mode" "special-mode" "Reader thread" None "Loading…" (fun () ->
     local "camulus-reader--render-token" nil;
     reading_layout ();
@@ -932,6 +942,8 @@ let install_modes () =
   bind "camulus-reader-folders-mode" ["RET","push-button";"TAB","forward-button";"<backtab>","backward-button";"f","camulus-reader-folders";"g","camulus-reader-folders-refresh";"h","camulus"];
   bind "camulus-reader-article-mode" ["f","camulus-reader-folders";"s","camulus-reader-subscription";"m","camulus-reader-save";"n","camulus-reader-next-unread";"h","camulus"];
   bind "camulus-subscriptions-mode" ["g","camulus-subscriptions-refresh";"B","camulus-reader-browse-groups";"U","camulus-subscriptions"];
+  List.iter ["camulus-reader-feed-mode";"camulus-reader-article-mode";"camulus-reader-groups-mode"] ~f:(fun mode ->
+    bind mode ["T","camulus-manage-subscriptions"]);
   bind "camulus-reader-groups-mode" ["RET","push-button";"TAB","forward-button";"<backtab>","backward-button";"f","camulus-reader-folders";"U","camulus-subscriptions";"s","camulus-reader-group-subscription";"S","camulus-reader-group-subscription";"h","camulus";"g","camulus-reader-groups-refresh";"B","camulus-reader-browse-groups";"C","camulus-reader-edit-groups"]
 
 
@@ -954,6 +966,9 @@ let install () =
   if not !installed then (
   setup_variables ();
   Reader_media.install ();
+  Reader_tracking_ui.install ~on_changed:(fun _ ->
+    List.iter (Buffer.all_live ()) ~f:(fun target -> in_buffer target (fun () ->
+      if flag "camulus-reader--home" then home_refresh false)));
   define1 "camulus-reader--set-rows" (fun rows -> set_rows rows;nil);
   define0 "camulus-reader--reading-layout" reading_layout;
   define1 "camulus-reader--header-text" (fun value -> s (header_text value));

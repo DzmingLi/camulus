@@ -6,6 +6,14 @@ open! Ecaml
 
 type control = { key : string; hint : string; command : string }
 type entrance = { label : string; open_ : unit -> unit }
+type topic_tracking = {
+  filters : (string * string) list;
+  (* Request results use subscription-page {rows: [{id; title; setting}]; after}
+     and subscription {source; target; setting; choices}. Policy values are opaque
+     strings here, converted from the backend's types only at the Emacs boundary. *)
+  list : source:string -> filter:string -> after:string option -> Value.t;
+  change : source:string -> target:string -> setting:string option -> Value.t;
+}
 type t = {
   name : string;
   start : unit -> unit;
@@ -27,6 +35,7 @@ type t = {
   followed : (unit -> Value.t) option;
   group_subscription : (source:string -> group:string -> setting:string option -> Value.t) option;
   subscription_target : (source:string -> selected:(unit -> Value.t) -> string option) option;
+  topic_tracking : topic_tracking option;
   page : (Value.t -> unit) option;
   events : string list;
   reconcile : source:string -> existing:Value.t -> request:Value.t -> archived:bool -> Value.t -> Value.t;
@@ -43,7 +52,7 @@ let alist fields = Value.list (List.map fields ~f:(fun (k,v) -> call "cons" [Val
 let base ~name ~matches ~threaded ~read = {
   name;start=(fun()->());normalize=Fn.id;on_entry=(fun _->());matches;threaded;read;thread_contains_bodies=false;
   available=(fun _ -> true);attachment=None;controls=[];list_controls=[];article_marks=(fun _->"");row_title=(fun row->Value.funcallN(Value.intern "alist-get")[Value.intern "title";row]);browser=None;entrances=(fun () -> []);followed=None;
-  subscription_target=None;group_subscription=None;delete=None;page=None;events=[];
+  subscription_target=None;topic_tracking=None;group_subscription=None;delete=None;page=None;events=[];
   reconcile=(fun ~source:_ ~existing:_ ~request:_ ~archived:_ message -> message)
 }
 

@@ -1,6 +1,20 @@
 # Discourse 后端
 
-后端位于 `src/backends/discourse/`。原生接口实现 `Backend.S`、`Threading`、`Liking`、`Writing`、`Subscription`；Discourse topic 身份、楼层回复关系、User API 身份及 HTTP 操作由本后端管理。`interaction_emacs.ml` 使用 Ecaml 实现认证、浏览、分类与点赞命令，不依赖 Gnus，也不调用旧后端抓取内容。
+后端位于 `src/backends/discourse/`。原生接口实现 `Backend.S`、`Threading`、`Liking`、`Writing`、`Subscription`、`Topic_tracking`；Discourse topic 身份、楼层回复关系、User API 身份及 HTTP 操作由本后端管理。`interaction_emacs.ml` 使用 Ecaml 实现认证、浏览、分类与点赞命令，不依赖 Gnus，也不调用旧后端抓取内容。
+
+## 远端追踪管理
+
+在首页的 Discourse 组目录中，每个已注册站点下都有“远端追踪管理…”按钮。也可以在组目录、订阅页或阅读界面按 `T`，或执行 `M-x camulus-manage-subscriptions` 选择站点。
+
+- 默认显示该站点的 `watching`（关注）话题；`/` 切换关注、追踪或静音筛选。
+- `n` 分页加载，`g` 重新读取远端；每行显示话题标题与追踪级别。
+- `RET` 在右侧打开完整讨论；`s` 先查询最新远端级别，再选择新级别并立即提交。
+- `regular` 表示回到普通级别；`muted` 表示静音，两者明确区分。
+- 修改后重新读取服务器确认，随后刷新面板；网页端的修改在 `g` 后反映出来。失败显示错误并保留已有列表，不伪装成成功，也不自动重试写入。
+
+此面板只保存当前页的内存状态，不创建或维护本地话题订阅清单，也不改变个人时间线选择了哪些 feed。面板与阅读界面的 `s` 使用同一个后端追踪操作。
+
+列表使用本站点 `/latest.json?state=...` 的远端过滤，不抓取全部话题后本地筛选。游标绑定站点和过滤级别；服务器给出的下一页 URL 只作为是否还有下一页的提示，不直接携带认证信息跟随它。
 
 ## 使用
 

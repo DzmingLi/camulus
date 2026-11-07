@@ -14,14 +14,18 @@ type draft = Reply of {parent:string;text:string} | New_topic of {category:int;t
 type receipt = Decode.article
 type tracking = Regular | Tracking | Watching | Muted
 val tracking_code : tracking -> int
+val tracking_string : tracking -> string
 val tracking_of_string : string -> tracking
 type operation = Categories | List of group * cursor option | Search of group * string * cursor option
  | Thread of string | Read of string | Like of string * bool | Send of draft
  | Track of string * tracking | Topic_state of string | Attachment of string * int * string
+ | Subscriptions of tracking * cursor option | Subscription_change of string * tracking option
 val service : operation -> bool
 type result = Page of Reader.Content.page | Thread_batch of Reader.Content.thread_batch | Article of Decode.article
  | Category_list of Yojson.Safe.t | Liked of Decode.article | Sent of Decode.article
  | Tracked of string * tracking | Topic_state_result of string * int | Saved of string
+ | Subscription_page of (string, tracking) Reader.Backend.subscription_entry list * cursor option
+ | Subscription_state of string * string * tracking
 exception Uncertain_write
 module Make (_:Http.S) : sig
  type t
@@ -39,6 +43,8 @@ module Make (_:Http.S) : sig
  val track : t -> string -> tracking -> unit
  val topic_state : t -> string -> int
  module Subscription : Reader.Backend.Subscription with type t = t and type target = string and type settings = tracking
+ module Topic_tracking : Reader.Backend.Topic_tracking with type t = t and type target = string
+   and type settings = tracking and type filter = tracking and type cursor = cursor
  val execute : t -> operation -> emit:(result -> unit) -> unit
 end
 module Live : module type of Make(Curl_transport)
@@ -50,3 +56,5 @@ val operation_of_json : Yojson.Safe.t -> operation
 val result_json : result -> Yojson.Safe.t
 
 module Subscription : Reader.Backend.Subscription with type t = Live.t and type target = string and type settings = tracking
+module Topic_tracking : Reader.Backend.Topic_tracking with type t = Live.t and type target = string
+  and type settings = tracking and type filter = tracking and type cursor = cursor

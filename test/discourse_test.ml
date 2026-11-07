@@ -84,6 +84,15 @@ let () =
   ignore(M.search session B.Watched_topics ~query:"OCaml" ~after:None);
   let uri=Uri.of_string(List.hd !requests).url in
   check(Uri.get_query_param uri "state"=Some "watching" && Uri.get_query_param uri "search"=Some "OCaml") "personal entry search remains remote scoped";
+  queue:=[response(`Assoc["topic_list",`Assoc["topics",`List[summary()];"more_topics_url",`String "https://evil.test/"]])];
+  let rows,after=M.Topic_tracking.list session B.Watching ~after:None in
+  check(List.length rows=1 && (List.hd rows).Reader.Backend.settings=B.Watching) "remote tracking entries";
+  check(fails(fun()->ignore(M.Topic_tracking.list session B.Tracking ~after))) "tracking cursor belongs to filter";
+  let other=M.create(B.config ~api_key:"testkey" ~client_id:"testclient" "https://other.test") in
+  check(fails(fun()->ignore(M.Topic_tracking.list other B.Watching ~after))) "tracking cursor belongs to site";
+  queue:=[response(`Assoc["topic_list",`Assoc["topics",`List[]]])];
+  ignore(M.Topic_tracking.list session B.Watching ~after);
+  check(String.starts_with ~prefix:base (List.hd !requests).url) "tracking pagination never follows remote URL";
   queue:=[{B.Http.status=302;headers=["location","https://cdn.example/file.bin"];body=""};
           {B.Http.status=200;headers=[];body="bytes\000"}];
   let archived=M.archive_article session first in

@@ -16,6 +16,12 @@ let install ~submit () =
     attachment=Some (fun ~source ~id ~group ~part ~destination -> ignore group; Value.of_int_exn (submit (String.drop_prefix source 10) (Discourse_backend.Attachment(id,part,destination))));
     events=["discourse"];subscription_target=Some (fun ~source:_ ~selected ->
       Some (Value.to_utf8_bytes_exn (call "alist-get" [Value.intern "id";selected ()])));
+    topic_tracking=Some {
+      filters=["watching","关注";"tracking","追踪";"muted","静音"];
+      list=(fun ~source ~filter ~after -> i(submit (String.drop_prefix source 10)
+        (Discourse_backend.Subscriptions(Discourse_backend.tracking_of_string filter,after))));
+      change=(fun ~source ~target ~setting -> i(submit (String.drop_prefix source 10)
+        (Discourse_backend.Subscription_change(target,Option.map setting ~f:Discourse_backend.tracking_of_string)))) };
     list_controls=[{key="c";hint="c: categories";command="camulus-reader-discourse-categories"}];
     controls=[{key="l";hint="l: like / C-u l: unlike";command="camulus-reader-discourse-like"}];
     browser=Some ("Discourse", "camulus-reader-discourse");

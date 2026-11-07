@@ -60,6 +60,10 @@ end
 
 `target` 与 `settings` 均由后端定义。`set` 指定绝对设置，`get` 每次读取后端当前状态，接受站外修改。它不要求创建一个组，也不依赖内容数据库。接口不强制所有后端枚举全部关注对象；入口发现可以使用后端自己的能力。
 
+支持管理追踪列表的后端可以另外实现 `Backend.Topic_tracking`，在 `Subscription` 的 `get` / `set` 上增加分页 `list`。`target`、`settings`、`filter`、`cursor` 均为后端自有类型：公共接口不固定 Discourse 的四级追踪策略，也不要求其他服务照搬。未来 GitHub 等后端可以提供自己的状态和筛选条件。
+
+Ecaml 适配器通过 `Reader_backend.topic_tracking` 注册筛选标签、列表请求及查询／修改请求。公共 `reader_tracking_ui.ml` 负责站点选择、分页、打开内容、错误提示与防止迟到结果覆盖新视图，不知道后端名称、端点或级别。命令为 `camulus-manage-subscriptions`；未实现此可选能力的后端不会显示管理按钮。
+
 - Discourse 的 `target` 是 topic/文章标识，`settings` 是 `Regular | Tracking | Watching | Muted`。调用现有远端 topic 通知级别接口。`watching`、`tracking` 是个人入口，使用服务器筛选的普通 topic 列表，并支持限定在此范围内搜索；需要有效身份。此实现依照 [Discourse TopicQuery 的 state/search 筛选](https://github.com/discourse/discourse/blob/main/lib/topic_query.rb)，没有在本地收集所有讨论再过滤。
 - RSS 的 `target` 是 feed URL，`settings` 是布尔值。关注列表保存在 RSS 后端自己的 `$XDG_STATE_HOME/camulus/rss-subscriptions.json` 中，格式为 URL 数组；路径由 `camulus-reader-rss-subscriptions-file` 指定。读写在系统线程执行，使用锁文件和临时文件原子替换，无需 SQLite，也不会因关注而立即抓取正文。`camulus-rss-followed` 返回该后端发现的关注入口。
 - Reddit 的 `notifications` 入口经组订阅命令加入首页后，展示回复及提及并按讨论合并，读取列表不加载整个讨论，也不标记远端已读。本轮未为 Reddit 伪造不存在的通用 thread 订阅实现。

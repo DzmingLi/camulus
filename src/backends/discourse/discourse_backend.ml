@@ -27,14 +27,18 @@ type draft=Reply of {parent:string;text:string} | New_topic of {category:int;tit
 type receipt=D.article
 type tracking=Regular | Tracking | Watching | Muted
 let tracking_code=function Muted->0 | Regular->1 | Tracking->2 | Watching->3
+let tracking_string=function Muted->"muted" | Regular->"regular" | Tracking->"tracking" | Watching->"watching"
 let tracking_of_string=function "regular"->Regular | "tracking"->Tracking | "watching"->Watching | "muted"->Muted | _->invalid_arg "Invalid Discourse tracking level"
 type operation=Categories | List of group*cursor option | Search of group*string*cursor option
  | Thread of string | Read of string | Like of string*bool | Send of draft
  | Track of string*tracking | Topic_state of string | Attachment of string*int*string
-let service=function Like _|Send _|Track _|Attachment _ -> true | _ -> false
+ | Subscriptions of tracking*cursor option | Subscription_change of string*tracking option
+let service=function Like _|Send _|Track _|Attachment _|Subscription_change _ -> true | _ -> false
 type result=Page of C.page | Thread_batch of C.thread_batch | Article of D.article
  | Category_list of Yojson.Safe.t | Liked of D.article | Sent of D.article
  | Tracked of string*tracking | Topic_state_result of string*int | Saved of string
+ | Subscription_page of (string,tracking) Reader.Backend.subscription_entry list*cursor option
+ | Subscription_state of string*string*tracking
 exception Uncertain_write
 let error_write ()=failwith "Discourse write outcome is uncertain; check the forum before retrying"
 module Make(H:Http.S)=struct
@@ -221,6 +225,21 @@ module Make(H:Http.S)=struct
      | _ -> assert false
    let set = track
  end
+ module Topic_tracking = struct
+   include Subscription
+   type nonrec cursor=cursor
+   type filter=tracking
+   let list t settings ~after =
+     if t.config.api_key="" then failwith "Authorize this forum before managing topic tracking";
+     let scope="subscriptions:"^t.config.site^":"^tracking_string settings in
+     let page=page_number Latest scope after in
+     let data=call t "/latest.json" ["state",tracking_string settings;"page",string_of_int page]
+       |> D.field "topic_list" in
+     let rows=List.map(fun topic ->
+       {Reader.Backend.target=D.topic_id(D.positive(D.num "id" topic));title=D.str "title" topic;settings})
+       (D.list "topics" data) in
+     rows,(if D.str "more_topics_url" data="" then None else cursor Latest scope page)
+ end
  let download t ?(limit=128*1024*1024) url =
    let rec fetch visited url =
      ignore(Http.validate url);
@@ -262,6 +281,11 @@ module Make(H:Http.S)=struct
    | Send draft -> emit(Sent(send t draft))
    | Track(id,level) -> Subscription.set t id level;emit(Tracked(id,level))
    | Topic_state id -> emit(Topic_state_result(id,tracking_code(Subscription.get t id)))
+   | Subscriptions(settings,after) -> let rows,next=Topic_tracking.list t settings ~after in
+     emit(Subscription_page(rows,next))
+   | Subscription_change(id,setting) ->
+     Option.iter (Subscription.set t id) setting;
+     emit(Subscription_state(source_of_site t.config.site,id,Subscription.get t id))
    | Attachment(id,part,path) -> attachment t id part path;emit(Saved path)
    with Uncertain_write -> error_write ()
  let stream_thread=thread
@@ -269,6 +293,8 @@ module Make(H:Http.S)=struct
 end
 module Live=Make(Curl_transport)
 module Subscription = Live.Subscription
+module Topic_tracking : Reader.Backend.Topic_tracking with type t=Live.t
+  and type target=string and type settings=tracking and type filter=tracking and type cursor=cursor = Live.Topic_tracking
 module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live
 module Threading : Reader.Backend.Threading with type t=Live.t = Live
 module Liking : Reader.Backend.Liking with type t=Live.t = Live
@@ -287,6 +313,9 @@ let operation_of_json j =
  | "submit"->Send(New_topic{category=D.positive(D.num "category" j);title=str "title";text=str "text"})
  | "track"->Track(id(),tracking_of_string(str "level"))
  | "topic-state"->Topic_state(id())
+ | "subscriptions"->Subscriptions(tracking_of_string(str "filter"),after)
+ | "subscription"->Subscription_change(id(),match D.field "setting" j with
+     | `Null->None | `String value->Some(tracking_of_string value) | _->invalid_arg "Invalid tracking setting")
  | "attachment"->let part=match D.field "part" j with `Int n when n>=0->n | _->invalid_arg "Invalid attachment part" in Attachment(id(),part,str "destination")
  | _->invalid_arg "Unknown Discourse operation"
 let result_json = function
@@ -298,4 +327,10 @@ let result_json = function
  | Category_list rows -> `Assoc["kind",`String "categories";"rows",rows]
  | Tracked(id,level)->`Assoc["kind",`String "tracked";"id",`String id;"level",`Int(tracking_code level)]
  | Topic_state_result(id,level)->`Assoc["kind",`String "topic-state";"id",`String id;"level",`Int level]
+ | Subscription_page(rows,after)->`Assoc["kind",`String "subscription-page";
+     "rows",`List(List.map(fun (row : (_,_) Reader.Backend.subscription_entry)->
+       `Assoc["id",`String row.target;"title",`String row.title;"setting",`String(tracking_string row.settings)])rows);
+     "after",(match after with None->`Null | Some value->`String value)]
+ | Subscription_state(source,id,setting)->`Assoc["kind",`String "subscription";"source",`String source;"target",`String id;
+     "setting",`String(tracking_string setting);"choices",`List(List.map(fun value->`String(tracking_string value))[Watching;Tracking;Regular;Muted])]
  | Saved path -> `Assoc["kind",`String "saved";"path",`String path]

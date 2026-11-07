@@ -46,3 +46,19 @@ module type Subscription = sig
   val get : t -> target -> settings
   val set : t -> target -> settings -> unit
 end
+
+type ('target, 'settings) subscription_entry = {
+  target : 'target;
+  title : string;
+  settings : 'settings;
+}
+
+(** Optional enumeration of the backend's authoritative subscription state.
+    Filters, settings and cursors belong to the backend, not the browser registry. *)
+module type Topic_tracking = sig
+  include Subscription
+  type cursor
+  type filter
+  val list : t -> filter -> after:cursor option ->
+    (target, settings) subscription_entry list * cursor option
+end

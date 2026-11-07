@@ -16,6 +16,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     writes = 0
     delay_list = False
     list_started = False
+    manage = False
+    topic_levels = {}
+    reject_tracking = False
     def log_message(self, *args): pass
     def respond(self, status, data):
         self.send_response(status)
@@ -45,6 +48,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if mode=='delay-list': Handler.delay_list=True; Handler.list_started=False
             if mode=='reset':
                 Handler.revision=3; Handler.liked=False; Handler.level=1; Handler.writes=0; Handler.delay_list=False; Handler.list_started=False
+                Handler.manage=False; Handler.topic_levels={}; Handler.reject_tracking=False
+            if mode=='manage': Handler.manage=True; Handler.topic_levels={7:3,8:2,9:3}
+            if mode=='manage-external': Handler.topic_levels[7]=2
+            if mode=='reject-tracking': Handler.reject_tracking=True
             if mode=='update': Handler.revision=4
             return self.respond(200, dict(writes=Handler.writes, list_started=Handler.list_started))
         if Handler.offline: return self.respond(503, {})
@@ -55,7 +62,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path in ('/latest.json', '/c/help/3.json'):
             if 'state' in q:
                 if self.headers.get('User-Api-Key')!='fixturekey': return self.respond(403,{})
-                expected={'watching':3,'tracking':2}[q['state'][0]]
+                expected={'watching':3,'tracking':2,'muted':0,'regular':1}[q['state'][0]]
+                if Handler.manage:
+                    page=int(q.get('page',['0'])[0])
+                    matching=sorted(k for k,v in Handler.topic_levels.items() if v==expected)
+                    topics=[self.topic(k) for k in matching[page:page+1]]
+                    if Handler.delay_list:
+                        Handler.delay_list=False; Handler.list_started=True; time.sleep(0.7)
+                    return self.respond(200,dict(topic_list=dict(topics=topics,
+                        more_topics_url='/latest?page=%d'%(page+1) if len(matching)>page+1 else None)))
                 topics=[self.topic()] if self.level==expected else []
                 if q.get('search')==['missing']: topics=[]
                 return self.respond(200,dict(topic_list=dict(topics=topics)))
@@ -73,6 +88,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.respond(200, dict(topics=topics, posts=[dict(topic_id=7, post_number=2)] if topics else [],
                                          grouped_search_result=dict(more_full_page_results=False)))
         if path == '/t/99.json': time.sleep(5)
+        if Handler.manage and path in ('/t/8.json','/t/9.json'):
+            number=int(path.split('/')[2].split('.')[0])
+            return self.respond(200,dict(self.topic(number),details=dict(notification_level=Handler.topic_levels[number])))
         if path == '/t/7/posts.json':
             posts=[self.post(int(i)-100) for i in q.get('post_ids[]',[])]
             return self.respond(200, dict(post_stream=dict(posts=list(reversed(posts)))))
@@ -80,7 +98,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             parts=path.removesuffix('.json').split('/')
             floor=int(parts[3]) if len(parts)>3 else 1
             return self.respond(200, dict(self.topic(), post_stream=dict(posts=[self.post(floor)], stream=list(range(101,101+self.revision))),
-                                         details=dict(notification_level=self.level)))
+                                         details=dict(notification_level=Handler.topic_levels[7] if Handler.manage else self.level)))
         return self.respond(404, {})
     def mutation(self, delete=False):
         if self.headers.get('User-Api-Key')!='fixturekey' or self.headers.get('User-Api-Client-Id')!='fixtureclient':
@@ -88,6 +106,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         length=int(self.headers.get('Content-Length','0'))
         q=urllib.parse.parse_qs(self.rfile.read(length).decode())
         Handler.writes+=1
+        if self.path.endswith('/notifications.json') and Handler.manage:
+            if Handler.reject_tracking: return self.respond(403,{})
+            number=int(self.path.split('/')[2])
+            Handler.topic_levels[number]=int(q['notification_level'][0])
+            return self.respond(200,dict(success='OK'))
         if self.path.startswith('/post_actions'):
             Handler.liked=not delete
             return self.respond(200,self.post(1))
