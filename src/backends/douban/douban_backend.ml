@@ -115,7 +115,7 @@ module Make(H:R.Http.S)=struct
   let rec fetch depth url=
    if depth>3 || not(allowed url) then failwith "Unsupported Douban destination or redirect";
    let cookies=t.cookies url in
-   let r=H.request {R.Http.url;headers=["User-Agent","Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0";"Cookie",Reader.Firefox_cookies.header cookies;
+   let r=H.request {R.Http.meth=Get;body="";url;headers=["User-Agent","Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0";"Cookie",Reader.Credentials.Firefox.header cookies;
     "Referer",url];limit=16*1024*1024} in
    if List.mem r.status [301;302;303;307;308] then
     (match List.assoc_opt "location" r.headers with None->failwith "Douban redirect missing target"|Some loc->fetch(depth+1)(R.Http.resolve url loc))
@@ -241,7 +241,7 @@ module Make(H:R.Http.S)=struct
    (* Firefox often keeps ck only in memory. Fetch a fresh CSRF token using
       the same browser account; do not create a persistent Camulus session. *)
    let bootstrap="https://www.douban.com/mine/" in
-   let r=H.request {R.Http.url=bootstrap;headers=["Cookie",Reader.Firefox_cookies.header(t.cookies bootstrap);"Referer","https://www.douban.com/";
+   let r=H.request {R.Http.meth=Get;body="";url=bootstrap;headers=["Cookie",Reader.Credentials.Firefox.header(t.cookies bootstrap);"Referer","https://www.douban.com/";
     "User-Agent","Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"];limit=2*1024*1024} in
    if r.status<>200 then failwith "Douban CSRF bootstrap failed; check Firefox login";
    let ck=List.find_map(fun(k,v)->
@@ -249,12 +249,12 @@ module Make(H:R.Http.S)=struct
     let first=List.hd(String.split_on_char ';' v) |> String.trim in
     if String.starts_with ~prefix:"ck=" first then token(String.sub first 3 (String.length first-3)) else None)r.headers in
    (match ck with Some ck->ck|None->failwith "Douban did not return a CSRF token; log in again in Firefox") in
-  let headers=["Cookie",Reader.Firefox_cookies.header(("ck",ck)::List.remove_assoc "ck" cookies);
+  let headers=["Cookie",Reader.Credentials.Firefox.header(("ck",ck)::List.remove_assoc "ck" cookies);
    "User-Agent","Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0";
    "Referer","https://www.douban.com/";"Origin","https://www.douban.com";
    "Content-Type","application/x-www-form-urlencoded; charset=UTF-8";"X-CSRF-TOKEN",ck;"X-Requested-With","XMLHttpRequest"] in
   let body=Uri.encoded_of_query(List.map(fun(k,v)->k,[v])(("ck",ck)::fields)) in
-  let r=try t.post {R.Http.url;headers;limit=1024*1024} ~body with R.Http.Transport_error _->
+  let r=try t.post {R.Http.meth=Get;body="";url;headers;limit=1024*1024} ~body with R.Http.Transport_error _->
     failwith "Douban like transfer failed or timed out; refresh to check the remote state" in
   if r.status<>200 then failwith(Printf.sprintf "Douban like failed (HTTP %d); refresh to check the remote state" r.status);
   let j=try Yojson.Safe.from_string r.body with _->failwith "Invalid Douban like response; refresh to check the remote state" in
@@ -270,7 +270,7 @@ module Make(H:R.Http.S)=struct
  let archive t group id=archive_article t (read t group id)
  let attachment t group id part destination=R.Article.attachment ~download (read t group id)part destination
 end
-module Live=Make(R.Curl_transport)
+module Live=Make(R.Transport)
 module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live
 module Threading : Reader.Backend.Threading with type t=Live.t = Live
 
@@ -278,5 +278,5 @@ module Threading : Reader.Backend.Threading with type t=Live.t = Live
    discover browser profiles or read browser databases. *)
 let create_live ~cookies () =
  Live.create ~cookies ~post:(fun request ~body->
-  R.Curl_transport.perform ~configure:(fun easy->Curl.set_post easy true;Curl.set_postfields easy body) request) ()
+  R.Transport.request {request with meth=Reader.Http.Post;body}) ()
 module Liking : Reader.Backend.Liking with type t=Live.t = Live

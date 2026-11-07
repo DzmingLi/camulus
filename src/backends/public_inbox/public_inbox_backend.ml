@@ -105,6 +105,6 @@ module Make(H:R.Http.S)=struct
   let record=read_record t id in let bytes=Mime.extract record.raw part in
   R.Article.attachment ~download:(fun ~limit:_ _->bytes) record.article part destination
 end
-module Live=Make(R.Curl_transport)
+module Live=Make(R.Transport)
 module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live
 module Threading : Reader.Backend.Threading with type t=Live.t = Live

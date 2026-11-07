@@ -190,7 +190,7 @@ let oauth_state () = with_backend @@ fun b file _ ->
                    "scope",str "read vote";"refresh_token",str "new-refresh"]));
   let callback = R.default_redirect_uri ^ "?code=test-code&state=" ^ state in
   B.complete_authorization b callback;
-  check (R.Credentials.read file="new-refresh" && (Unix.stat file).st_perm land 0o777=0o600) "private atomic credential save";
+  check (R.Credentials.read_secret_file ~private_file:true ~limit:4096 file="new-refresh" && (Unix.stat file).st_perm land 0o777=0o600) "private atomic credential save";
   raises (function R.Authorization _ -> true | _ -> false) (fun () -> B.complete_authorization b callback)
 
 let cancellation_and_single_refresh () = with_backend @@ fun b _ _ ->

@@ -1,4 +1,4 @@
-(library (name rss_backend) (modules (:standard \ rss_emacs)) (libraries reader eio eio.unix curl uri xmlm ptime yojson unix))
+(library (name rss_backend) (modules (:standard \ rss_emacs)) (libraries reader eio eio.unix uri xmlm ptime syndic yojson unix))
 
 (library
  (name rss_emacs)

@@ -28,7 +28,7 @@ let ()=Eio_posix.run(fun _->
   let browser=Reader.Firefox_cookies.create ~profile () in
   let cookies=Reader.Firefox_cookies.get browser in
   let module H=struct let request r=
-   let result=Rss_backend.Curl_transport.request r in
+   let result=Rss_backend.Transport.request r in
    Option.iter(fun loc->let u=Uri.of_string loc in Printf.printf "Redirect: %s%s\n%!" (Option.value(Uri.host u)~default:"")(Uri.path u))(List.assoc_opt "location" result.headers);
    if result.status<>200 then
      Printf.printf "HTTP %d %s\n%!" result.status (Uri.path(Uri.of_string r.url));

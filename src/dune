@@ -1,7 +1,7 @@
 (library
  (name reader)
- (modules protocol runtime content backend host voting content_state html local_subscriptions firefox_cookies)
- (libraries unix threads saturn eio eio.unix eio_posix sqlite3 yojson markup uri)
+ (modules protocol runtime content backend host voting content_state html local_subscriptions firefox_cookies http credentials)
+ (libraries unix threads saturn eio eio.unix eio_posix sqlite3 yojson markup uri curl)
  (foreign_stubs (language c) (names host_stubs)))
 
 (executable
@@ -14,6 +14,6 @@
 (library
  (name reader_emacs_backend)
  (wrapped false)
- (modules reader_backend reader_webkit)
+ (modules reader_backend reader_webkit credentials_emacs)
  (libraries ecaml yojson reader eio.unix uri)
  (preprocess (pps ppx_jane)))

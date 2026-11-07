@@ -44,7 +44,7 @@ module Make(H:R.Http.S)=struct
   let time=match after with None->None|Some s->(match Yojson.Safe.from_string s with
    | `List[`String g;`String time] when g=group->Some(numeric time)|_->invalid_arg "Invalid NetEase cursor") in
   let url="https://music.163.com/api/event/get/"^uid^(match time with None->""|Some s->"?lasttime="^s^"&limit=20") in
-  let r=H.request{R.Http.url;headers=["Referer","https://music.163.com/"];limit=16*1024*1024} in
+  let r=H.request{R.Http.meth=Get;body="";url;headers=["Referer","https://music.163.com/"];limit=16*1024*1024} in
   if r.status<>200 then failwith(Printf.sprintf "NetEase HTTP %d" r.status);
   let j=Yojson.Safe.from_string r.body in
   let events=match num "code" j,field "events" j with 200,`List xs->xs|_->failwith "NetEase rejected event listing" in
@@ -62,5 +62,5 @@ module Make(H:R.Http.S)=struct
  let archive t group id=R.Article.archive ~download(read t group id)
  let attachment t group id part destination=R.Article.attachment ~download(read t group id)part destination
 end
-module Live=Make(R.Curl_transport)
+module Live=Make(R.Transport)
 module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live

@@ -1,6 +1,7 @@
 module C=Reader.Content
 module R=Rss_backend
 module D=R.Decode
+module Xml=R.Feed_xml
 module Html=Reader.Html
 let source="atlantic"
 type group=string
@@ -12,16 +13,16 @@ let feed_url group =
  if slug="" || not(String.for_all(function 'a'..'z'|'A'..'Z'|'0'..'9'|'-'->true | _->false)slug) then invalid_arg "Invalid Atlantic author slug";
  "https://www.theatlantic.com/feed/author/"^slug^"/"
 let decode ~url body =
- let root=D.parse_xml body in
- if not(D.is D.atom "feed" root) then failwith "Atlantic did not return Atom";
- let entries=D.elements D.atom "entry" root in
+ let root=Xml.read body in
+ if not(Xml.is Xml.atom "feed" root) then failwith "Atlantic did not return Atom";
+ let entries=Xml.elements Xml.atom "entry" root in
  let articles=D.parse ~url body in
  List.map(fun (a:D.article) ->
-  let image=match List.find_opt(fun n->D.value D.atom "id" n=a.message.id) entries with
+  let image=match List.find_opt(fun n->Xml.value Xml.atom "id" n=a.message.id) entries with
     | None->""
-    | Some entry -> D.children entry |> List.find_opt(fun n -> D.attr "" "url" n<>"" &&
-        (D.is "http://search.yahoo.com/mrss/" "content" n || D.attr "" "medium" n="image" || String.starts_with ~prefix:"image/" (D.attr "" "type" n)))
-      |> Option.fold ~none:"" ~some:(D.attr "" "url") in
+    | Some entry -> Xml.children entry |> List.find_opt(fun n -> Xml.attr "" "url" n<>"" &&
+        (Xml.is "http://search.yahoo.com/mrss/" "content" n || Xml.attr "" "medium" n="image" || String.starts_with ~prefix:"image/" (Xml.attr "" "type" n)))
+      |> Option.fold ~none:"" ~some:(Xml.attr "" "url") in
   let html=(if image="" then "" else "<figure><img src=\""^Html.escape image^"\"></figure>")^
     Option.value a.message.html ~default:a.message.body in
   let tree=Html.parse html |> Html.clean ~base:a.message.url
@@ -44,5 +45,5 @@ module Make(H:R.Http.S)=struct
    {Reader.Content_state.message=a.message;attachments=D.attachments a;files;raw=None}
  let attachment t group id part path=Feed.attachment t (feed_url group) id part path
 end
-module Live=Make(R.Curl_transport)
+module Live=Make(R.Transport)
 module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live

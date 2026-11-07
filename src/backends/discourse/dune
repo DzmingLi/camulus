@@ -1,4 +1,4 @@
-(library (name discourse_backend) (modules (:standard \ discourse_emacs interaction_emacs)) (libraries reader eio eio.unix curl uri yojson ptime markup unix))
+(library (name discourse_backend) (modules (:standard \ discourse_emacs interaction_emacs)) (libraries reader eio eio.unix uri yojson ptime markup unix))
 
 (library
  (name discourse_emacs)

@@ -121,7 +121,7 @@ let text v=if truth v then Value.to_utf8_bytes_exn v else ""
 let firefox_cookie_provider () =
  let configured=get "camulus-firefox-profile" in
  let profile=if truth configured then Some(text(call "expand-file-name" [configured])) else None in
- Reader.Firefox_cookies.create ?profile ()
+ Reader.Credentials.Firefox.create ?profile ()
 let integer v=Value.to_int_exn v
 let i=Value.of_int_exn
 let b v=if v then sym "t"else nil

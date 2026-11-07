@@ -4,7 +4,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     opam-nix.url = "github:tweag/opam-nix";
     opam-nix.inputs.nixpkgs.follows = "nixpkgs";
-    opam-nix.inputs.opam-repository.url = "github:ocaml/opam-repository";
+    opam-nix.inputs.opam-repository.url = "github:ocaml/opam-repository/7b5e9a2b084fe7ff750c4a9449289065ef9f9216";
   };
   outputs = { self, nixpkgs, opam-nix }:
     let

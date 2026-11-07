@@ -1,12 +1,12 @@
-module Http = Http
-module Curl_transport = Curl_transport
-module Credentials = Credentials
+module Http = Reader.Http
+module Transport = struct let request r = Http.request ~policy:Http.Https_only ~user_agent:"camulus/0.1 (Reddit)" r end
+module Credentials = Reader.Credentials
 module Decode = Decode
 include Errors
 module M = Reader.Content
 module D = Decode
 
-(* Integer encoding belongs to Reddit and the existing Emacs/CLI JSON boundary. *)
+(* Integer encoding belongs to Reddit and the existing Emacs JSON boundary. *)
 let vote_code = function M.Upvote -> 1 | M.Downvote -> -1 | M.No_vote -> 0
 
 let default_client_id = "5oagOpX2_NKVDej_iuZjFA"
@@ -92,7 +92,7 @@ module Make (Transport : Http.S) = struct
       Http.meth=Post; url="https://www.reddit.com/api/v1/access_token";
       headers=["Authorization", "Basic " ^ Base64.encode_exn (t.config.client_id ^ ":");
                "User-Agent",user_agent t; "Content-Type","application/x-www-form-urlencoded"];
-      body=form fields }
+      body=form fields;limit=16*1024*1024 }
     with Http.Transport_error _ -> raise (Error (Authorization "token exchange failed; retry later")) in
     if response.status <> 200 then raise (Error (Authorization (Printf.sprintf "token endpoint HTTP %d" response.status)));
     let json = try D.parse response.body with Error _ -> raise (Error (Authorization "invalid token response")) in
@@ -102,8 +102,11 @@ module Make (Transport : Http.S) = struct
   let token t = match t.token with
     | Some token when token.expires > t.now () +. 60. -> token
     | _ ->
-      let refresh = try Credentials.read t.config.token_file with Failure message ->
-        raise (Error (Authorization message)) in
+      let refresh = try
+        let token=Eio_unix.run_in_systhread(fun()->Credentials.read_secret_file ~private_file:true ~limit:4096 t.config.token_file) in
+        if String.exists(function ' '| '\n'| '\r'| '\t'->true|_->false)token then
+          raise(Credentials.Error "Invalid refresh token file");token
+        with Credentials.Error message -> raise(Error(Authorization message)) in
       oauth t ["grant_type","refresh_token"; "refresh_token",refresh] |> remember_token t
 
   let api t ~scope meth path fields = with_lock t.lock @@ fun () ->
@@ -120,7 +123,7 @@ module Make (Transport : Http.S) = struct
           Http.meth; url="https://oauth.reddit.com" ^ path ^ (if meth=Get then "?" ^ form fields else "");
           headers=["Authorization","Bearer " ^ access.bearer; "User-Agent",user_agent t;
                    "Content-Type","application/x-www-form-urlencoded"];
-          body=(if meth=Post then form fields else "") })
+          body=(if meth=Post then form fields else "");limit=16*1024*1024 })
         with
         | Eio.Cancel.Cancelled _ as ex -> if meth=Post then raise (Error Uncertain_write) else raise ex
         | Http.Transport_error _ -> if meth=Post then raise (Error Uncertain_write) else None
@@ -296,7 +299,7 @@ module Make (Transport : Http.S) = struct
     try D.require_fullname "t3" (D.string "name" (D.action_data j)) with Error _ -> raise (Error Uncertain_write)
 
   let authorize t =
-    let state = Credentials.random_state () in
+    let state = Credentials.nonce () in
     t.challenge <- Some (state,t.now () +. 600.);
     "https://www.reddit.com/api/v1/authorize?" ^ form [
       "client_id",t.config.client_id;"response_type","code";"state",state;
@@ -324,7 +327,7 @@ module Make (Transport : Http.S) = struct
     let previous = t.token in
     (try
        ignore (remember_token t j);
-       Credentials.save t.config.token_file refresh
+       Eio_unix.run_in_systhread(fun()->Credentials.write_secret_file t.config.token_file refresh)
      with ex -> t.token <- previous; raise ex)
 
   let execute t operation ~emit = match operation with
@@ -343,7 +346,7 @@ module Make (Transport : Http.S) = struct
     | Complete_authorization callback -> complete_authorization t callback; emit Authorized
 end
 
-module Live = Make(Curl_transport)
+module Live = Make(Transport)
 module Readable : Reader.Backend.S with type t = Live.t and type group = group
   and type cursor = string = Live
 module Threading : Reader.Backend.Threading with type t = Live.t = Live

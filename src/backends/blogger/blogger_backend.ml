@@ -36,13 +36,10 @@ module Make(H:R.Http.S)=struct
  let create ()=
   let next=Hashtbl.create 16 in
   let decode ~url body=
-   let root=D.parse_xml body in
-   if not(D.is D.atom "feed" root)then failwith "Blogger did not return Atom";
-   let articles=D.parse ~url body in
-   let after=D.elements D.atom "link" root |> List.find_opt(fun n->D.attr "" "rel" n="next")
-    |> Option.map(fun n->
-      let u=Uri.of_string(D.attr "" "href" n) in
-      match Option.bind(Uri.get_query_param u "start-index") int_of_string_opt with
+   let articles,links=D.atom_page ~url body in
+   let after=List.find_opt(fun(link:Syndic.Atom.link)->link.rel=Syndic.Atom.Link(Uri.of_string "next"))links
+    |> Option.map(fun link->
+      match Option.bind(Uri.get_query_param link.Syndic.Atom.href "start-index") int_of_string_opt with
       | Some n when n>0 && n<=1000000->n | _->failwith "Invalid Blogger next-page index") in
    Hashtbl.replace next url after;
    articles in
@@ -88,5 +85,5 @@ module Make(H:R.Http.S)=struct
  let archive t group id=R.Article.archive ~download(read t group id)
  let attachment t group id part path=R.Article.attachment ~download(read t group id)part path
 end
-module Live=Make(R.Curl_transport)
+module Live=Make(R.Transport)
 module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live

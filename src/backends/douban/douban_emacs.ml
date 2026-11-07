@@ -18,7 +18,7 @@ let prepare ~notify:_ =
  let browser=firefox_cookie_provider () in
  Some {drain=(fun()->[]);close=(fun()->Hashtbl.clear pending;Hashtbl.clear confirmed);
   create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ->
-   let backend=D.create_live ~cookies:(Reader.Firefox_cookies.get browser) () in
+   let backend=D.create_live ~cookies:(Reader.Credentials.Firefox.get browser) () in
    {matches_source=String.equal ("douban");
     page=(fun ~source:_ group ~after ~query->match query with None->D.Live.list backend group ~after|Some query->D.Live.search backend group ~query ~after);
     archive=(fun ~source:_ ~refresh:_ target id ~native_thread:_ ~add->

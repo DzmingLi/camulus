@@ -69,5 +69,5 @@ module Make(H:R.Http.S)=struct
      try output_string ch data;flush ch;Unix.fsync fd;close_out ch
      with ex->close_out_noerr ch;(try Sys.remove destination with _->());raise ex)
 end
-module Live=Make(R.Curl_transport)
+module Live=Make(R.Transport)
 module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live

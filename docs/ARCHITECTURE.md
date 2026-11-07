@@ -21,6 +21,9 @@ src/
   runtime_ui.ml              Emacs 会话宿主、结果收发、通用状态操作
   content_state.ml            SQLite 内容状态与归档
   local_subscriptions.ml     后端选择使用的本地组订阅状态
+  http.ml                    公共 HTTP 类型、URL 策略与 ocurl 执行
+  credentials.ml             凭据文件读写与 Firefox Cookie 提供器
+  credentials_emacs.ml       Emacs auth-source 查询和延迟 secret 解析
   reader_backend.ml          当前 Emacs 能力注册与 worker 注册
   reader_config.ml           Customize 配置、入口校验和优先级选项
   reader_ui.ml               时间线、组、收藏、阅读窗口
@@ -48,7 +51,7 @@ test/                       OCaml 测试、Emacs 集成测试、协议模拟服�
 | 编译单元 | 内容 | 是否依赖 Ecaml |
 | --- | --- | --- |
 | `reader` | 内容、状态、协议、运行时和一些宿主工具 | 否 |
-| `reader_emacs_backend` | `reader_backend`、`reader_webkit` | 是 |
+| `reader_emacs_backend` | `reader_backend`、`reader_webkit`、`credentials_emacs` | 是 |
 | `camulus_native` | 原生入口、公共界面、配置、运行时宿主 | 是 |
 
 每个后端也区分协议库和 Emacs 适配库。例如 `reddit_backend` 处理 HTTP、OAuth 和内容，`reddit_emacs` 注册命令、快捷键及 worker。源码归入同一个后端目录，是为了便于按功能查找；Dune 的库依赖才决定代码能否在没有 Emacs 的情况下使用。
@@ -246,17 +249,25 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 [Reddit](../src/backends/reddit/reddit_emacs.ml) 可作为独立协议任务注册的例子；[JSON Feed](../src/backends/jsonfeed/jsonfeed_emacs.ml) 展示通过 functor 复用接入；[Discourse](../src/backends/discourse/discourse_emacs.ml) 展示多个站点和远端追踪能力。
 
+## 公共 HTTP 与凭据读取
+
+[http.ml](../src/http.ml) 定义共享的请求、响应和 HTTP 方法，以及基于 ocurl multi 的 Eio 传输。RSS、Reddit、Discourse 和使用 RSS 传输的内容后端不再各自维护 `curl_transport.ml`。传输统一处理 TLS、证书、连接与总超时、解压后大小限制、响应头限制、取消及句柄清理；不自动重试、不跟随重定向，也不查找或注入凭据。
+
+后端在自己的 `Transport` 模块指定 URL 策略：RSS 接受 HTTP/HTTPS，Reddit 只接受 HTTPS，Discourse 允许 HTTPS 和测试用的 loopback HTTP。具体的认证请求头、凭据发送目标及重定向规则由后端决定。例如 Discourse 媒体下载只向同源且符合站点挂载路径的地址附加密钥，RSS 的跨域重定向不携带其他来源的认证信息。
+
+[credentials.ml](../src/credentials.ml) 负责有大小上限的凭据文件读取、调用者选择的私有文件权限检查，以及 0600 临时文件加原子替换的保存。允许读取 agenix 等机制提供的符号链接，保存时拒绝覆盖符号链接。Reddit 的刷新令牌和 Mu 的 SMTP 密码复用该模块；读取在 Eio 系统线程中执行。浏览器凭据通过 `Credentials.Firefox` 提供，仍使用既有只读 Firefox Cookie 实现。
+
+[credentials_emacs.ml](../src/credentials_emacs.ml) 在 Emacs 主线程查询 `auth-source`，解析函数形式的 secret，并返回普通 OCaml 字符串。临时凭据来源在查询结束或异常后恢复；Discourse 可继续使用 `discourse-auth` 的当前授权会话，否则使用公共查询接口。后端保留授权协议、scope、令牌刷新、账户选择与认证失效处理。
+
 ## 通用辅助代码与外部库
 
-标准格式和并发容器适合交给已有库，来源特有规则则保留在后端。当前已经使用 Saturn 替换自写 SPSC，使用 `jsonfeed` 替换 JSON Feed 格式解析；邮件 MIME 和 SMTP 也已经依赖 Mrmime、Colombe 等库。
+标准格式和并发容器适合交给已有库，来源特有规则则保留在后端。当前已经使用 Saturn、`jsonfeed` 和 Syndic，分别处理并发队列、JSON Feed 1.1 和 RSS/Atom。邮件 MIME 和 SMTP 依赖 Mrmime、Colombe 等库。RSS 标准字段和日期交给 Syndic；`feed_xml.ml` 只保留 XML 资源限制、XHTML 呈现和站点扩展元数据。Blogger 直接使用 Syndic 的 Atom 链接读取分页；The Atlantic 只额外解析题图的 Media RSS 扩展。
 
 下一步值得检查的部分：
 
 | 当前实现 | 可考虑的替代 | 需要保留的职责 |
 | --- | --- | --- |
-| [RSS Decode](../src/backends/rss/decode.ml) 的 RSS/Atom 字段与 RFC 822 日期解析 | [Syndic](https://ocaml.org/p/syndic/1.7.0)，支持 RSS1、RSS2 和 Atom | 内容身份、正文清理、资源归档和对不完整 feed 的处理策略 |
 | [Html](../src/html.ml) 的树遍历、选择与序列化 | [Lambda Soup](https://github.com/aantron/lambdasoup) | 内容清理策略、结构与大小限制、站点正文选择规则 |
-| RSS、Reddit、Discourse 的 `curl_transport.ml` | 当前都已使用 ocurl，优先合并重复的传输配置和轮询 | 各后端认证、重定向边界、取消和响应大小限制 |
 
 这些是后续替换候选，不表示当前代码已完成迁移。`Html` 已经借助 Markup 解析 HTML；继续引入 DOM 库的收益主要是查询和重写，不应把整个模块称为自写 HTML 解析器。重复的字符串搜索和 HTML 转义也可先复用已有辅助函数，无须为每个小函数增加一个依赖。
 

@@ -35,7 +35,7 @@
 | Mu | mu 本地索引与搜索、回复树、MIME 附件、自动保存草稿、纯 OCaml SMTP 发送、移动到 Archive；同步仍使用外部 mbsync |
 | Reddit | OAuth、subreddit、回复及提及、组内搜索、渐进回复树、投票；回复/发帖编辑界面未完成 |
 | Discourse | 最新讨论、分类、远端通知、会话追踪管理、远端搜索、渐进回复树、点赞与追踪设置；回复/发帖已有后端接口，编辑界面待接入 |
-| RSS / Atom | 分页、后端订阅列表、正文与 enclosure 附件归档 |
+| RSS / Atom | Syndic 格式解析、后端订阅列表、正文与 enclosure 附件归档 |
 | JSON Feed 1.1 | `next_url` 分页、后端订阅列表、正文与附件归档 |
 | Blogger | Atom 列表、打开时提取公开网页全文、图片归档 |
 | 机核 | 用户动态、文章正文、图库；尚无评论树、点赞或发帖 |
@@ -117,6 +117,9 @@ nix build .#checks.x86_64-linux.reader .#checks.x86_64-linux.startup
 src/
   backend.ml          后端基本接口及可选能力
   content.ml          公共内容与分页类型
+  http.ml             共享 ocurl 传输、超时、取消和响应限制
+  credentials.ml      公共凭据文件与 Firefox Cookie 能力
+  credentials_emacs.ml  Emacs auth-source 查询
   runtime.ml          Eio worker、任务生命周期与取消
   reader_ui.ml        Ecaml 列表、阅读、窗口与收藏交互
   reader_config.ml    声明式配置与后端启动
@@ -136,4 +139,4 @@ patches/              Ecaml / Eio 的宿主适配补丁
 
 ## 许可
 
-项目默认采用 [AGPL-3.0-or-later](LICENSE)。Reddit 后端保留 GPL-3.0-or-later，其他第三方来源及补丁声明见 [NOTICE](NOTICE) 和对应后端目录。旧 Gnus 后端的历史来源引用保留在 NOTICE 中；原仓库删除后可能无法访问。
+项目默认采用 [AGPL-3.0-or-later](LICENSE)。Reddit 后端保留 GPL-3.0-or-later，第三方来源及补丁声明集中在 [NOTICE](NOTICE)，补丁的许可文本保留在 `patches/`。

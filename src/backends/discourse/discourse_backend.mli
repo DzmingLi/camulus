@@ -1,4 +1,5 @@
-module Http = Http
+module Http = Reader.Http
+module Transport : Http.S
 module Decode = Decode
 val source : string
 val source_of_site : string -> string
@@ -47,7 +48,7 @@ module Make (_:Http.S) : sig
    and type settings = tracking and type filter = tracking and type cursor = cursor
  val execute : t -> operation -> emit:(result -> unit) -> unit
 end
-module Live : module type of Make(Curl_transport)
+module Live : module type of Make(Transport)
 module Readable : Reader.Backend.S with type t = Live.t and type group = group and type cursor = cursor
 module Threading : Reader.Backend.Threading with type t = Live.t
 module Liking : Reader.Backend.Liking with type t = Live.t

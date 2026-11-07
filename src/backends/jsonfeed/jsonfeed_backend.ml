@@ -125,6 +125,6 @@ module Make(H:R.Http.S) = struct
     let followed t = Feed.followed t.feed
   end
 end
-module Live = Make(R.Curl_transport)
+module Live = Make(R.Transport)
 module Subscription = Live.Subscription
 let followed = Subscription.followed

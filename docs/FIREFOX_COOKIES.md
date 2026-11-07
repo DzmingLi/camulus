@@ -1,12 +1,12 @@
 # 公共 Firefox Cookie 能力
 
-`Reader.Firefox_cookies` 是 Camulus 提供给后端的只读凭据能力，和公共 WebKit 视图一样，不属于某一个网站后端。
+`Reader.Credentials.Firefox` 是 Camulus 提供给后端的只读凭据能力，和公共 WebKit 视图一样，不属于某一个网站后端。
 
 用户通过 Emacs 可定制选项 `camulus-firefox-profile` 指定 Firefox profile。Camulus 启动时创建 provider，并将它的读取函数交给需要浏览器凭据的后端：
 
 ```ocaml
-let provider = Reader.Firefox_cookies.create ~profile () in
-Douban_backend.create_live ~cookies:(Reader.Firefox_cookies.get provider) ()
+let provider = Reader.Credentials.Firefox.create ~profile () in
+Douban_backend.create_live ~cookies:(Reader.Credentials.Firefox.get provider) ()
 ```
 
 后端决定请求哪个 URL；公共 provider 负责读取 Firefox 数据库、匹配域名和路径、过滤过期 Cookie 与非默认容器、处理数据库锁和 WAL 快照。读取发生在请求时，因此 Firefox 中后续登录或 Cookie 更新能在下一次请求中生效。后端不再接受 Firefox profile 路径，也不直接打开浏览器数据库。

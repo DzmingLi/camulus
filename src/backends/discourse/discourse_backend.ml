@@ -1,4 +1,5 @@
-module Http=Http
+module Http=Reader.Http
+module Transport = struct let request r = Http.request ~policy:Http.Https_or_loopback ~user_agent:"camulus/0.1 (Discourse)" r end
 module Decode=Decode
 module D=Decode
 module C=Reader.Content
@@ -235,7 +236,7 @@ module Make(H:Http.S)=struct
  end
  let download t ?(limit=128*1024*1024) url =
    let rec fetch visited url =
-     ignore(Http.validate url);
+     ignore(Http.validate ~policy:Http.Https_or_loopback url);
      if List.length visited>=6 || List.mem url visited then failwith "Discourse attachment redirect limit";
      let uri=Uri.of_string url in
      let mount=Uri.path(Uri.of_string t.config.site) in
@@ -284,7 +285,7 @@ module Make(H:Http.S)=struct
  let stream_thread=thread
  let thread t id ~emit=stream_thread t id ~emit_article:ignore ~emit
 end
-module Live=Make(Curl_transport)
+module Live=Make(Transport)
 module Subscription = Live.Subscription
 module Topic_tracking : Reader.Backend.Topic_tracking with type t=Live.t
   and type target=string and type settings=tracking and type filter=tracking and type cursor=cursor = Live.Topic_tracking

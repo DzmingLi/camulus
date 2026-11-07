@@ -27,14 +27,13 @@ let setup ()=
  set "camulus-discourse--authenticated-sites" nil;
  List.iter["camulus-discourse--callbacks";"camulus-discourse--likes";"camulus-discourse--like-values"]~f:(fun name->run "clrhash"[get name]);
  run "camulus-discourse-clear-config"[];
- let sources=call "append"[get "camulus-discourse-auth-sources";get "auth-sources"]in
- Current_buffer.set_value_temporarily Sync (Var.create(Symbol.intern "auth-sources")Value.Type.value)sources ~f:(fun()->
+ Credentials_emacs.with_sources (List.map(values(get "camulus-discourse-auth-sources"))~f:text)(fun()->
   List.iter(values(get "camulus-discourse-sites"))~f:(fun value->
    let site=call "camulus-discourse-site"[value]in
    let headers=if truth(call "fboundp"[sym "discourse-auth-headers"])then call "discourse-auth-headers"[site]else(
-    let entry=call "car"[call "auth-source-search"[sym ":host";site;sym ":port";s "discourse-user-api";sym ":require";Value.list[sym ":user";sym ":secret"];sym ":max";i 1]]in
-    if not(truth entry)then nil else Value.list(List.map["User-Api-Key",":secret";"User-Api-Client-Id",":user"]~f:(fun(k,p)->
-     let v=call "plist-get"[entry;sym p]in let v=if truth(call "functionp"[v])then call "funcall"[v]else v in call "cons"[s k;v])))in
+    match Credentials_emacs.auth_source ~port:"discourse-user-api" ~require_user:true (text site) with
+    |None->nil
+    |Some credential->Value.list[call "cons"[s "User-Api-Key";s credential.secret];call "cons"[s "User-Api-Client-Id";s credential.user]])in
    let header name=text(call "cdr"[call "assoc"[s name;headers]])in
    run "camulus-discourse-configure"[site;s(header "User-Api-Key");s(header "User-Api-Client-Id")];
    if not(String.is_empty(header "User-Api-Key"))then

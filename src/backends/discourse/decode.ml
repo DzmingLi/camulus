@@ -1,3 +1,4 @@
+module Http = Reader.Http
 module C = Reader.Content
 let field k = function `Assoc xs -> Option.value(List.assoc_opt k xs) ~default:`Null | _ -> `Null
 let string = function `String s -> s | _ -> ""
@@ -12,7 +13,7 @@ let number s =
   if s="" || String.exists (fun c -> c<'0' || c>'9') s then invalid_arg "Invalid Discourse ID";
   positive(int_of_string s)
 let site url =
-  ignore(Http.validate url);
+  ignore(Http.validate ~policy:Http.Https_or_loopback url);
   let u=Uri.of_string url in
   if Uri.query u<>[] || Uri.fragment u<>None then invalid_arg "Use a forum base URL without query or fragment";
   let path=Uri.path u in
@@ -46,7 +47,7 @@ let attachments ~site cooked =
   let add url name =
     if url<>"" then begin
       let url=Http.resolve (site^"/") url in
-      ignore(Http.validate url);
+      ignore(Http.validate ~policy:Http.Https_or_loopback url);
       if not(List.exists(fun (u,_) -> u=url) !found) then found := !found@[url,name]
     end in
   let open Markup in

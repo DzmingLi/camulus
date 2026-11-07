@@ -59,7 +59,7 @@ Reader.Backend.Liking       独立的单向点赞契约，Reddit 不实现
           ▲
 Reddit_backend.Make(Http)           身份、授权、分页、解析、操作语义
           │
-Reddit_backend.Curl_transport       libcurl multi，Eio 等待/取消
+Reader.Http                        共享 libcurl multi，Eio 等待/取消
           │
 src/backends/reddit/reddit_emacs.ml  扩展任务与结果类型并注册后端
 src/runtime_ui.ml             通用会话与结果交付
@@ -69,9 +69,9 @@ Reader.Runtime                 与具体后端无关的调度和生命周期
 
 `Reddit_backend.Make` 的 session 类型 `t` 通过 `.mli` 隐藏；access token、刷新状态和 OAuth challenge 属于后端。注入 `Http.S` 可以完整测试协议行为。核心 runtime 只接收扩展处理器；之后增加 Discourse 等后端，不需要给核心调度器添加一个新的硬编码分支。
 
-线程/消息关系使用普通不可变 OCaml 记录。`Content.message.thread_id` 是 option，未把 Reddit 的原生稳定 thread ID 假设强加给邮件后端。JSON 只用于 Emacs 和 CLI 边界，跨 domain 通信仍然是类型化 OCaml 值。
+线程/消息关系使用普通不可变 OCaml 记录。`Content.message.thread_id` 是 option，未把 Reddit 的原生稳定 thread ID 假设强加给邮件后端。JSON 只用于 Emacs 边界，跨 domain 通信仍然是类型化 OCaml 值。
 
-`Backend.S` 只要求来源标识、组内列表和搜索；讨论树加载由独立的 `Backend.Threading` 提供。Reddit 和 Maildir 均实现该能力，未来的 RSS 后端可以只实现基础接口。投票参数、操作结果和 `Content.message.my_vote` 使用 `Content.vote = Upvote | Downvote | No_vote`。Reddit 请求和现有 Emacs/CLI JSON 边界保留 `1/-1/0` 编码，非法输入在边界拒绝。
+`Backend.S` 只要求来源标识、组内列表和搜索；讨论树加载由独立的 `Backend.Threading` 提供。Reddit 和 Maildir 均实现该能力，未来的 RSS 后端可以只实现基础接口。投票参数、操作结果和 `Content.message.my_vote` 使用 `Content.vote = Upvote | Downvote | No_vote`。Reddit 请求和现有 Emacs JSON 边界保留 `1/-1/0` 编码，非法输入在边界拒绝。
 
 ## 交互式投票
 
@@ -108,23 +108,12 @@ summary 列表和回复树都支持 `+` 赞成、`-` 反对、`0` 取消投票�
 
 其他操作：`identity`、`post`、`vote`、`reply`、`submit`、`authorize`、`authorize-complete`。精确字段见 `operation_of_json`。写入和授权任务归属 `Service`，不会因切换阅读视图被取消。原生结果格式为 `(reddit REQUEST-ID VIEW-OR-NIL JSON)`，随后收到既有 `finished` 事件；错误也保留结构化的 `uncertain_write`、`retry_after`。
 
-提供只读 CLI，凭证通过文件路径指定：
-
-```sh
-export REDDIT_USERNAME=YOUR_USERNAME
-export REDDIT_TOKEN_FILE=/path/to/private/refresh-token
-nix develop -c dune exec bin/reddit_cli.exe -- identity
-```
-
-上述命令使用本地 `_build`；也可用 `--build-dir` 指定现有构建目录的绝对路径。CLI 还支持 `subreddit NAME`、`thread t3_ID`、`search NAME QUERY`、`notifications`。`REDDIT_SUMMARY=1` 只输出数量/状态，不输出正文。
-
 ## 本轮验证
 
 在本机 Emacs 31.1、OCaml 5.3.0、Ecaml 0.17.0、Eio 1.6、ocurl 0.9.2 上测试。
 
 - `make test`：10 组 Reddit 协议测试、4 项新增原生模块/界面 ERT，加上原有核心、9 项 Emacs 集成测试和退出测试。
 - `make reddit-live`：显式指定环境变量后进行只读联调，默认不包含在 `make test` 中。
-- 真实既有 token：身份验证成功；CLI 读取 25 个帖子和分页游标，读取 3 条内容的完整 thread。
 - 真实原生模块：读取 25 个帖子、3 条内容的回复树、25 条组内搜索结果；期间 Emacs 心跳运行 515 次，并完成并发 GC 和 SIGPIPE/SIGCHLD 不变检查。
 - 没有进行真实发帖、回复、投票、token 文件替换或远端已读变更。写入功能通过注入传输的协议测试验证，尚未实际发布测试内容。
 

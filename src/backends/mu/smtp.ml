@@ -53,7 +53,7 @@ let send ~net ~sleep ?(timeout=60.) c ~sender ~recipients source =
         with Eio.Io _ when rest<>[] -> connect rest in
     let flow=Tls_eio.client_of_flow tls ~host (connect addresses) in
     let authentication=if c.username="" then None else
-      let password=read_file ~limit:8192 c.password_file |> String.trim in
+      let password=Eio_unix.run_in_systhread(fun()->Reader.Credentials.read_secret_file ~limit:8192 c.password_file) in
       if password="" || String.contains password '\000' then fail "Invalid SMTP password file";
       Some {Sendmail.username=c.username;password;mechanism=Sendmail.PLAIN} in
     let ctx=Colombe.State.Context.make () in

@@ -14,6 +14,7 @@ depends: [
   "ppx_jane" {>= "v0.17" & < "v0.18"}
   "saturn" {>= "1.0.0" & < "2.0.0"}
   "jsonfeed" {= "1.1.0"}
+  "syndic" {= "1.8.0"}
   "jsont" {>= "0.2.0"}
   "eio" {= "1.6"}
   "eio_posix" {= "1.6"}

@@ -1,7 +1,8 @@
 module Article = Article
-module Http = Http
-module Curl_transport = Curl_transport
+module Http = Reader.Http
+module Transport = struct let request r = Http.request ~policy:Http.Http_and_https ~user_agent:"camulus/0.1 (RSS/Atom)" r end
 module Decode = Decode
+module Feed_xml = Feed_xml
 module C = Reader.Content
 let source = "rss"
 let source_of_url url = "rss:" ^ Http.validate url
@@ -74,7 +75,7 @@ module Make (H:Http.S) = struct
       let headers=match cached with
         | Some c when c.endpoint=url -> List.filter_map Fun.id [Option.map(fun v -> "If-None-Match",v)c.etag;Option.map(fun v -> "If-Modified-Since",v)c.modified]
         | _ -> [] in
-      let r=H.request {url;headers;limit} in
+      let r=H.request (Http.get ~headers ~limit url) in
       if List.mem r.status [301;302;303;307;308] then
         match header "location" r with None -> failwith "Redirect has no Location"
         | Some next -> go (url::visited) (Http.resolve url next)
@@ -138,7 +139,7 @@ module Make (H:Http.S) = struct
       try output_string ch data;flush ch;Unix.fsync fd;close_out ch
       with ex -> close_out_noerr ch;(try Unix.unlink destination with _ -> ());raise ex)
 end
-module Live = Make(Curl_transport)
+module Live = Make(Transport)
 
 module Subscription : Reader.Backend.Subscription with type t = Live.t and type target = string and type settings = bool = Live.Subscription
 

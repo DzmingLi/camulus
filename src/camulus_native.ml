@@ -11,7 +11,7 @@ let () =
     (let open Defun.Let_syntax in let%map_open url=required "url" string in
      ensure_ui ();
      let provider=Reader_backend.firefox_cookie_provider () in
-     Value.list(List.map (Reader.Firefox_cookies.get_sync provider url) ~f:(fun(name,value)->
+     Value.list(List.map (Reader.Credentials.Firefox.get_sync provider url) ~f:(fun(name,value)->
        Reader_backend.call "cons" [Value.of_utf8_bytes name;Value.of_utf8_bytes value])));
   let idle () = Option.is_none !runtime in
   Reddit_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;

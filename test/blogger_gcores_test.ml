@@ -4,7 +4,7 @@ let check b why=if not b then failwith why
 let fails f=try f();false with _->true
 let contains text part=let rec find n=n+String.length part<=String.length text && (String.sub text n (String.length part)=part || find(n+1)) in find 0
 let atom ?(next="") ?(id="one") ?(updated="2026-10-16T02:30:00Z") ()=
- "<feed xmlns='http://www.w3.org/2005/Atom'><title>Blog</title>"^
+ "<feed xmlns='http://www.w3.org/2005/Atom'><id>urn:test:blog</id><updated>2026-10-16T02:30:00Z</updated><author><name>Alice</name></author><title>Blog</title>"^
  (if next=""then ""else "<link rel='next' href='"^next^"'/>")^
  "<entry><id>"^id^"</id><title>Title "^id^"</title><author><name>Alice</name></author><published>2026-10-15T02:30:00Z</published><updated>"^updated^"</updated><link rel='alternate' href='https://example.blogspot.com/post.html'/><summary type='html'>Short summary</summary></entry></feed>"
 let full="<html><aside>Not the article</aside><div class='post-body entry-content'><p>Complete body</p><a href='/link'>Link</a><img src='/image.png'><script>bad()</script></div></html>"

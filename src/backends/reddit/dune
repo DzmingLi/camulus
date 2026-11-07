@@ -1,6 +1,6 @@
 (library
  (name reddit_backend) (modules (:standard \ reddit_emacs interaction_emacs))
- (libraries reader eio eio.unix curl yojson uri base64 unix))
+ (libraries reader eio eio.unix yojson uri base64 unix))
 
 
 (library

@@ -66,7 +66,7 @@ module Make(H:R.Http.S)=struct
  let source=source
  let create ()={full=Hashtbl.create 64;revisions=Hashtbl.create 64;lock=Eio.Mutex.create ()}
  let get url=
-  let r=H.request{R.Http.url;headers=["Accept","application/vnd.api+json";"Referer","https://www.gcores.com/"];limit=16*1024*1024}in
+  let r=H.request{R.Http.meth=Get;body="";url;headers=["Accept","application/vnd.api+json";"Referer","https://www.gcores.com/"];limit=16*1024*1024}in
   if r.status<>200 then failwith(Printf.sprintf "Gcores HTTP %d" r.status);
   Yojson.Safe.from_string r.body
  let page t group query after=
@@ -103,5 +103,5 @@ module Make(H:R.Http.S)=struct
  let archive t group id=R.Article.archive ~download(read t group id)
  let attachment t group id part path=R.Article.attachment ~download(read t group id)part path
 end
-module Live=Make(R.Curl_transport)
+module Live=Make(R.Transport)
 module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live

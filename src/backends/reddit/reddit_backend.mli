@@ -1,10 +1,6 @@
-module Http : module type of Http
-module Curl_transport : Http.S
-module Credentials : sig
-  val read : string -> string
-  val save : string -> string -> unit
-  val random_state : unit -> string
-end
+module Http = Reader.Http
+module Transport : Http.S
+module Credentials = Reader.Credentials
 module Decode : module type of Decode
 include module type of Errors
 
@@ -59,7 +55,7 @@ module Make (_ : Http.S) : sig
   val complete_authorization : t -> string -> unit
   val execute : t -> operation -> emit:(result -> unit) -> unit
 end
-module Live : module type of Make(Curl_transport)
+module Live : module type of Make(Transport)
 module Readable : Reader.Backend.S with type t = Live.t and type group = group and type cursor = string
 module Threading : Reader.Backend.Threading with type t = Live.t
 module Voting : Reader.Backend.Voting with type t = Live.t

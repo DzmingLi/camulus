@@ -38,9 +38,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     'date_published': '2026-10-16T02:30:00Z',
                     'attachments': [{'url': '/file.bin', 'mime_type': 'application/octet-stream'}]}]})
         elif self.path == '/atom':
-            body = '''<feed xmlns="http://www.w3.org/2005/Atom"><title>Atom</title><entry><id>atom:one</id><title>Atom entry</title><updated>2026-10-16T02:30:00Z</updated><content type="text">Atom plain &lt;b&gt;text&lt;/b&gt;</content><link href="/original"/><link rel="enclosure" href="/file.bin" length="16" type="application/octet-stream"/></entry></feed>'''
+            body = '''<feed xmlns="http://www.w3.org/2005/Atom"><id>urn:test:atom</id><updated>2026-10-16T02:30:00Z</updated><author><name>Alice</name></author><title>Atom</title><entry><id>atom:one</id><title>Atom entry</title><updated>2026-10-16T02:30:00Z</updated><content type="text">Atom plain &lt;b&gt;text&lt;/b&gt;</content><link href="/original"/><link rel="enclosure" href="/file.bin" length="16" type="application/octet-stream"/></entry></feed>'''
         else:
-            body = '''<rss version="2.0"><channel><title>RSS fixture</title><item><guid isPermaLink="false">rss:one</guid><title>RSS entry</title><link>/original</link><description><![CDATA[<p>RSS body version %d</p>]]></description><pubDate>Fri, 16 Oct 2026 10:30:00 +0800</pubDate><enclosure url="/file.bin" length="16" type="application/octet-stream"/></item></channel></rss>''' % Handler.revision
+            body = '''<rss version="2.0"><channel><link>https://example.test/</link><description>Fixture</description><title>RSS fixture</title><item><guid isPermaLink="false">rss:one</guid><title>RSS entry</title><link>/original</link><description><![CDATA[<p>RSS body version %d</p>]]></description><pubDate>Fri, 16 Oct 2026 10:30:00 +0800</pubDate><enclosure url="/file.bin" length="16" type="application/octet-stream"/></item></channel></rss>''' % Handler.revision
         self.send_response(200)
         self.send_header('ETag', tag)
         self.send_header('Content-Type', 'application/xml; charset=utf-8')

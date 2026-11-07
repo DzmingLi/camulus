@@ -51,3 +51,11 @@
  (libraries reader_emacs_backend douban_emacs ecaml)
  (preprocess (pps ppx_jane))
  (modes (native shared_object)))
+
+(test (name http_test) (modules http_test) (libraries reader eio_posix))
+(test (name credentials_test) (modules credentials_test) (libraries reader unix))
+
+(executable (name credentials_probe) (modules credentials_probe)
+ (libraries reader_emacs_backend ecaml)
+ (preprocess (pps ppx_jane))
+ (modes (native shared_object)))

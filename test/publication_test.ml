@@ -2,7 +2,7 @@ module R=Rss_backend
 module D=R.Decode
 let check b why=if not b then failwith why
 let fails f=try f();false with _->true
-let feed={|<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/"><entry><id>one</id><title type="html">A &lt;i&gt;title&lt;/i&gt;</title><link href="https://blog.janestreet.com/one/"/><updated>2026-10-16T00:00:00Z</updated><content type="html">&lt;p&gt;Body&lt;/p&gt;&lt;p data-id="injected-recirculation-link"&gt;AD&lt;/p&gt;&lt;span class="smallcaps"&gt;First&lt;/span&gt;</content><media:content url="https://example.test/lead.jpg"/></entry></feed>|}
+let feed={|<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/"><id>urn:test:feed</id><title>Feed</title><updated>2026-10-16T00:00:00Z</updated><author><name>Alice</name></author><entry><id>one</id><title type="html">A &lt;i&gt;title&lt;/i&gt;</title><link href="https://blog.janestreet.com/one/"/><updated>2026-10-16T00:00:00Z</updated><content type="html">&lt;p&gt;Body&lt;/p&gt;&lt;p data-id="injected-recirculation-link"&gt;AD&lt;/p&gt;&lt;span class="smallcaps"&gt;First&lt;/span&gt;</content><media:content url="https://example.test/lead.jpg"/></entry></feed>|}
 let full={|<html><body><nav>Navigation</nav><article><div class="name"><a>Alice</a></div><div class="featimg-wrapper"><img src="/hero.png"></div><div class="post-content"><p>Full post</p><img src="../body.png" onerror="bad()"><script>bad()</script></div><aside>Recommendations</aside></article></body></html>|}
 let contains s part=let n=String.length part in let rec loop i=i+n<=String.length s && (String.sub s i n=part || loop(i+1)) in loop 0
 let ()=

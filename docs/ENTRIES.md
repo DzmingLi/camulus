@@ -129,6 +129,6 @@ Discourse 的 `notifications` 由已注册且已认证站点自动提供，只�
 
 ### 验证
 
-`make test` 使用隔离的 XDG 配置/状态目录，包含原有回归、原生新后端测试、Firefox WAL 快照测试和 Emacs 界面测试。真实网络检查是单独显式运行的 `test/publication_live.ml` 和 `test/publication-native-live.el`，不会随普通测试运行；不会发帖、点赞或修改远端订阅。相关后端的源项目署名位于各目录 `NOTICE`。
+`make test` 使用隔离的 XDG 配置/状态目录，包含原有回归、原生新后端测试、Firefox WAL 快照测试和 Emacs 界面测试。真实网络检查是单独显式运行的 `test/publication_live.ml` 和 `test/publication-native-live.el`，不会随普通测试运行；不会发帖、点赞或修改远端订阅。第三方来源与许可说明集中在仓库根目录的 `NOTICE`。
 
 启动新进程以加载新版本原生模块：在项目目录执行 `nix develop -c make reader-demo`，首页 `G` 选择入口，`g` 抓取当前入口，`RET` 打开，`m` 收藏。已加载旧 `.so` 的 Emacs 进程需要重启才能使用新后端。

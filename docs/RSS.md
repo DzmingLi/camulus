@@ -1,6 +1,6 @@
 # RSS / Atom 后端
 
-RSS 2.0、RSS 1.0/RDF 和 Atom 1.0 共用 `src/backends/rss/` 中的 OCaml 后端。格式自动识别，无需账户配置；实现 `Backend.S` 的列表与组内搜索，以及单篇读取和附件下载，不实现 `Backend.Threading`。
+RSS 2.0、RSS 1.0/RDF 和 Atom 1.0 共用 `src/backends/rss/` 中的 OCaml 后端。使用 Syndic 1.8.0 解析标准字段和日期，格式自动识别，无需账户配置；实现 `Backend.S` 的列表与组内搜索，以及单篇读取和附件下载，不实现 `Backend.Threading`。
 
 ## 使用
 
@@ -23,7 +23,7 @@ nix develop -c make reader-demo
 
 来源标识为 `rss:<订阅时输入的URL>`，HTTP 重定向不会更换来源身份。RSS `guid`、Atom `id`、RSS 1.0 `rdf:about` 优先作为文章标识，其次使用文章链接。不同订阅 URL 的内容隔离；不猜测不同 feed 中同名 ID 是否表示同一篇文章。
 
-缺少 ID 和链接时，使用标题和正文摘要生成稳定的备用 ID。这能去除重复拉取，但无法证明修改后的匿名条目仍是原文章。日期缺失或无效时使用固定的 epoch 值，避免每次刷新获得新的时间；支持 RFC 3339 和常见 RFC 822 日期与时区。
+缺少 ID 和链接时，使用标题和正文摘要生成稳定的备用 ID。这能去除重复拉取，但无法证明修改后的匿名条目仍是原文章。RSS 缺少可选日期时使用固定的 epoch 值，避免每次刷新获得新的时间。Syndic 负责 RFC 3339 和 RFC 822 日期与时区；文档格式或必需字段不合法时报告解析错误并保留旧缓存。
 
 RSS 优先使用 `content:encoded`，其次 `description`。Atom 支持 text、html、xhtml 正文和 summary 回退；XHTML 保留结构，并解析 `xml:base` 下的相对链接。支持文章链接、RSS enclosure 和 Atom enclosure。外置 Atom `content src` 不另行抓取，使用 summary；摘要型源不会自动抓取网页全文。
 
@@ -31,7 +31,7 @@ RSS 优先使用 `content:encoded`，其次 `description`。Atom 支持 text、h
 
 ## 网络与存储
 
-网络请求由工作 domain 中的 libcurl multi 驱动，通过 Eio 挂起等待，可取消，不调用外部 curl 程序。支持 HTTP/HTTPS、证书验证、压缩响应和最多五次重定向；重定向目标同样只允许 HTTP(S)，不接受带用户名密码的 URL。
+网络请求复用公共 `Reader.Http`，由工作 domain 中的 libcurl multi 驱动，通过 Eio 挂起等待，可取消，不调用外部 curl 程序。支持 HTTP/HTTPS、证书验证、压缩响应和最多五次重定向；重定向目标同样只允许 HTTP(S)，不接受带用户名密码的 URL。
 
 会话内保存 ETag / Last-Modified 和已解析结果。304 复用已有内容；无缓存时收到 304、解析错误或 HTTP 错误不会覆盖上次成功结果。重启后重新拉取订阅源，SQLite 中的文章 ID、修订和处理状态仍用于去重。
 
