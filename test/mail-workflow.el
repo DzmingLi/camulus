@@ -133,6 +133,7 @@
           (camulus-probe-await (lambda () (with-current-buffer (window-buffer (selected-window)) camulus-mail-draft-key)))
           (setq compose (window-buffer (selected-window)))
           (set-buffer compose)
+          (should (eq (key-binding (kbd "C-c C-c")) #'camulus-writing-send))
           (should (eq (window-buffer right) (get-buffer "*workflow reading*")))
           (goto-char (point-max)) (insert "Automatically persisted body\n")
           (camulus-probe-await (lambda () (not (buffer-modified-p))) 15)
@@ -141,7 +142,7 @@
           (insert "Saved when closing\n")
           (kill-buffer compose)
           (should-not (buffer-live-p compose)))
-      (when (buffer-live-p compose) (with-current-buffer compose (set-buffer-modified-p nil) (setq camulus-mail-draft-error nil)) (kill-buffer compose))
+      (when (buffer-live-p compose) (with-current-buffer compose (set-buffer-modified-p nil)) (kill-buffer compose))
       (dolist (b '("*workflow summary*" "*workflow reading*")) (when (get-buffer b) (kill-buffer b)))
       (delete-other-windows) (camulus-probe-session-stop))))
 

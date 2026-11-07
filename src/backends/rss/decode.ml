@@ -20,17 +20,16 @@ let article ~id ~title ~author ~body ~html ~url ~created ~updated enclosures =
  {message={C.id;thread_id=None;parent_id=None;references=[];title;author;body;html;url;
    link_url=(if url=""then None else Some url);created;unavailable=false;score=0;my_vote=No_vote;activity=Some revision};enclosures}
 let uri=Option.fold ~none:"" ~some:Uri.to_string
-let xml_base fallback=Option.fold ~none:fallback ~some:Uri.to_string
 let text_construct : A.text_construct -> string * string option = function
  |A.Text s->s,None|A.Html(_,s)->"",Some s
- |A.Xhtml(base,nodes)->"",Some("<div>"^String.concat ""(List.map(Xml.html(xml_base "" base))nodes)^"</div>")
+ |A.Xhtml(base,nodes)->"",Some(Xml.xhtml ~base nodes)
 let title construct=match text_construct construct with s,None->s|_,Some html->Reader.Html.parse html |> Reader.Html.text
 let of_atom (feed:A.feed)=List.map(fun(e:A.entry)->
  let url=List.find_opt(fun(l:A.link)->l.rel=A.Alternate && List.mem l.type_media [None;Some "text/html";Some "application/xhtml+xml"])e.links
    |> Option.fold ~none:"" ~some:(fun l->Uri.to_string l.A.href)in
  let body,html=match e.content with
   |Some(A.Text s)->s,None|Some(A.Html(_,s))->"",Some s
-  |Some(A.Xhtml(base,nodes))->"",Some("<div>"^String.concat ""(List.map(Xml.html(xml_base url base))nodes)^"</div>")
+  |Some(A.Xhtml(base,nodes))->"",Some(Xml.xhtml ~base:(Some(Option.value base ~default:(Uri.of_string url)))nodes)
   |_->Option.fold ~none:("",None)~some:text_construct e.summary in
  let enclosures=List.filter(fun(l:A.link)->l.rel=A.Enclosure)e.links |>List.mapi(fun part l->
    enclosure part l.A.href (Option.value l.length ~default:0)(Option.value l.type_media ~default:""))in

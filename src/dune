@@ -14,6 +14,6 @@
 (library
  (name reader_emacs_backend)
  (wrapped false)
- (modules reader_backend reader_webkit credentials_emacs)
+ (modules reader_backend reader_webkit credentials_emacs writing)
  (libraries ecaml yojson reader eio.unix uri)
  (preprocess (pps ppx_jane)))

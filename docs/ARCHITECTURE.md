@@ -27,6 +27,7 @@ src/
   reader_backend.ml          当前 Emacs 能力注册与 worker 注册
   reader_config.ml           Customize 配置、入口校验和优先级选项
   reader_ui.ml               时间线、组、收藏、阅读窗口
+  writing.ml                 撰写会话、自动保存、关闭与发送协调
   reader_tracking_ui.ml      通用远端会话追踪面板
   reader_media.ml            正文媒体的 Emacs 呈现
   reader_webkit.ml           Emacs WebKit 页面与消息通道
@@ -51,7 +52,7 @@ test/                       OCaml 测试、Emacs 集成测试、协议模拟服�
 | 编译单元 | 内容 | 是否依赖 Ecaml |
 | --- | --- | --- |
 | `reader` | 内容、状态、协议、运行时和一些宿主工具 | 否 |
-| `reader_emacs_backend` | `reader_backend`、`reader_webkit`、`credentials_emacs` | 是 |
+| `reader_emacs_backend` | `reader_backend`、`reader_webkit`、`credentials_emacs`、`writing` | 是 |
 | `camulus_native` | 原生入口、公共界面、配置、运行时宿主 | 是 |
 
 每个后端也区分协议库和 Emacs 适配库。例如 `reddit_backend` 处理 HTTP、OAuth 和内容，`reddit_emacs` 注册命令、快捷键及 worker。源码归入同一个后端目录，是为了便于按功能查找；Dune 的库依赖才决定代码能否在没有 Emacs 的情况下使用。
@@ -261,7 +262,7 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 ## 通用辅助代码与外部库
 
-标准格式和并发容器适合交给已有库，来源特有规则则保留在后端。当前已经使用 Saturn、`jsonfeed` 和 Syndic，分别处理并发队列、JSON Feed 1.1 和 RSS/Atom。邮件 MIME 和 SMTP 依赖 Mrmime、Colombe 等库。RSS 标准字段和日期交给 Syndic；`feed_xml.ml` 只保留 XML 资源限制、XHTML 呈现和站点扩展元数据。Blogger 直接使用 Syndic 的 Atom 链接读取分页；The Atlantic 只额外解析题图的 Media RSS 扩展。
+标准格式和并发容器适合交给已有库，来源特有规则则保留在后端。当前已经使用 Saturn、`jsonfeed` 和 Syndic，分别处理并发队列、JSON Feed 1.1 和 RSS/Atom。邮件 MIME 和 SMTP 依赖 Mrmime、Colombe 等库。RSS 标准字段和日期交给 Syndic；`feed_xml.ml` 只保留 XML 资源限制、站点扩展元数据和 XHTML 到阅读正文的适配；XHTML 序列化和转义使用 `Syndic.XML.to_string`。Blogger 直接使用 Syndic 的 Atom 链接读取分页；The Atlantic 只额外解析题图的 Media RSS 扩展。
 
 下一步值得检查的部分：
 
@@ -283,3 +284,11 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 - Mu 邮件同步在进入首页或邮件组以及手动刷新时触发，默认不定时轮询；这不等于已经具备持久离线写入队列。
 - 归档刷新当前由任务触发；不同来源的增量更新能力、写入支持和编辑界面完整度仍不同。
 - 新原生模块需要新的 Emacs 进程才能替换已经加载的模块，更新 Lisp 入口不足以替换 OCaml runtime。
+
+## 撰写会话
+
+[writing.ml](../src/writing.ml) 集中管理 Emacs 编辑 buffer 的生命周期：编辑版本、自动保存定时器、保存中的修改、关闭前保存及发送状态。后端用 `snapshot` 提供当前正文，用 `save` 和 `send` 提供异步完成回调。公共模块不解析邮件头，不决定草稿保存目录，也不实现发送协议。目前 Mu 撰写界面已接入。
+
+保存只确认提交时的 buffer 修改版本。若等待落盘期间又有编辑，旧保存结果不会清除新修改；会继续保存新版本。保存失败后停止自动重试，手动保存、关闭或发送可以重新尝试保存。关闭失败会保留编辑 buffer。
+
+发送先持久保存草稿，并在等待保存时预留发送状态、将 buffer 设为只读，避免事件处理期间重复提交。后端确认发送成功后，即使本地清理未完成，也将会话置为已发送并阻止重发。失败时恢复编辑；不自动重试发送。不确定远端结果的持久防重仍由后端处理。

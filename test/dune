@@ -59,3 +59,8 @@
  (libraries reader_emacs_backend ecaml)
  (preprocess (pps ppx_jane))
  (modes (native shared_object)))
+
+(executable (name writing_probe) (modules writing_probe)
+ (libraries reader_emacs_backend ecaml)
+ (preprocess (pps ppx_jane))
+ (modes (native shared_object)))

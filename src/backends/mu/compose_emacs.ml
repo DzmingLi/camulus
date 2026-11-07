@@ -23,8 +23,34 @@ let draft_source ()=
  let source=text(call "buffer-substring-no-properties"[call "point-min"[];call "point-max"[]])in
  let separator="\n"^text(get "mail-header-separator")^"\n"in
  match String.substr_index source ~pattern:separator with None->s source|Some p->s(String.prefix source p^"\n\n"^String.drop_prefix source(p+String.length separator))
-let cancel_timer ()=let timer=get "camulus-mail-draft-timer"in
- if truth(call "timerp"[timer])then run "cancel-timer"[timer];set "camulus-mail-draft-timer"nil
+(* The shared writing session sees plain source snapshots and completion
+   callbacks. Maildir keys/revisions and mail result events remain Mu-specific. *)
+let writing_backend buffer = {
+ Writing.snapshot=(fun () -> text(draft_source()));
+ save=(fun ~source ~complete ->
+  let received=ref false in
+  action(alist["op",s "draft-save";"key",get "camulus-mail-draft-key";
+    "revision",get "camulus-mail-draft-revision";"source",s source])
+   (fun data->if live buffer then in_buffer buffer(fun()->
+    let d=field "draft"data in
+    set "camulus-mail-draft-revision"(field "revision"d);received:=true;
+    if not(truth(field "indexed"d))then message "Draft saved; mu index update pending"[]))
+   (Some(fun state reason->
+    complete(if Value.eq state(sym "completed") && !received then Ok ()
+     else Error(if Value.eq state(sym "completed")then "Mu returned no saved draft"else text reason)))));
+ send=(fun ~complete ->
+  let received=ref false in
+  action(alist["op",s "draft-send";"key",get "camulus-mail-draft-key";
+    "revision",get "camulus-mail-draft-revision"])
+   (fun data->
+    received:=true;
+    if live buffer then in_buffer buffer(fun()->set "camulus-mail-draft-key"nil);
+    let close=truth(field "cleaned"data)in
+    complete(Ok {Writing.close;message=if close then "Mail sent; copy saved in Sent"
+     else "Mail sent · local cleanup incomplete; do not resend"}))
+   (Some(fun state reason->if not !received then
+    complete(Error(if Value.eq state(sym "completed")then "Mu returned no send receipt"else text reason)))))
+}
 let open_composer data window=
  let key=field "key"data in
  let existing=List.find(Buffer.all_live())~f:(fun buffer->Current_buffer.set_temporarily Sync buffer ~f:(fun()->Value.equal(get "camulus-mail-draft-key")key))in
@@ -34,56 +60,17 @@ let open_composer data window=
   Point.insert(String.substr_replace_all(text(field "source"data))~pattern:"\r\n"~with_:"\n");
   run "goto-char"[call "point-min"[]];
   if truth(call "search-forward"[s "\n\n";nil;sym "t"])then run "replace-match"[s("\n"^text(get "mail-header-separator")^"\n");sym "t";sym "t"];
-  List.iter["camulus-mail-draft-key",key;"camulus-mail-draft-revision",field "revision"data;"camulus-mail--group",field "group"data;
-   "header-line-format",s "Draft · autosave  C-c C-s: save  C-c C-c: send  C-c C-k: save and close"]~f:(fun(k,v)->local k v);
-  let map=call "copy-keymap"[get "message-mode-map"]in run "use-local-map"[map];
-  List.iter["C-x C-s","camulus-mail-save-draft";"C-c C-s","camulus-mail-save-draft";"C-c C-c","camulus-mail-send-draft";"C-c C-k","camulus-mail-close-draft"]~f:(fun(k,c)->bind map k c);
+  List.iter["camulus-mail-draft-key",key;"camulus-mail-draft-revision",field "revision"data;"camulus-mail--group",field "group"data]~f:(fun(k,v)->local k v);
   local "message-send-mail-function"(sym "camulus-mail--no-direct-send");
-  hook ~local:true "after-change-functions" "camulus-mail--draft-changed";
-  hook ~local:true "kill-buffer-query-functions" "camulus-mail--draft-before-kill";
-  hook ~local:true "kill-buffer-hook" "camulus-mail--draft-cancel-timer";
+  Writing.attach(writing_backend(Buffer.to_value buffer));
   run "set-buffer-modified-p"[nil];run "message-goto-body"[]);
  if truth(call "window-live-p"[window])then(run "set-window-buffer"[window;Buffer.to_value buffer];run "select-window"[window])else run "pop-to-buffer"[Buffer.to_value buffer]
-let save_draft ()=
- cancel_timer();
- if truth(get "camulus-mail-draft-key") && truth(call "buffer-modified-p"[]) && not(truth(get "camulus-mail-draft-saving")) && not(truth(get "camulus-mail-draft-sending"))then(
-  let buffer=current()and tick=call "buffer-chars-modified-tick"[]in set "camulus-mail-draft-saving"(sym "t");
-  try action(alist["op",s "draft-save";"key",get "camulus-mail-draft-key";"revision",get "camulus-mail-draft-revision";"source",draft_source()])
-   (fun data->if live buffer then in_buffer buffer(fun()->
-    let d=field "draft"data in set "camulus-mail-draft-revision"(field "revision"d);set "camulus-mail-draft-error"nil;
-    if Value.equal tick(call "buffer-chars-modified-tick"[])then run "set-buffer-modified-p"[nil];
-    if not(truth(field "indexed"d))then message "Draft saved; mu index update pending"[]))
-   (Some(fun state reason->if live buffer then in_buffer buffer(fun()->
-    set "camulus-mail-draft-saving"nil;
-    if Value.eq state(sym "completed")then(if truth(call "buffer-modified-p"[])then run "camulus-mail--draft-changed"[i 0;i 0;i 0])
-    else(set "camulus-mail-draft-error"reason;message "Draft not saved: %s"[reason]))))
-  with ex->set "camulus-mail-draft-saving"nil;set "camulus-mail-draft-error"(s(Exn.to_string ex));message "Draft not saved: %s"[get "camulus-mail-draft-error"])
-let flush ()=
- if truth(get "camulus-mail-draft-error")then user_error(text(get "camulus-mail-draft-error"));
- save_draft();
- run "camulus-probe-await"[lambda0(fun()->b(truth(get "camulus-mail-draft-error") || (not(truth(get "camulus-mail-draft-saving")) && not(truth(call "buffer-modified-p"[])))));i 15];
- if truth(get "camulus-mail-draft-error")then user_error(text(get "camulus-mail-draft-error"))
-let before_kill ()=
- try if truth(get "camulus-mail-draft-sending")then user_error "Wait for the send result before closing";flush();true
- with ex->message "Keeping unsaved draft open: %s"[s(Exn.to_string ex)];false
 let compose reply=
  let window=summary_window()and group=group()in
  let id=if reply then selected()else nil in
  if not(truth group)then user_error "Open a mail group first";
  if reply && not(truth id)then user_error "Select a message to reply to";
  action(alist["op",s "draft-new";"group",group;"reply_to",id])(fun data->open_composer(field "draft"data)window)None
-let send ()=
- if truth(get "camulus-mail-draft-sending")then user_error "Sending is already in progress";
- flush();let buffer=current()in
- set "camulus-mail-draft-sending"(sym "t");set "buffer-read-only"(sym "t");
- try action(alist["op",s "draft-send";"key",get "camulus-mail-draft-key";"revision",get "camulus-mail-draft-revision"])
-  (fun data->if live buffer then in_buffer buffer(fun()->
-   set "camulus-mail-draft-sending"nil;set "camulus-mail-draft-key"nil;run "set-buffer-modified-p"[nil];
-   if truth(field "cleaned"data)then(message "Mail sent; copy saved in Sent"[];run "kill-buffer"[buffer])
-   else(set "header-line-format"(s "Mail sent · local cleanup incomplete; do not resend");message "Mail sent; local cleanup incomplete. Do not resend."[])))
-  (Some(fun state reason->if live buffer && not(Value.eq state(sym "completed"))then in_buffer buffer(fun()->
-   set "camulus-mail-draft-sending"nil;set "buffer-read-only"nil;message "Mail send: %s"[reason])))
- with ex->set "camulus-mail-draft-sending"nil;set "buffer-read-only"nil;raise ex
 let drafts_refresh ()=
  let buffer=current()in
  action(alist["op",s "draft-list";"group",get "camulus-mail--group"])(fun data->if live buffer then in_buffer buffer(fun()->
@@ -91,8 +78,8 @@ let drafts_refresh ()=
   set "tabulated-list-entries"(Value.list rows);run "tabulated-list-print"[sym "t"]))None
 let install ()=
  run "require"[sym "message"];
- List.iter["camulus-mail--group";"camulus-mail-draft-key";"camulus-mail-draft-revision";"camulus-mail-draft-timer";"camulus-mail-draft-saving";"camulus-mail-draft-error";"camulus-mail-draft-sending"]~f:(fun name->variable name nil;run "make-variable-buffer-local"[sym name]);
- variable "camulus-mail-autosave-delay"(Value.of_float 0.75);
+ Writing.install();
+ List.iter["camulus-mail--group";"camulus-mail-draft-key";"camulus-mail-draft-revision"]~f:(fun name->variable name nil;run "make-variable-buffer-local"[sym name]);
  define1 "camulus-mail--action-event"(fun event->let id=call "nth"[i 1;event]in let id=if truth(call "integerp"[id])then integer id else -1 in
   Option.iter(Hashtbl.find actions id)~f:(fun(receive,finish)->let kind=call "car"[event]in
    if Value.eq kind(sym "mail")then receive(call "nth"[i 3;event])
@@ -105,19 +92,6 @@ let install ()=
  define0 ~interactive:true "camulus-mail-reply"(fun()->compose true);
  Defun.defun(Symbol.intern "camulus-mail--open-composer")[%here]~docstring:"Open a native mail draft."(Returns Value.Type.unit)
   (let open Defun.Let_syntax in let%map_open data=required "data"value and window=required "window"value in open_composer data window);
- define0 "camulus-mail--draft-cancel-timer"cancel_timer;
- Defun.defun(Symbol.intern "camulus-mail--draft-changed")[%here]~docstring:"Schedule native draft persistence."(Returns Value.Type.unit)
-  (let open Defun.Let_syntax in let%map_open _a=required "start"value and _b=required "end"value and _c=required "old-length"value in
-   cancel_timer();let buffer=current()in
-   set "camulus-mail-draft-timer"(call "run-at-time"[get "camulus-mail-autosave-delay";nil;lambda0(fun()->if live buffer then in_buffer buffer(fun()->
-    if not(truth(get "camulus-mail-draft-error")) && not(truth(get "camulus-mail-draft-sending"))then save_draft());nil)]));
- define0 ~interactive:true "camulus-mail-save-draft"(fun()->set "camulus-mail-draft-error"nil;save_draft());
- define0 "camulus-mail--draft-flush"flush;
- Defun.defun_nullary(Symbol.intern "camulus-mail--draft-before-kill")[%here]~docstring:"Persist edits before closing."(Returns Value.Type.bool)before_kill;
- define0 ~interactive:true "camulus-mail-close-draft"(fun()->if before_kill()then run "kill-buffer"[]);
- define0 ~interactive:true "camulus-mail-send-draft"send;
- define0 "camulus-mail--flush-all-drafts"(fun()->List.iter(Buffer.all_live())~f:(fun buffer->Current_buffer.set_temporarily Sync buffer~f:(fun()->if truth(get "camulus-mail-draft-key")then flush())));
- hook "kill-emacs-hook""camulus-mail--flush-all-drafts";
  mode "camulus-mail-drafts-mode""tabulated-list-mode""Mail drafts""RET: resume  g: refresh  c: compose";
  define0 ~interactive:true "camulus-mail-drafts"(fun()->let group=group()in
   if not(truth group)then user_error "Open a mail group first";

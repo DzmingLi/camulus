@@ -1,6 +1,6 @@
 # Mu 后端：本地索引、Maildir 与邮件同步
 
-这一版是本地 Maildir 邮件后端，保留 mu 索引和现有 mbsync 同步。`Mu_backend` 使用 Mrmime 解析及生成 MIME，通过 Colombe + tls-eio 直接发送 SMTP；不再绑定 GMime 或调用 msmtp。`process_emacs.ml` 通过 Ecaml 提供 mu 子进程宿主；`compose_emacs.ml` 负责撰写和草稿交互。没有以 Gnus 或 mu4e 作为后端，也没有 Elisp 后端扩展接口。
+这一版是本地 Maildir 邮件后端，保留 mu 索引和现有 mbsync 同步。`Mu_backend` 使用 Mrmime 解析及生成 MIME，通过 Colombe + tls-eio 直接发送 SMTP；不再绑定 GMime 或调用 msmtp。`process_emacs.ml` 通过 Ecaml 提供 mu 子进程宿主；`compose_emacs.ml` 负责邮件编辑格式、草稿组以及 Mu 操作接入，公共 `src/writing.ml` 管理自动保存、编辑版本、关闭和发送状态。没有以 Gnus 或 mu4e 作为后端，也没有 Elisp 后端扩展接口。
 
 ## 运行
 
@@ -55,7 +55,7 @@ SMTP 在 Eio 工作 domain 内直接使用 TCP、tls-eio 和 Colombe 的调度�
 
 ## 草稿与发送
 
-新建和回复立即生成账户 `Drafts/cur` 中的本地草稿。编辑停止 0.75 秒后自动保存，`C-x C-s` / `C-c C-s` 手动保存，`C-c C-k` 保存并关闭，`C-c C-c` 明确发送。关闭编辑 buffer 或正常退出 Emacs 时也尝试保存；保存失败会保留编辑内容并报告错误。
+新建和回复立即生成账户 `Drafts/cur` 中的本地草稿。编辑停止 0.75 秒后自动保存（`camulus-writing-autosave-delay`），`C-x C-s` / `C-c C-s` 手动保存，`C-c C-k` 保存并关闭，`C-c C-c` 明确发送。关闭编辑 buffer 或正常退出 Emacs 时也尝试保存；保存失败会保留编辑内容并报告错误。
 
 草稿使用 `0600` 文件和原子替换，保存前检查版本，避免覆盖已经变化的文件。索引被锁住时，草稿仍可成功落盘；草稿组直接扫描文件，因此下次仍能恢复。当前扫描 `Drafts/cur`，尚未分页，单次保存上限 1 MiB。草稿是否同步到服务器由用户的 mbsync 配置决定。
 

@@ -17,6 +17,12 @@ let () =
   check(b.message.author="Alice" && b.message.url="https://example.test/posts/one") "Atom inheritance and xml:base";
   check(b.message.created=a.message.created) "timezone-independent dates";
   check(b.message.html=Some "<div><p>Hello <a href=\"https://example.test/about\">about</a></p></div>") "XHTML structure and links";
+  let xml=R.Feed_xml.read {|<div xmlns="http://www.w3.org/1999/xhtml" xml:base="../assets/"><p title="A &quot;quote&quot;">A &amp; &lt;B&gt;</p><a href="about">About</a><section xml:base="images/"><img src="pic.png"/></section></div>|} in
+  let html=R.Feed_xml.xhtml ~base:(Some(Uri.of_string "https://example.test/posts/")) [xml] in
+  let tree=Reader.Html.parse html in
+  let attribute tag name=Reader.Html.find(fun n->Reader.Html.tag n=tag)tree |> Option.get |> Reader.Html.attr name in
+  check(attribute "p" "title"="A \"quote\"" && Reader.Html.text tree="A & <B>About") "Syndic XHTML serialization preserves escaped text and attributes";
+  check(attribute "a" "href"="https://example.test/assets/about" && attribute "img" "src"="https://example.test/assets/images/pic.png") "nested XHTML xml:base survives reader adaptation";
   check((List.nth entries 1).message.body="literal <b>plain</b>" && (List.nth entries 1).message.html=None) "Atom plain text stays plain";
   check((List.hd b.enclosures).url="https://example.test/posts/file.bin") "Atom enclosure";
   let rdf={|<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel rdf:about="https://example.test/feed"><title>RSS1</title><link>https://example.test/</link><description>RSS1</description><items><rdf:Seq><rdf:li rdf:resource="https://example.test/one"/></rdf:Seq></items></channel><item rdf:about="https://example.test/one"><link>https://example.test/one</link><title>RDF</title><description>Body</description><dc:creator>Bob</dc:creator><dc:date>2026-10-16T02:30:00Z</dc:date></item></rdf:RDF>|} in
