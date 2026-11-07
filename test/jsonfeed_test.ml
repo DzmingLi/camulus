@@ -10,18 +10,23 @@ let item id body=`Assoc["id",`String id;"content_html",`String body;
   "url",`String "/post";"date_published",`String "2026-10-16T02:30:00Z";
   "attachments",`List[`Assoc["url",`String "/file.bin";"mime_type",`String "application/octet-stream";"size_in_bytes",`Int 4]]]
 let () =
-  let a=List.hd(fst(J.Decode.parse ~url (feed [item "one" "<p>Hello</p>"]))) in
+  let a=List.hd(fst(J.parse ~url (feed [item "one" "<p>Hello</p>"]))) in
   check(a.message.id="one" && a.message.thread_id=None && a.message.author="Alice") "article identity and author";
   check(a.message.created=R.Decode.date "2026-10-16T02:30:00Z") "source date";
   check(a.message.html=Some "<p>Hello</p>" && a.message.url="https://example.test/post") "HTML and relative links";
-  let revised=List.hd(fst(J.Decode.parse ~url (feed [item "one" "Updated"]))) in
+  let revised=List.hd(fst(J.parse ~url (feed [item "one" "Updated"]))) in
   check(a.message.activity<>revised.message.activity) "revision fingerprint";
-  let v1=feed ~version:"1" [`Assoc["id",`Int 12;"content_text",`String "Plain <b>text</b>";"author",`Assoc["name",`String "Bob"]]] in
-  let b=List.hd(fst(J.Decode.parse ~url v1)) in
-  check(b.message.id="12" && b.message.author="Bob" && b.message.created=0. && b.message.html=None) "v1 author, numeric ID and deterministic missing date";
-  let bads=[`Assoc[];`Assoc["id",`String "empty"];item "one" "duplicate"] in
-  check(List.length(fst(J.Decode.parse ~url (feed (item "one" "ok"::bads))))=1) "invalid entries and duplicate IDs";
-  List.iter(fun s->check(fails(fun()->ignore(J.Decode.parse ~url s))) "reject malformed feed") ["{}";"{";feed ~version:"9" []];
+  let plain=feed [`Assoc["id",`String "plain";"content_text",`String "Plain <b>text</b>";
+    "authors",`List[`Assoc["name",`String "Bob"]]]] in
+  let b=List.hd(fst(J.parse ~url plain)) in
+  check(b.message.author="Bob" && b.message.created=0. && b.message.html=None && b.message.body="Plain <b>text</b>") "item author, text and missing date";
+  check((List.hd(fst(J.parse ~url (feed [item "one" "<p>Hello</p>"])))).message.activity=a.message.activity) "stable revision";
+  let unsafe=List.hd(fst(J.parse ~url (feed [item "safe" "<p onclick='bad()'>Hi</p><script>bad()</script>"]))) in
+  check(unsafe.message.html=Some "<p>Hi</p>") "sanitize library-decoded HTML";
+  List.iter(fun s->check(fails(fun()->ignore(J.parse ~url s))) "reject malformed or unsupported feed")
+    ["{}";"{";feed ~version:"1" [];feed ~version:"9" [];
+     feed [`Assoc["id",`Int 12;"content_text",`String "Numeric ID"]];
+     feed [`Assoc["id",`String "empty"]];feed [item "one" "First";item "one" "Duplicate"]];
   let queue=ref [] and requests=ref [] in
   let module H=struct let request r=requests:=r::!requests;match !queue with x::xs->queue:=xs;x | []->failwith "Unexpected HTTP" end in
   let module B=J.Make(H) in
@@ -55,4 +60,4 @@ let () =
     check(B.Subscription.followed (B.create ~subscriptions_file:file ())=[url]) "persistent subscriptions";
     B.Subscription.set t url false;check(B.Subscription.followed t=[]) "unsubscribe";
     Sys.remove file;Sys.remove(file^".lock"));
-  print_endline "PASS: JSON Feed 1/1.1 parsing, pagination, identity, conditional HTTP, archives and subscriptions"
+  print_endline "PASS: JSON Feed 1.1 library parsing, pagination, identity, conditional HTTP, archives and subscriptions"
