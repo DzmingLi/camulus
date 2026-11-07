@@ -1,6 +1,6 @@
 # 入口配置与后端订阅
 
-来源、组入口与关注关系分别管理。组和个人 feed 使用同一个后端列表接口；首页汇集明确选入的个人 feed，而不扫描所有可浏览的组。配置一个入口不会调用远端订阅操作。
+来源、组入口与关注关系分别管理。组和个人 feed 使用同一个后端列表接口；首页汇集后端提供的个人 feed，而不扫描所有可浏览的组。配置一个入口不会调用远端订阅操作。
 
 ## 配置与交互
 
@@ -27,9 +27,9 @@
 
 对于没有对应远端组订阅操作的后端，适配器显式选择公共的本地关注实现，读取和修改 `$XDG_STATE_HOME/camulus/group-subscriptions.json`，默认 `~/.local/state/camulus/group-subscriptions.json`。它实现 `Backend.Subscription` 所要求的 `get` / `set` 语义，按后端、来源和组隔离，使用锁和原子替换，不依赖内容数据库。该文件由操作命令维护，不是用户配置；外部修改会在下一次读取时生效。组关注只决定该组是否进入首页，不会伪装成远端关注请求。
 
-Discourse 话题 `s` 仍调用服务器的追踪设置；`S` 关注整个浏览入口是另一种操作。RSS / JSON Feed 原有订阅由各自后端管理，默认文件移至状态目录。
+Discourse 会话 `s` 调用服务器的追踪设置；浏览组不支持 `S`，每个已注册且已认证站点自动提供通知时间线。RSS / JSON Feed 原有订阅由各自后端管理，默认文件移至状态目录。
 
-首页或组目录按 `U`，或运行 `M-x camulus-subscriptions`，查看当前订阅来源。该页面重新读取后端的关注入口，按 `s` 修改所选来源的关注状态，按 `g` 刷新；取消关注后注册组仍保留。远端话题追踪的内容通过后端提供的 watching / tracking 等个人入口浏览。
+首页或组目录按 `U`，或运行 `M-x camulus-subscriptions`，查看当前订阅来源。该页面重新读取后端的关注入口，按 `s` 修改所选来源的关注状态，按 `g` 刷新；取消关注后注册组仍保留。Discourse 通知来源按 `T`（或 `s`）打开远端会话追踪管理，不提供本地开关。
 
 首页先显示选入 feed 的本地缓存，并异步刷新；最多同时刷新 4 个入口，每个来源返回后逐步更新列表。按活动时间倒序排列，同一来源内的讨论跨入口合并，邮件继续按回复与 References 关系合并。每个来源维护自己的分页游标，`n` 加载尚有下一页的来源。失败时保留该来源缓存，页首显示失败数，`e` 查看详情。`b` 浏览所选条目的来源入口，`h` 返回统一首页。
 
@@ -66,7 +66,7 @@ end
 
 Ecaml 适配器通过 `Reader_backend.topic_tracking` 注册筛选标签、列表请求及查询／修改请求。公共 `reader_tracking_ui.ml` 负责站点选择、分页、打开内容、错误提示与防止迟到结果覆盖新视图，不知道后端名称、端点或级别。命令为 `camulus-manage-subscriptions`；未实现此可选能力的后端不会显示管理按钮。
 
-- Discourse 的 `target` 是 topic/文章标识，`settings` 是 `Regular | Tracking | Watching | Muted`。调用现有远端 topic 通知级别接口。`watching`、`tracking` 是个人入口，使用服务器筛选的普通 topic 列表，并支持限定在此范围内搜索；需要有效身份。此实现依照 [Discourse TopicQuery 的 state/search 筛选](https://github.com/discourse/discourse/blob/main/lib/topic_query.rb)，没有在本地收集所有讨论再过滤。
+- Discourse 的 `target` 是 topic/文章标识，`settings` 是 `Regular | Tracking | Watching | Muted`，直接使用远端通知级别。会话追踪面板从 `/latest.json?state=...` 分页读取服务器状态；个人时间线只读取 `/notifications.json`。`replies`、`watching`、`tracking` 不再是浏览入口或本地订阅目标。
 - RSS 的 `target` 是 feed URL，`settings` 是布尔值。关注列表保存在 RSS 后端自己的 `$XDG_STATE_HOME/camulus/rss-subscriptions.json` 中，格式为 URL 数组；路径由 `camulus-reader-rss-subscriptions-file` 指定。读写在系统线程执行，使用锁文件和临时文件原子替换，无需 SQLite，也不会因关注而立即抓取正文。`camulus-rss-followed` 返回该后端发现的关注入口。
 - Reddit 的 `notifications` 入口经组订阅命令加入首页后，展示回复及提及并按讨论合并，读取列表不加载整个讨论，也不标记远端已读。本轮未为 Reddit 伪造不存在的通用 thread 订阅实现。
 - 邮箱入口继续使用 `/Inbox` 等后端组标识，组关注是本地首页选择，不修改 IMAP 服务器的订阅状态。
@@ -75,7 +75,7 @@ Emacs 边界的 `camulus-subscription-submit` 使用 `source`、`target` 与可�
 
 ## 本地状态及迁移
 
-SQLite 继续负责内容身份、已读、列表缓存、移除边界和收藏归档，已不负责有效订阅关系。缓存按来源及组隔离；统一首页有独立的移除边界，同一事件后来从另一入口发现不会复活已处理条目。内容身份和已读仍跨入口一致。刷新第一页成功后替换该入口的可见成员，后续分页补充；失败保留旧缓存，移除历史不会因缓存替换丢失。远端取消关注后，相关讨论会在下一次个人入口刷新时消失。
+SQLite 继续负责内容身份、已读、列表缓存、移除边界和收藏归档，已不负责有效订阅关系。缓存按来源及组隔离；统一首页有独立的移除边界，同一事件后来从另一入口发现不会复活已处理条目。内容身份和已读仍跨入口一致。刷新第一页成功后替换该入口的可见成员，后续分页补充；失败保留旧缓存，移除历史不会因缓存替换丢失。Discourse 改变追踪级别只影响服务器后续通知，已有通知不会因为取消追踪而被本地清除。
 
 schema v1/v2 自动迁移到 v3，保留 MIME、附件、收藏和已读。旧订阅表、旧活动和旧移除记录留在 `legacy_*` 表供迁移；它们不再决定首页内容。旧活动与移除边界映射至该来源原来配置的各组，以保留重复拉取去重；由于旧结构没有保存活动所属组，升级时不会据此构造可见成员。
 
@@ -125,7 +125,7 @@ schema v1/v2 自动迁移到 v3，保留 MIME、附件、收藏和已读。旧�
 
 知乎和豆瓣均通过 Camulus 的公共 Firefox Cookie 能力读取指定 profile，见 [ZHIHU.md](ZHIHU.md)。由 OCaml 选择 Cookie，仅选择默认容器、匹配域名/路径且有效的记录。浏览器锁定数据库时，使用权限受限的临时数据库/WAL 快照，读取后删除；配置文件不保存 Cookie。请求签名、分页和正文解析也在 OCaml 中。图片下载不携带登录 Cookie。服务端登录挑战或访问限制会报告失败并保留旧列表，不伪装成空 feed。
 
-Discourse 增加 `replies`（直接回复）和 `notifications`（回复、提及、引用）入口，读取服务器通知并按原生 topic 合并；GET 不提交标为已读操作。这些通知入口暂不提供组内搜索。
+Discourse 的 `notifications` 由已注册且已认证站点自动提供，读取服务器返回的各种通知并按原生 topic 合并；非会话通知保留为独立摘要。GET 和本地移除不提交标为已读操作；通知时间线不提供组内搜索。
 
 ### 验证
 

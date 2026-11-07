@@ -6,7 +6,7 @@ val site_of_source : string -> string
 val is_source : string -> bool
 type config = {site:string;api_key:string;client_id:string}
 val config : ?api_key:string -> ?client_id:string -> string -> config
-type group = Latest | Category of int | Topic of int | Watched_topics | Tracked_topics | Notifications | Replies
+type group = Latest | Category of int | Topic of int | Notifications
 type cursor = string
 val group_of_string : string -> group
 val group_string : group -> string

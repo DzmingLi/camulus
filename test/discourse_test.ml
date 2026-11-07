@@ -80,10 +80,6 @@ let () =
   let changed=match topic[post 100 1 0] with `Assoc xs -> `Assoc(("details",`Assoc["notification_level",`Int 1])::List.remove_assoc "details" xs) | _->assert false in
   queue:=[response changed];
   check(M.Subscription.get session "topic:7"=B.Regular) "external tracking change is authoritative";
-  queue:=[response(`Assoc["topic_list",`Assoc["topics",`List[summary()]]])];
-  ignore(M.search session B.Watched_topics ~query:"OCaml" ~after:None);
-  let uri=Uri.of_string(List.hd !requests).url in
-  check(Uri.get_query_param uri "state"=Some "watching" && Uri.get_query_param uri "search"=Some "OCaml") "personal entry search remains remote scoped";
   queue:=[response(`Assoc["topic_list",`Assoc["topics",`List[summary()];"more_topics_url",`String "https://evil.test/"]])];
   let rows,after=M.Topic_tracking.list session B.Watching ~after:None in
   check(List.length rows=1 && (List.hd rows).Reader.Backend.settings=B.Watching) "remote tracking entries";
@@ -98,15 +94,29 @@ let () =
   let archived=M.archive_article session first in
   check(archived.files=[0,"bytes\000"]) "binary archive";
   check((List.hd !requests).headers=[]) "CDN gets no credentials";
-  let notification id kind = `Assoc["id",`Int id;"notification_type",`Int kind;"topic_id",`Int 7;"post_number",`Int 2;
+  List.iter(fun group -> check(fails(fun()->ignore(B.group_of_string group))) "removed personal browse aliases") ["replies";"watching";"tracking"];
+  let notification ?(topic=7) ?(floor=2) id kind = `Assoc["id",`Int id;"notification_type",`Int kind;"topic_id",`Int topic;"post_number",`Int floor;
     "created_at",`String "2026-10-16T01:00:00Z";"data",`Assoc["topic_title",`String "Reply";"display_username",`String "Alice"]] in
-  queue:=[response(`Assoc["notifications",`List[notification 12 2;notification 13 1;notification 14 5];"total_rows_notifications",`Int 70])];
-  let replies=M.list session B.Replies ~after:None in
-  check(List.length replies.messages=1 && replies.after<>None) "reply notification filter and pagination";
-  check((List.hd replies.messages).activity=Some "notification:12") "stable notification activity";
+  let notices=[notification 19 9;notification 18 6;notification ~floor:0 17 17;notification 16 15;
+    notification 15 5;notification 14 3;notification 13 1;notification 12 2;notification ~topic:0 ~floor:0 11 12] in
+  queue:=[response(`Assoc["notifications",`List notices;"total_rows_notifications",`Int 70])];
+  let page=M.list session B.Notifications ~after:None in
+  check(List.length page.messages=9 && page.after<>None) "all notification kinds and pagination";
+  check((List.hd(List.rev page.messages)).activity=Some "notification:19") "newest stable notification activity last";
+  check(List.exists(fun (m:Reader.Content.message)->m.id="topic:7/post:1")page.messages) "topic notifications without a floor open the root";
   check((List.hd !requests).meth=B.Http.Get) "notifications fetched without mark-read writes";
-  check(fails(fun()->ignore(M.list session B.Notifications ~after:replies.after))) "notification cursor scope";
-  check(fails(fun()->ignore(M.search session B.Replies ~query:"x" ~after:None))) "no unscoped search substitute";
+  check(fails(fun()->ignore(M.list other B.Notifications ~after:page.after))) "notification cursor bound to site";
+  check(fails(fun()->ignore(M.search session B.Notifications ~query:"x" ~after:None))) "no unscoped search substitute";
+  let count=List.length !requests in
+  let badge=M.read session "notification:11" in
+  check(badge.message.thread_id=None && badge.message.body<>"") "non-topic notification remains readable";
+  let batches=ref [] in M.thread session "notification:11" ~emit:(fun b->batches:=b::!batches);
+  check((List.hd !batches).complete) "non-topic notification opens as standalone article";
+  check(fails(fun()->M.set_like session ~id:"notification:11" ~liked:true)) "cannot like a non-post notification";
+  check(List.length !requests=count) "cached notification read never performs mutations";
+  let restarted=M.create(B.config ~api_key:"testkey" ~client_id:"testclient" base) in
+  queue:=[response(`Assoc["notifications",`List[notification ~topic:0 ~floor:0 11 12];"total_rows_notifications",`Int 1])];
+  check((M.read restarted "notification:11").message.id="notification:11") "notification can be reopened after restart";
   let anonymous=M.create(B.config base) in
   let count=List.length !requests in
   check(fails(fun()->ignore(M.send anonymous (B.Reply{parent="topic:7/post:1";text="test"})))) "anonymous write rejected";

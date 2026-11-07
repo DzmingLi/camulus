@@ -24,6 +24,7 @@ let for_readers source f=
  List.iter(Buffer.all_live())~f:(fun buffer->Current_buffer.set_temporarily Sync buffer~f:(fun()->
   if truth(call "derived-mode-p"[sym "camulus-reader-article-mode"]) && Value.equal(get "camulus-reader--source")source then f()))
 let setup ()=
+ set "camulus-discourse--authenticated-sites" nil;
  List.iter["camulus-discourse--callbacks";"camulus-discourse--likes";"camulus-discourse--like-values"]~f:(fun name->run "clrhash"[get name]);
  run "camulus-discourse-clear-config"[];
  let sources=call "append"[get "camulus-discourse-auth-sources";get "auth-sources"]in
@@ -35,7 +36,9 @@ let setup ()=
     if not(truth entry)then nil else Value.list(List.map["User-Api-Key",":secret";"User-Api-Client-Id",":user"]~f:(fun(k,p)->
      let v=call "plist-get"[entry;sym p]in let v=if truth(call "functionp"[v])then call "funcall"[v]else v in call "cons"[s k;v])))in
    let header name=text(call "cdr"[call "assoc"[s name;headers]])in
-   run "camulus-discourse-configure"[site;s(header "User-Api-Key");s(header "User-Api-Client-Id")]))
+   run "camulus-discourse-configure"[site;s(header "User-Api-Key");s(header "User-Api-Client-Id")];
+   if not(String.is_empty(header "User-Api-Key"))then
+     set "camulus-discourse--authenticated-sites"(call "cons"[site;get "camulus-discourse--authenticated-sites"])))
 let browse site group=
  let site=Discourse_backend.Decode.site site in
  if not(List.exists(values(get "camulus-discourse-sites"))~f:(Value.equal(s site)))then set "camulus-discourse-sites"(call "cons"[s site;get "camulus-discourse-sites"]);
@@ -43,7 +46,9 @@ let browse site group=
 let like unlike=
  let source=get "camulus-reader--source"in
  if not(truth(call "derived-mode-p"[sym "camulus-reader-article-mode"])) || not(String.is_prefix(text source)~prefix:"discourse:") || truth(get "camulus-reader--archive")then user_error "Open a live Discourse article";
- let id=field "id"(call "camulus-reader--selected"[])in let key=Value.list[source;id]in
+ let id=field "id"(call "camulus-reader--selected"[])in
+ if not(String.is_prefix(text id)~prefix:"topic:")then user_error "This notification is not a post and cannot be liked";
+ let key=Value.list[source;id]in
  let item=call "gethash"[id;get "camulus-reader--messages"]in let previous=field "liked"item and liked=not unlike in
  if truth(hget "camulus-discourse--likes"key)then user_error "A like request for this article is pending";
  if not(truth(call "gethash"[id;get "camulus-reader--loaded"]))then user_error "Wait for the article to load";
@@ -68,6 +73,7 @@ let install ()=
  run "require"[sym "auth-source"];
  custom ~kind:(Customization.Type.Repeat String) "camulus-discourse-auth-sources" nil "Auth-source files used for Discourse authentication.";
  variable "camulus-discourse-sites" nil;
+ variable "camulus-discourse--authenticated-sites" nil;
  List.iter["camulus-discourse--callbacks","eql";"camulus-discourse--likes","equal";"camulus-discourse--like-values","equal"]~f:(fun(n,test)->variable n(call "make-hash-table"[sym ":test";sym test]));
  define0 "camulus-discourse-setup"setup;
  define1 "camulus-discourse--event"(fun event->let id=call "nth"[i 1;event]in

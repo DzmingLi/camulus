@@ -14,6 +14,9 @@ type topic_tracking = {
   list : source:string -> filter:string -> after:string option -> Value.t;
   change : source:string -> target:string -> setting:string option -> Value.t;
 }
+(* Source discovery can be immediate (configured authenticated sites) or an
+   asynchronous backend request. It does not imply local group subscriptions. *)
+type discovery = Immediate of Value.t | Pending of Value.t
 type t = {
   name : string;
   start : unit -> unit;
@@ -32,7 +35,7 @@ type t = {
   row_title : Value.t -> Value.t;
   browser : (string * string) option;
   entrances : unit -> entrance list;
-  followed : (unit -> Value.t) option;
+  followed : (unit -> discovery) option;
   can_subscribe_group : source:string -> group:string -> bool;
   group_subscription : (source:string -> group:string -> setting:string option -> Value.t) option;
   subscription_target : (source:string -> selected:(unit -> Value.t) -> string option) option;
@@ -75,7 +78,7 @@ let register_local_groups ~accepts backend =
   local_group_rules := (backend.name,accepts)::List.Assoc.remove !local_group_rules backend.name ~equal:String.equal;
   register { backend with
     can_subscribe_group=accepts;
-    followed=Some(fun () -> Value.of_int_exn ((operations ()).followed_groups ~backend:backend.name));
+    followed=Some(fun () -> Pending(Value.of_int_exn ((operations ()).followed_groups ~backend:backend.name)));
     group_subscription=Some(fun ~source ~group ~setting ->
       if not(accepts ~source ~group)then invalid_arg "This group is browse-only";
       Value.of_int_exn ((operations ()).subscribe_group ~backend:backend.name ~source ~group ~setting)) }

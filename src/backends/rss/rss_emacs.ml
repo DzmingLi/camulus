@@ -32,7 +32,7 @@ let install ~submit ~followed () =
     start=(fun()->run "camulus-rss-subscriptions-configure"[get "camulus-reader-rss-subscriptions-file"]);
     events=["rss"];can_subscribe_group=(fun ~source ~group -> String.equal group (String.drop_prefix source 4));
     subscription_target=Some (fun ~source ~selected:_ -> Some (String.drop_prefix source 4));
-    browser=Some ("RSS / Atom", "camulus-reader-rss");followed=Some (fun () -> Value.of_int_exn (followed ())) };
+    browser=Some ("RSS / Atom", "camulus-reader-rss");followed=Some (fun () -> Pending(Value.of_int_exn (followed ()))) };
   ignore (Major_mode.define_derived_mode (Symbol.intern "camulus-reader-rss-mode") [%here]
     ~docstring:"Browse one RSS or Atom feed." ~mode_line:"RSS / Atom"
     ~parent:(Major_mode.find_or_wrap_existing [%here] (Symbol.intern "tabulated-list-mode"))

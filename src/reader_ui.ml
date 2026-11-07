@@ -493,7 +493,9 @@ let home_refresh more =
         home_error (s (backend.name^" subscriptions")) reason;
         entries:=List.filter (values (get "camulus-reader-home--entries")) ~f:(fun entry -> backend.matches (text "source" entry)) @ !entries in
       try
-        let id=followed () in
+        match followed () with
+        | Reader_backend.Immediate rows -> entries:=values rows @ !entries;complete ()
+        | Pending id ->
         push_var "camulus-reader-home--jobs" id;
         put (get "camulus-reader--requests") id (callback_unit (fun data ->
           if home_current target generation && String.equal (text "kind" data) "entries" then
@@ -573,7 +575,9 @@ let subscriptions_refresh () =
       set "camulus-reader-subscriptions--pending" (i(number(get "camulus-reader-subscriptions--pending")-1));
       if number(get "camulus-reader-subscriptions--pending")=0 then subscriptions_render ()) in
     try
-      let id=followed () in
+      match followed () with
+      | Reader_backend.Immediate entries -> rows:=entries;finish None
+      | Pending id ->
       put (get "camulus-reader--requests") id (callback_unit (fun data ->
         if current () && String.equal(text "kind" data)"entries" then rows:=field "rows" data));
       put (get "camulus-reader--completions") id (callback_unit (fun event ->
@@ -672,7 +676,9 @@ let entries () =
     Option.iter (List.find choices ~f:(fun entry -> Value.equal (field "name" entry) chosen)) ~f:reader in
   if List.is_empty providers then choose ();
   List.iter providers ~f:(fun provider ->
-    let id=provider () in
+    match provider () with
+    | Reader_backend.Immediate rows -> discovered:=values rows @ !discovered;Int.decr left;if !left=0 then choose ()
+    | Pending id ->
     put (get "camulus-reader--requests") id (callback_unit (fun data ->
       if String.equal (text "kind" data) "entries" then discovered:=values (field "rows" data) @ !discovered));
     put (get "camulus-reader--completions") id (callback_unit (fun _ -> Int.decr left;if !left=0 then choose ())))
@@ -761,6 +767,9 @@ let group_subscription () =
   let entry=if derived "camulus-reader-groups-mode" then property (point ()) "camulus-reader-entry"
     else if flag "camulus-reader--home" then home_entry (selected ()) else get "camulus-reader--entry" in
   if not(truth entry) then user_error "Select or open a registered group";
+  if derived "camulus-subscriptions-mode" && not(can_subscribe_entry entry) &&
+     Option.exists(capability(field "source" entry))~f:(fun backend->Option.is_some backend.topic_tracking)
+  then Reader_tracking_ui.open_ (field "source" entry) else (
   if not(can_subscribe_entry entry)then user_error "This group is browse-only; its backend does not offer group subscription settings";
   let source=field "source" entry and group=field "group" entry in
   match capability source with
@@ -772,7 +781,7 @@ let group_subscription () =
       (match target with
        | Some target -> choose_subscription ~label:("Follow "^text "name" entry) (fun setting -> i (Application.request_subscription (str source) target setting))
        | None -> user_error "This backend does not offer group subscription settings"))
-  | None -> user_error "This backend does not offer group subscription settings"
+  | None -> user_error "This backend does not offer group subscription settings")
 let subscription () =
   if derived "camulus-reader-groups-mode" then group_subscription () else (
     let source=if flag "camulus-reader--home" then field "source" (selected ()) else get "camulus-reader--source" in
@@ -782,7 +791,7 @@ let subscription () =
     | None -> group_subscription ()
     | Some target ->
       let tracking=Option.bind (capability source) ~f:(fun backend -> backend.topic_tracking) in
-      choose_subscription (fun setting -> match tracking with
+      choose_subscription ~label:(if Option.is_some tracking then "Topic notification level" else "Subscription policy") (fun setting -> match tracking with
         | Some tracking -> tracking.change ~source:(str source) ~target ~setting
         | None -> i (Application.request_subscription (str source) target setting)))
 let attachment button =

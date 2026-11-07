@@ -32,7 +32,7 @@
 | --- | --- |
 | Maildir | mu 本地索引与搜索、回复树、MIME 附件、自动保存草稿、纯 OCaml SMTP 发送、移动到 Archive；同步仍使用外部 mbsync |
 | Reddit | OAuth、subreddit、回复及提及、组内搜索、渐进回复树、投票；回复/发帖编辑界面未完成 |
-| Discourse | 最新讨论、分类、回复及提及、追踪列表、远端搜索、渐进回复树、点赞与追踪设置；回复/发帖已有后端接口，编辑界面待接入 |
+| Discourse | 最新讨论、分类、远端通知、会话追踪管理、远端搜索、渐进回复树、点赞与追踪设置；回复/发帖已有后端接口，编辑界面待接入 |
 | RSS / Atom | 分页、后端订阅列表、正文与 enclosure 附件归档 |
 | JSON Feed 1 / 1.1 | `next_url` 分页、后端订阅列表、正文与附件归档 |
 | Blogger | Atom 列表、打开时提取公开网页全文、图片归档 |
@@ -84,11 +84,11 @@ emacsWithPackages (epkgs: [
          (group . "posts"))))
 ```
 
-首页或组目录按 `U`，或运行 `M-x camulus-subscriptions`，查看当前订阅来源。该页面重新读取后端的关注入口，按 `s` 修改所选来源的关注状态，按 `g` 刷新；取消关注后注册组仍保留。远端话题追踪的内容通过后端提供的 watching / tracking 等个人入口浏览。
+首页或组目录按 `U`，或运行 `M-x camulus-subscriptions`，查看当前订阅来源。该页面重新读取后端的关注入口，按 `s` 修改所选来源的关注状态，按 `g` 刷新；取消关注后注册组仍保留。Discourse 的通知来源自动按已注册且已认证站点提供，按 `T` 管理远端会话追踪。
 
-首页按 `B` 进入组目录，`C` 定制浏览组，组上按 `s` 订阅或取消订阅。列表中 `S` 管理当前来源组；`s` 管理后端提供的具体关注目标，例如 Discourse 话题。注册和浏览不会订阅，取消订阅也不会删除浏览入口。
+首页按 `B` 进入组目录，`C` 定制浏览组，支持组订阅的组上按 `s` 订阅或取消订阅。列表中 `S` 管理当前来源组；`s` 管理后端提供的具体关注目标，例如 Discourse 话题。注册和浏览不会订阅，取消订阅也不会删除浏览入口。
 
-订阅是由后端读取和修改的运行状态。Discourse 话题追踪保存在远端；本地组关注及 RSS / JSON Feed 关注保存在 `~/.local/state/camulus/`（遵循 `XDG_STATE_HOME`），由命令维护，不需要手写订阅配置。首页只汇集后端返回的关注入口。
+订阅是由后端读取和修改的运行状态。Discourse 话题追踪保存在远端；本地组关注及 RSS / JSON Feed 关注保存在 `~/.local/state/camulus/`（遵循 `XDG_STATE_HOME`），由命令维护，不需要手写订阅配置。首页汇集后端返回的时间线来源；Discourse 直接使用远端通知，不保存本地订阅开关。
 
 后端各自定义可定制选项，Customize 保存到用户的 `custom-file`。旧 JSON 数据可用 `(camulus-import-json-config CONFIG-PATH GROUPS-PATH)` 一次性导入变量，再通过 Customize 保存。正常启动读取 Emacs 选项。
 

@@ -91,7 +91,7 @@ let () =
     ~docstring:"Discover a backend's locally followed groups." (Returns Value.Type.value)
     (let open Defun.Let_syntax in let%map_open source=required "source" string in
      match Reader_backend.find source with
-     | Some backend when Option.is_some backend.group_subscription -> (Option.value_exn backend.followed) ()
+     | Some backend when Option.is_some backend.group_subscription -> (match (Option.value_exn backend.followed) () with Reader_backend.Pending id->id | Immediate _->failwith "Not a local subscription provider")
      | _ -> failwith "This backend does not offer group subscriptions");
   defun (Symbol.intern "camulus-group-subscriptions-configure") [%here]
     ~docstring:"Set mutable local group subscription storage before startup." (Returns Value.Type.unit)
