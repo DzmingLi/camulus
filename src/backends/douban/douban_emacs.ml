@@ -20,7 +20,7 @@ let prepare ~notify:_ =
   create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ->
    let backend=D.create_live ~cookies:(Reader.Credentials.Firefox.get browser) () in
    {matches_source=String.equal ("douban");
-    page=(fun ~source:_ group ~after ~query->match query with None->D.Live.list backend group ~after|Some query->D.Live.search backend group ~query ~after);
+    page=(fun ~source:_ group ~after->D.Live.list backend group ~after);
     archive=(fun ~source:_ ~refresh:_ target id ~native_thread:_ ~add->
      match target with
      | C.Article->D.Live.invalidate backend id;add(D.Live.archive backend "" id);true
@@ -78,7 +78,7 @@ let install ~submit () =
   message "正在提交豆瓣点赞操作…" [] in
  define0 ~interactive:true "camulus-douban-like" (fun()->like true);
  define0 ~interactive:true "camulus-douban-unlike" (fun()->like false);
- register_local_groups ~accepts:all_groups { (base ~name:"douban" ~matches:(String.equal "douban") ~threaded:true
+ register_local_groups ~option:"camulus-douban-subscriptions" ~source:(fun _->"douban") ~accepts:all_groups { (base ~name:"douban" ~matches:(String.equal "douban") ~threaded:true
   ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_->i(submit ~service:false (Douban(Read id))))) with
   attachment=Some(fun ~source:_ ~id ~group:_ ~part ~destination->i(submit ~service:true (Douban(Attachment(id,part,destination)))));
   controls=[{key="l";hint="赞 · l";command="camulus-douban-like"};{key="L";hint="取消赞 · L";command="camulus-douban-unlike"}];

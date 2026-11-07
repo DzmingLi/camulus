@@ -44,26 +44,19 @@ module Make(H:R.Http.S)=struct
    Hashtbl.replace next url after;
    articles in
   {feed=Feed.create ~decode ();next;articles=Hashtbl.create 64;full=Hashtbl.create 64;lock=Eio.Mutex.create ()}
- let page t group query after =
+ let list t group ~after =
   ignore(host group);
   let index=match after with None->1|Some cursor->match Yojson.Safe.from_string cursor with
-    | `List[`String g;q;`Int n] when g=group && q=(match query with None->`Null|Some s->`String s) && n>1 && n<=1000000->n
-    | _->invalid_arg "Blogger cursor belongs to another group or search" in
+    | `List[`String g;`Int n] when g=group && n>1 && n<=1000000->n
+    | _->invalid_arg "Blogger cursor belongs to another group" in
   Eio.Mutex.lock t.lock;Fun.protect ~finally:(fun()->Eio.Mutex.unlock t.lock)(fun()->
    let endpoint,articles=Feed.fetch_articles t.feed (feed_url group index) in
    List.iter(fun(a:D.article)->Hashtbl.replace t.articles(group,a.message.id)a)articles;
    let next=Option.join(Hashtbl.find_opt t.next endpoint) in
    let after=Option.map(fun n->
      if n<=index || articles=[] then failwith "Blogger pagination did not advance";
-     Yojson.Safe.to_string(`List[`String group;(match query with None->`Null|Some s->`String s);`Int n]))next in
-   let contains text query=
-    let text=String.lowercase_ascii text and query=String.lowercase_ascii query in
-    let rec loop i=i+String.length query<=String.length text && (String.sub text i (String.length query)=query || loop(i+1)) in loop 0 in
-   let articles=match query with None->articles|Some q->List.filter(fun(a:D.article)->
-     contains(a.message.title^" "^a.message.author^" "^a.message.body^" "^Option.value a.message.html ~default:"")q)articles in
+     Yojson.Safe.to_string(`List[`String group;`Int n]))next in
    {C.messages=List.map(fun(a:D.article)->a.message)articles;after})
- let list t group ~after=page t group None after
- let search t group ~query ~after=page t group (Some query) after
  let refresh t group=
   let page=list t group ~after:None in
   let fresh=List.map(fun(m:C.message)->m.id)page.messages in

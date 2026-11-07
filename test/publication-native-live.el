@@ -12,7 +12,7 @@
        (camulus-reader-rss-subscriptions-file (expand-file-name "rss.json" directory))
        (camulus-reader-config-file (or (getenv "EF_ENTRIES_CONFIG") (error "EF_ENTRIES_CONFIG required")))
        (sources (if (getenv "EF_LIVE_SOURCES") (split-string (getenv "EF_LIVE_SOURCES") "," t)
-                  '("atlantic" "janestreet" "zhihu" "douban" "netease" "public-inbox" "blogger" "gcores")))
+                  '("atlantic" "janestreet" "zhihu" "douban" "netease" "public-inbox" "blogger")))
        (errors 0))
   (unwind-protect
       (progn

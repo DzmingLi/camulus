@@ -60,12 +60,11 @@ let prepare ~notify:_ =
     {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now ~sleep ~groups:_ ->
       let backend=Reddit_backend.Live.create ~config ~now ~sleep in
       {matches_source=String.equal ("reddit:"^config.username);
-       page=(fun ~source:_ group ~after ~query ->
+       page=(fun ~source:_ group ~after ->
          let group=if String.equal group "notifications" then Reddit_backend.Notifications
            else if String.is_prefix group ~prefix:"post:" then Reddit_backend.Post(String.drop_prefix group 5)
            else Reddit_backend.Subreddit group in
-         match query with None -> Reddit_backend.Live.list backend group ~after
-         | Some query -> Reddit_backend.Live.search backend group ~query ~after);
+         Reddit_backend.Live.list backend group ~after);
        archive=(fun ~source:_ ~refresh:_ target id ~native_thread ~add ->
          let root=if String.is_prefix id ~prefix:"t3_" then id else native_thread id in
          let complete=ref false in
@@ -141,7 +140,7 @@ let install ~submit ~configured () =
   custom ~kind:Customization.Type.String "camulus-reddit-client-id" (s "5oagOpX2_NKVDej_iuZjFA") "Backend configuration option.";
   custom ~kind:Customization.Type.String "camulus-reddit-redirect-uri" (s "http://127.0.0.1:17973") "Backend configuration option.";
   register_settings "reddit"(string_settings["username","camulus-reddit-username";"token_file","camulus-reddit-token-file"]);
-  register_local_groups ~accepts:all_groups { (base ~name:"Reddit" ~matches:(String.is_prefix ~prefix:"reddit:") ~threaded:true
+  register_local_groups ~option:"camulus-reddit-subscriptions" ~source:(fun _->"reddit:"^text(get "camulus-reddit-username")) ~accepts:all_groups { (base ~name:"Reddit" ~matches:(String.is_prefix ~prefix:"reddit:") ~threaded:true
     ~read:(fun ~source:_ ~id ~thread_id ~group:_ ->
       Value.of_int_exn (submit (Reddit_backend.Thread (Option.value thread_id ~default:id))))) with
     start=(fun()->if truth(get "camulus-reddit-username")then run "camulus-reddit-configure"[get "camulus-reddit-username";get "camulus-reddit-token-file";get "camulus-reddit-client-id";get "camulus-reddit-redirect-uri"]);

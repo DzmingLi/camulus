@@ -14,9 +14,7 @@ let prepare ~notify:_ =
     create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ->
       let backend=Z.create_live ~cookies:(Reader.Credentials.Firefox.get browser) () in
       {matches_source=String.equal ("zhihu");
-       page=(fun ~source:_ group ~after ~query->match query with
-         | None->Z.Live.list backend group ~after
-         | Some query->Z.Live.search backend group ~query ~after);
+       page=(fun ~source:_ group ~after->Z.Live.list backend group ~after);
        archive=(fun ~source:_ ~refresh:_ target id ~native_thread:_ ~add->
          if Poly.equal target Reader.Content_state.Thread then failwith "Zhihu publications do not have threads";
          Z.Live.invalidate backend id;add(Z.Live.archive backend "" id);true);
@@ -40,7 +38,7 @@ let install_protocol () =
     | _->None)::!payload_renderers
 
 let install ~submit () =
-  register_local_groups ~accepts:all_groups { (base ~name:"zhihu" ~matches:(String.equal "zhihu") ~threaded:false
+  register_local_groups ~option:"camulus-zhihu-subscriptions" ~source:(fun _->"zhihu") ~accepts:all_groups { (base ~name:"zhihu" ~matches:(String.equal "zhihu") ~threaded:false
     ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_ -> i(submit ~service:false (Zhihu(Read id))))) with
     attachment=Some(fun ~source:_ ~id ~group:_ ~part ~destination ->i(submit ~service:true (Zhihu(Attachment(id,part,destination)))));
     events=["rss"] }

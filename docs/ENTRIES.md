@@ -1,134 +1,43 @@
-# 入口配置与后端订阅
+# 浏览入口与订阅配置
 
-来源、组入口与关注关系分别管理。组和个人 feed 使用同一个后端列表接口；首页汇集后端提供的个人 feed，而不扫描所有可浏览的组。配置一个入口不会调用远端订阅操作。
-
-## 配置与交互
-
-通过 `M-x customize-group RET camulus` 管理选项，也可以在 Emacs 配置中设置变量。`camulus-groups` 登记浏览组，每项包含 `name`、`source`、`group`。
+浏览入口与订阅分开配置。`camulus-groups` 为组声明名称和来源，供首页后端按钮与组目录浏览；它不会自动把组加入主页。
 
 ```elisp
-(with-eval-after-load 'camulus_native
-  (setopt camulus-groups
-      '(((name . "NixOS")
-         (source . "discourse:https://discourse.nixos.org")
-         (group . "latest"))
-        ((name . "Emacs China")
-         (source . "discourse:https://emacs-china.org")
-         (group . "latest")))))
+(setopt camulus-groups
+        '(((name . "OCaml") (source . "reddit:alice") (group . "ocaml"))
+          ((name . "Blog") (source . "rss:https://example.org/feed.xml")
+           (group . "https://example.org/feed.xml"))
+          ((name . "Forum") (source . "discourse:https://forum.example.org")
+           (group . "latest"))))
 ```
 
-后端各自声明 Customize 选项，例如 `camulus-reddit-username`、`camulus-mail-root` 和 `camulus-discourse-auth-sources`。Customize 保存到用户的 `custom-file`。组注册不会订阅该组。
+本地订阅由各后端的 `defcustom` 选项声明。订阅列表只保存组标识；后端负责把它转换成来源和浏览请求。修改选项后刷新主页即可，不需要重启后台 worker，也不再读取或写入 JSON 订阅文件。
 
-所有 Emacs 选项、命令、模式和 hook 统一使用 `camulus-` 前缀，不提供旧 `ef-` 名称的兼容别名。此改名不改变订阅、已读、收藏或草稿的存储路径与内容。
-
-旧 JSON 数据可通过 `(camulus-import-json-config CONFIG-PATH GROUPS-PATH)` 一次性导入当前变量，再通过 Customize 保存。正常启动只读取 Emacs 选项。
-
-订阅是可变状态，由后端的可选能力决定。首页完全使用各后端 `followed` 返回的入口；注册组仅为这些入口提供名字及浏览目录。没有任何订阅时，注册再多组也不会使首页出现内容。
-
-对于没有对应远端组订阅操作的后端，适配器显式选择公共的本地关注实现，读取和修改 `$XDG_STATE_HOME/camulus/group-subscriptions.json`，默认 `~/.local/state/camulus/group-subscriptions.json`。它实现 `Backend.Subscription` 所要求的 `get` / `set` 语义，按后端、来源和组隔离，使用锁和原子替换，不依赖内容数据库。该文件由操作命令维护，不是用户配置；外部修改会在下一次读取时生效。组关注只决定该组是否进入首页，不会伪装成远端关注请求。
-
-Discourse 会话 `s` 调用服务器的追踪设置；浏览组不支持 `S`，每个已注册且已认证站点自动提供通知时间线。RSS / JSON Feed 原有订阅由各自后端管理，默认文件移至状态目录。
-
-首页或组目录按 `U`，或运行 `M-x camulus-subscriptions`，查看当前订阅来源。该页面重新读取后端的关注入口，按 `s` 修改所选来源的关注状态，按 `g` 刷新；取消关注后注册组仍保留。Discourse 通知来源按 `T`（或 `s`）打开远端会话追踪管理，不提供本地开关。
-
-首页先显示选入 feed 的本地缓存，并异步刷新；最多同时刷新 4 个入口，每个来源返回后逐步更新列表。按活动时间倒序排列，同一来源内的讨论跨入口合并，邮件继续按回复与 References 关系合并。每个来源维护自己的分页游标，`n` 加载尚有下一页的来源。失败时保留该来源缓存，页首显示失败数，`e` 查看详情。`b` 浏览所选条目的来源入口，`h` 返回统一首页。
-
-- 首页顶部的后端按钮打开对应的已登记组目录。Discourse 可登记多个站点及各自的列表，Reddit 可登记多个 subreddit；`B` 打开所有组。目录中可单独选择临时浏览未登记的组。浏览不会订阅或加入首页。论坛内 `c` 选择分类，`/` 搜索。
-- 组目录 `C` 打开浏览组选项；首页 `C` 打开 Camulus Customize 页面。应用后重新打开目录或刷新。
-- 后端针对具体来源和 group 声明是否提供订阅。组目录只在支持的条目旁显示 `s` 提示；浏览列表也只在支持时绑定 `S` 并显示提示。不可订阅的组仍可浏览和搜索。取消订阅立即重新计算首页，浏览入口保留。
-- `G` 同时显示 RSS 后端已关注的 feed；取消关注移除这个发现入口，但不会移除配置文件里显式声明的入口。
-- 首页不提供全局搜索；在 `G` / `b` 打开的入口中，`/` 搜索当前入口，空查询恢复列表。搜索结果不写入入口活动缓存，不改变订阅关系。
-- `s` 查询后端当前关注设置，再选择新设置。没有该能力的后端明确报错。
-- 普通内容的首页 `d` 只移除统一时间线中已显示的进展，不影响组内浏览；组内 `d` 仍只影响该入口。两者都保留已读、收藏和远端追踪设置；新的进展可以再次出现。邮件后端为 `d` 提供移动到账户 Trash 的操作，见 [MAIL.md](MAIL.md)。搜索结果不执行此操作。
-- `m` 收藏；`g` 另外更新已收藏内容及附件，归档不依赖关注关系。
-
-认证沿用各后端现有配置。Discourse 入口中的站点在启动时加入认证加载列表；运行中新增身份，需要停止并重新启动运行时。Reddit 用户名、Maildir 根目录等必须与已有后端配置的来源身份相符。配置文件不放凭据。
-
-## OCaml 能力接口
-
-`Backend.Subscription` 是可选模块：
-
-```ocaml
-module type Subscription = sig
-  type t
-  type target
-  type settings
-  val get : t -> target -> settings
-  val set : t -> target -> settings -> unit
-end
+```elisp
+(setopt camulus-rss-subscriptions '("https://example.org/feed.xml")
+        camulus-jsonfeed-subscriptions '("https://example.org/feed.json")
+        camulus-reddit-subscriptions '("ocaml" "emacs")
+        camulus-mu-subscriptions '("/work/Inbox")
+        camulus-theatlantic-subscriptions '("author.ian-bogost")
+        camulus-janestreet-subscriptions '("posts")
+        camulus-blogger-subscriptions '("posts.example.blogspot.com")
+        camulus-zhihu-subscriptions '("answers.example-user")
+        camulus-douban-subscriptions '("timeline.12345")
+        camulus-netease-subscriptions '("events.12345")
+        camulus-public-inbox-subscriptions
+        '("https://list.example.org/list/message-id/"))
 ```
 
-`target` 与 `settings` 均由后端定义。`set` 指定绝对设置，`get` 每次读取后端当前状态，接受站外修改。它不要求创建一个组，也不依赖内容数据库。接口不强制所有后端枚举全部关注对象；入口发现可以使用后端自己的能力。
+列表默认为 `nil`。已注册但没有列入订阅的组仍可浏览；订阅来源也可以不单独注册，届时使用后端提供的默认名称。Mu 的来源由 `camulus-mail-root` 决定，Reddit 的来源由当前后端身份决定，其他后端处理自己的 URL 和组标识。
 
-`Reader_backend.can_subscribe_group` 默认返回 false。使用公共本地关注实现时，后端必须显式传入 `accepts` 规则，UI 和工作线程共同执行该规则。已有本地记录若不再受后端支持，就不返回给首页；读取不会删除用户状态文件中的记录。RSS 和 JSON Feed 声明自己的 feed 可订阅；知乎作者等后端明确选择本地集合订阅。
+首页或组目录的 `s` 对本地订阅打开当前后端的 Customize 选项。通过 Customize 保存，或在自己的 Emacs / Nix 配置中维护 `setopt`；阅读器不会另外写一份订阅状态。`U` 列出各后端当前提供的订阅来源，`g` 重新读取选项。
 
-支持管理追踪列表的后端可以另外实现 `Backend.Topic_tracking`，在 `Subscription` 的 `get` / `set` 上增加分页 `list`。`target`、`settings`、`filter`、`cursor` 均为后端自有类型：公共接口不固定 Discourse 的四级追踪策略，也不要求其他服务照搬。未来 GitHub 等后端可以提供自己的状态和筛选条件。
+Discourse 使用服务器的会话通知和追踪机制。已注册且已认证的站点提供通知时间线，`T` 打开远端会话追踪面板；阅读讨论时的 `s` 修改远端通知级别。全站、分类等浏览组没有本地订阅开关。取消一个话题的追踪通过服务器接口完成。
 
-Ecaml 适配器通过 `Reader_backend.topic_tracking` 注册筛选标签、列表请求及查询／修改请求。公共 `reader_tracking_ui.ml` 负责站点选择、分页、打开内容、错误提示与防止迟到结果覆盖新视图，不知道后端名称、端点或级别。命令为 `camulus-manage-subscriptions`；未实现此可选能力的后端不会显示管理按钮。
+优先级由 `camulus-subscription-priorities`、`camulus-default-subscription-priority` 和 `camulus-home-priorities` 配置。它只决定主页展示哪些订阅来源，不修改订阅列表或远端追踪。
 
-- Discourse 的 `target` 是 topic/文章标识，`settings` 是 `Regular | Tracking | Watching | Muted`，直接使用远端通知级别。会话追踪面板从 `/latest.json?state=...` 分页读取服务器状态；个人时间线只读取 `/notifications.json`。`replies`、`watching`、`tracking` 不再是浏览入口或本地订阅目标。
-- RSS 的 `target` 是 feed URL，`settings` 是布尔值。关注列表保存在 RSS 后端自己的 `$XDG_STATE_HOME/camulus/rss-subscriptions.json` 中，格式为 URL 数组；路径由 `camulus-reader-rss-subscriptions-file` 指定。读写在系统线程执行，使用锁文件和临时文件原子替换，无需 SQLite，也不会因关注而立即抓取正文。`camulus-rss-followed` 返回该后端发现的关注入口。
-- Reddit 的 `notifications` 入口经组订阅命令加入首页后，展示回复及提及并按讨论合并，读取列表不加载整个讨论，也不标记远端已读。本轮未为 Reddit 伪造不存在的通用 thread 订阅实现。
-- 邮箱入口继续使用 `/Inbox` 等后端组标识，组关注是本地首页选择，不修改 IMAP 服务器的订阅状态。
+阅读与写入状态仍独立持久保存：已读、移除、收藏文件夹、归档正文和附件属于内容状态；Mu 草稿属于邮件后端。更改订阅或移除浏览入口不会删除这些内容。
 
-Emacs 边界的 `camulus-subscription-submit` 使用 `source`、`target` 与可选 `setting`。省略设置时查询；设置后再次查询后端状态，返回 `subscription` 结果及后端提供的选项。此接口使用 alist；后端内部保持有类型的 OCaml 接口。
+普通来源的主页 `d` 移除当前已显示的进展，新更新仍可出现；组内 `d` 只影响该入口。邮件的 `d` 由 Mu 移动到相应账户的 Trash；收藏夹中的 `d` 取消当前收藏归属。
 
-## 本地状态及迁移
-
-SQLite 继续负责内容身份、已读、列表缓存、移除边界和收藏归档，已不负责有效订阅关系。缓存按来源及组隔离；统一首页有独立的移除边界，同一事件后来从另一入口发现不会复活已处理条目。内容身份和已读仍跨入口一致。刷新第一页成功后替换该入口的可见成员，后续分页补充；失败保留旧缓存，移除历史不会因缓存替换丢失。Discourse 改变追踪级别只影响服务器后续通知，已有通知不会因为取消追踪而被本地清除。
-
-schema v1/v2 自动迁移到 v3，保留 MIME、附件、收藏和已读。旧订阅表、旧活动和旧移除记录留在 `legacy_*` 表供迁移；它们不再决定首页内容。旧活动与移除边界映射至该来源原来配置的各组，以保留重复拉取去重；由于旧结构没有保存活动所属组，升级时不会据此构造可见成员。
-
-## 验证与边界
-
-测试覆盖：入口声明无订阅副作用、配置失败保留旧配置、RSS 订阅在禁用内容数据库时读写及重启、接受文件外部修改、迟到列表结果隔离、同内容的跨入口移除隔离、迁移后保留移除边界、远端取消关注后的列表变化，以及原有邮件/归档/阅读回归。写入只针对本地临时文件和 loopback 模拟服务。另验证同一入口重叠刷新时，旧响应不会覆盖新缓存或让已移除的进展重新出现。
-
-`make test` 覆盖 OCaml、配置/订阅与 Emacs 交互回归。
-
-首页打开会刷新一次，也可用 `g` 手动刷新。Mu 的邮件同步同样在进入时触发，参见 [邮件同步](MAIL.md#运行)。持久离线写入队列仍未实现。Discourse 的回复/发帖能力已在后端提供，编辑界面及自动保存草稿尚未接入。
-
-## 来源与组标识
-
-
-| source | group | 内容与能力 |
-| --- | --- | --- |
-| `janestreet` | `posts` | 官方 Atom 索引，打开时抓取完整文章，提取正文及图片 |
-| `atlantic` | `author.ian-bogost` 等 | 官方作者 Atom，保留头图、正文和图片，去除注入的推荐链接 |
-| `zhihu` | `articles.people.USER`、`articles.org.USER`、`answers.USER` | 作者文章与回答，原生 ZSE 签名、分页、正文和图片 |
-| `douban` | `timeline.USER`、`replies.ACCOUNT`、`topic.ID`、`group-topic.ID` | 用户时间线、回复通知与讨论；广播/话题评论按回复关系渐进展开，含嵌套回复分页 |
-| `netease` | `events.USER-ID` | 公开云村动态、图片、歌曲信息及可点击播放链接；不下载歌曲音源 |
-| `public-inbox` | `https://HOST/LIST/MESSAGE-ID/` | 原生 gzip/mboxrd/MIME 解析，用 References / In-Reply-To 重建邮件树，保留 MIME 附件 |
-
-这些后端分别位于 `src/backends/` 各自目录，不调用旧 Gnus 后端。Public Inbox 复用邮件后端的纯 MIME 解析器，不调用 mu、mbsync 或解压命令。它使用消息 URL 作为来源内标识，邮件关系参与公共层的合并，不人为指定永久 thread ID。读取 thread mbox 时先下载有大小限制的完整响应，再逐封交付界面。
-
-新增后端的正文、图片或 MIME 附件都可收藏并离线读取。Jane Street / Atlantic 的搜索限定于该 feed 当前文章；Public Inbox 搜索限定于当前完整讨论。知乎、豆瓣、网易云目前不提供组内搜索接口，`/` 明确报告不支持，不退化为全站搜索。这六个后端本轮提供阅读与归档；站内点赞、回复、发帖与关注修改尚未接入。这些后端的组关注由本地状态实现，操作不会修改站点上的关注关系。
-
-### 非秘密运行设置
-
-`backend_settings` 可以声明以下字段，完整校验后才应用；运行中改身份或路径需重启运行时：
-
-```json
-{
-  "browser": {"firefox_profile": "/absolute/path/to/firefox/profile"},
-  "discourse": {"auth_sources": ["/absolute/path/to/deployed-authinfo"]},
-  "reddit": {"username": "YOUR_USERNAME", "token_file": "/absolute/path/to/refresh-token"},
-  "mu": {
-    "root": "/absolute/path/to/Maildir",
-    "muhome": "/absolute/path/to/mu",
-    "sender": "you@example.org",
-    "account": "main",
-    "accounts": [["/main", "you@example.org", "main"]],
-    "smtp_profiles": [["main", "smtp.example.org", 465, "you@example.org", "/path/to/password-file", ""]]
-  }
-}
-```
-
-知乎和豆瓣均通过 Camulus 的公共 Firefox Cookie 能力读取指定 profile，见 [ZHIHU.md](ZHIHU.md)。由 OCaml 选择 Cookie，仅选择默认容器、匹配域名/路径且有效的记录。浏览器锁定数据库时，使用权限受限的临时数据库/WAL 快照，读取后删除；配置文件不保存 Cookie。请求签名、分页和正文解析也在 OCaml 中。图片下载不携带登录 Cookie。服务端登录挑战或访问限制会报告失败并保留旧列表，不伪装成空 feed。
-
-Discourse 的 `notifications` 由已注册且已认证站点自动提供，只读取关联会话的通知并按原生 topic 合并；没有关联会话的通知直接忽略。GET 和本地移除不提交标为已读操作；通知时间线不提供组内搜索。
-
-### 验证
-
-`make test` 使用隔离的 XDG 配置/状态目录，包含原有回归、原生新后端测试、Firefox WAL 快照测试和 Emacs 界面测试。真实网络检查是单独显式运行的 `test/publication_live.ml` 和 `test/publication-native-live.el`，不会随普通测试运行；不会发帖、点赞或修改远端订阅。第三方来源与许可说明集中在仓库根目录的 `NOTICE`。
-
-启动新进程以加载新版本原生模块：在项目目录执行 `nix develop -c make reader-demo`，首页 `G` 选择入口，`g` 抓取当前入口，`RET` 打开，`m` 收藏。已加载旧 `.so` 的 Emacs 进程需要重启才能使用新后端。
+后端扩展通过 `Reader_backend.register_local_groups` 显式提供选项名、组到来源的转换及可接受组规则。这个 helper 只在 Emacs owner thread 读取 Customize 选项、返回即时发现结果；不引入本地订阅 worker、JSON 存储或公共订阅数据库。远端会话追踪使用独立的可选能力。

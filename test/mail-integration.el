@@ -97,16 +97,12 @@
         (dolist (path (list stamp online)) (when (file-exists-p path) (delete-file path)))
         (when (get-buffer "*Reader*") (kill-buffer "*Reader*"))))))
 
-(ert-deftest mail-native-group-summary-and-search ()
+(ert-deftest mail-native-group-summary ()
   (camulus-mail-test-session
    (let* ((data (car (camulus-mail-test-request '((op . "list") (group . "/Inbox")))))
           (rows (alist-get 'messages data)))
      (should (= 3 (length rows)))
      (should (cl-find "mail:child@example.test" rows :key (lambda (r) (alist-get 'id r)) :test #'equal)))
-   (let* ((data (car (camulus-mail-test-request '((op . "search") (group . "/Inbox") (query . "needle")))))
-          (rows (alist-get 'messages data)))
-     (should (= 1 (length rows)))
-     (should-not (equal "mail:outside@example.test" (alist-get 'id (car rows)))))
    (should (camulus-probe-signals-unchanged))))
 
 (ert-deftest mail-native-progressive-thread-and-attachment ()

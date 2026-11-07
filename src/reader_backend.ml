@@ -39,7 +39,7 @@ type t = {
   entrances : unit -> entrance list;
   followed : (unit -> discovery) option;
   can_subscribe_group : source:string -> group:string -> bool;
-  group_subscription : (source:string -> group:string -> setting:string option -> Value.t) option;
+  subscription_option : string option;
   subscription_target : (source:string -> selected:(unit -> Value.t) -> string option) option;
   topic_tracking : topic_tracking option;
   page : (Value.t -> unit) option;
@@ -58,34 +58,9 @@ let alist fields = Value.list (List.map fields ~f:(fun (k,v) -> call "cons" [Val
 let base ~name ~matches ~threaded ~read = {
   name;start=(fun()->());on_refresh=(fun()->());inline_attachments=true;normalize=Fn.id;on_entry=(fun _->());matches;threaded;read;thread_contains_bodies=false;
   available=(fun _ -> true);attachment=None;controls=[];list_controls=[];article_marks=(fun _->"");row_title=(fun row->Value.funcallN(Value.intern "alist-get")[Value.intern "title";row]);browser=None;entrances=(fun () -> []);followed=None;
-  subscription_target=None;topic_tracking=None;group_subscription=None;can_subscribe_group=(fun ~source:_ ~group:_ -> false);delete=None;page=None;events=[];
+  subscription_target=None;topic_tracking=None;subscription_option=None;can_subscribe_group=(fun ~source:_ ~group:_ -> false);delete=None;page=None;events=[];
   reconcile=(fun ~source:_ ~existing:_ ~request:_ ~archived:_ message -> message)
 }
-
-(* Backends may opt into local group following when their service has no
-   corresponding remote operation. Topic tracking remains a separate capability. *)
-type local_group_operations = {
-  followed_groups : backend:string -> int;
-  subscribe_group : backend:string -> source:string -> group:string -> setting:string option -> int;
-}
-let local_group_operations = ref None
-(* Pure backend rules, copied before starting the worker. No Emacs values are
-   captured: both the UI and direct worker requests enforce the same eligibility. *)
-let local_group_rules : (string * (source:string -> group:string -> bool)) list ref = ref []
-let all_groups ~source:_ ~group:_ = true
-let register_local_groups ?identity ~accepts backend =
-  (* Display names may change; persisted subscription identities must not. *)
-  let identity=Option.value identity ~default:backend.name in
-  let operations () = Option.value_exn !local_group_operations in
-  let matches=backend.matches in
-  let accepts ~source ~group=matches source && accepts ~source ~group in
-  local_group_rules := (identity,accepts)::List.Assoc.remove !local_group_rules identity ~equal:String.equal;
-  register { backend with
-    can_subscribe_group=accepts;
-    followed=Some(fun () -> Pending(Value.of_int_exn ((operations ()).followed_groups ~backend:identity)));
-    group_subscription=Some(fun ~source ~group ~setting ->
-      if not(accepts ~source ~group)then invalid_arg "This group is browse-only";
-      Value.of_int_exn ((operations ()).subscribe_group ~backend:identity ~source ~group ~setting)) }
 
 (* Conversion at the Emacs presentation boundary; no JSON string round trip. *)
 let rec of_json : Yojson.Safe.t -> Value.t = function
@@ -167,10 +142,28 @@ let custom ?(kind=Customization.Type.Sexp) name default docstring =
     ~group:(Lazy.force customization_group) ~type_:Value.Type.value
     ~customization_type:kind ~standard_value:default () : Value.t Customization.t)
 
+(* Local subscriptions are backend-owned Emacs options. Discovery reads the
+   current option on the owner thread; no worker state or second file is involved. *)
+let all_groups ~source:_ ~group:_ = true
+let register_local_groups ~option ~source ~accepts backend =
+  custom ~kind:Customization.Type.(Repeat String) option nil
+    (backend.name^" groups included in Home. Configure with setopt or Customize; registering a browsing group does not subscribe it.");
+  let accepts ~source ~group=backend.matches source && accepts ~source ~group in
+  let followed () =
+    let groups=values(get option) |> List.map ~f:(fun value->
+      let group=Value.to_utf8_bytes_exn value in
+      if String.is_empty group || String.contains group '\000' then invalid_arg("Invalid subscription in "^option);
+      group) |> List.dedup_and_sort ~compare:String.compare in
+    Immediate(Value.list(List.map groups ~f:(fun group->
+      let source=source group in
+      if not(accepts ~source ~group)then invalid_arg("Unsupported subscription in "^option);
+      alist["name",s(backend.name^" · "^group);"source",s source;"group",s group]))) in
+  register {backend with can_subscribe_group=accepts;subscription_option=Some option;followed=Some followed}
+
 (* Worker sessions contain only OCaml data and run on the Eio domain. *)
 type worker = {
   matches_source : string -> bool;
-  page : source:string -> string -> after:string option -> query:string option -> Reader.Content.page;
+  page : source:string -> string -> after:string option -> Reader.Content.page;
   archive : source:string -> refresh:bool -> Reader.Content_state.target -> string -> native_thread:(string -> string) -> add:(Reader.Content_state.archived -> unit) -> bool;
   execute : Reader.Protocol.work -> observe:(source:string -> Reader.Content.message list -> unit) -> emit:(Reader.Protocol.payload -> unit) -> bool;
 }

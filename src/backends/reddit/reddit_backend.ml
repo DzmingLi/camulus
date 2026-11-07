@@ -35,7 +35,6 @@ type receipt = Comment_created of M.message | Post_created of string
 type operation =
   | Identity
   | List of group * string option
-  | Search of group * string * string option
   | Thread of string
   | Vote of string * M.vote
   | Reply of string * string
@@ -176,15 +175,6 @@ module Make (Transport : Http.S) = struct
       if after <> None then raise (Error (Invalid_input "single post has no listing cursor"));
       let j = api t ~scope:"read" Get ("/by_id/" ^ id ^ ".json") [] in
       { M.messages=List.map (D.message ~root:(Some id)) (D.listing j); after=None }
-
-  let search t group ~query ~after = match group with
-    | Notifications | Post _ -> raise (Error (Unsupported "search is scoped to a subreddit"))
-    | Subreddit name ->
-      let name = D.require_subreddit name in
-      if String.trim query = "" then raise (Error (Invalid_input "empty search"));
-      let j = api t ~scope:"read" Get ("/r/" ^ name ^ "/search.json")
-        (["q",query;"restrict_sr","on";"sort","new";"limit","25"] @ cursor after) in
-      { M.messages=List.map (D.message ~root:None) (D.listing j); after=D.after j }
 
   (* A request at a time per session also enforces Reddit's morechildren limit.
      Every response is emitted immediately; no full-thread buffer is required. *)
@@ -337,7 +327,6 @@ module Make (Transport : Http.S) = struct
       if name = "" then raise (Error (Invalid_response "identity"));
       emit (Identity_result name)
     | List (group,after) -> emit (Page (list t group ~after))
-    | Search (group,query,after) -> emit (Page (search t group ~query ~after))
     | Thread root -> thread t root ~emit:(fun batch -> emit (Thread_batch batch))
     | Vote (id,direction) -> vote t ~id ~direction; emit (Voted (id,direction))
     | Reply (parent,text) -> emit (Replied (reply t ~parent ~text))
@@ -368,7 +357,6 @@ let operation_of_json json =
   | "subreddit" -> List (Subreddit (s "name"),after)
   | "post" -> List (Post (s "id"),after)
   | "notifications" -> List (Notifications,after)
-  | "search" -> Search (Subreddit (s "name"),s "query",after)
   | "thread" -> Thread (s "id")
   | "vote" ->
     let dir = match D.get "direction" json with

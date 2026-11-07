@@ -67,7 +67,6 @@ let setup_variables ()=
  custom ~kind:(Customization.Type.Option {doc_for_none="Show all priorities";t=Repeat Integer}) "camulus-home-priorities" nil
    "Subscription priority levels included in Home. Nil shows all. Refresh Home after changing this option.";
  List.iter["cl-lib";"tabulated-list";"json";"shr";"subr-x";"button"]~f:(fun name->run "require"[sym name]);
- variable "camulus-group-subscriptions-file"(data_path "XDG_STATE_HOME" "~/.local/state" "group-subscriptions.json");
  variable "camulus-state-file"(data_path "XDG_STATE_HOME" "~/.local/state" "state.sqlite3");
  custom ~kind:(Customization.Type.Repeat (Alist (Symbol,String))) "camulus-groups" nil
    "Registered browsing groups. Each entry has name, source and group string fields. Registration is independent of subscription.";
@@ -99,7 +98,7 @@ let register ~idle =
    Customization.customize_variable (Symbol.intern "camulus-groups"));
  define0 ~interactive:true "camulus-reader-edit-config" (fun () -> run "customize-group" [sym "camulus"]);
  define0 "camulus-reader-start"(fun()->if idle()then(
-  load();run "camulus-group-subscriptions-configure"[get "camulus-group-subscriptions-file"];
+  load();
   run "camulus-content-state-configure"[get "camulus-state-file"];
   List.iter(all())~f:(fun backend->backend.start());
   List.iter["camulus-reader--requests";"camulus-reader--completions";"camulus-reader--loads";"camulus-reader--states";"camulus-reader--reading"]~f:(fun n->run "clrhash"[get n]);

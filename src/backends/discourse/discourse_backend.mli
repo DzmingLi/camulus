@@ -17,7 +17,7 @@ type tracking = Regular | Tracking | Watching | Muted
 val tracking_code : tracking -> int
 val tracking_string : tracking -> string
 val tracking_of_string : string -> tracking
-type operation = Categories | List of group * cursor option | Search of group * string * cursor option
+type operation = Categories | List of group * cursor option
  | Thread of string | Read of string | Like of string * bool | Send of draft
  | Track of string * tracking | Topic_state of string | Attachment of string * int * string
  | Subscriptions of tracking * cursor option | Subscription_change of string * tracking option

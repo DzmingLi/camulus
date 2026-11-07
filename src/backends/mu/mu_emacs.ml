@@ -36,9 +36,7 @@ let prepare ~notify =
          Mu_backend.Smtp.send ~net ~sleep smtp ~sender ~recipients message in
        let backend=Mu_backend.create ~config ~run ~submit in
        {matches_source=String.equal ("maildir:"^config.root);
-        page=(fun ~source:_ group ~after ~query -> match query with
-          | None -> Mu_backend.list backend group ~after
-          | Some query -> Mu_backend.search backend group ~query ~after);
+        page=(fun ~source:_ group ~after -> Mu_backend.list backend group ~after);
         archive=(fun ~source:_ ~refresh:_ target id ~native_thread:_ ~add ->
           let capture (a:Mu_backend.article) =
             let attachments=match Mu_backend.result_json (Article a) with
@@ -183,7 +181,7 @@ let install ~submit ~configured ~request_state () =
       | `Int n when n>=0 -> ["camulus-mail-sync-interval",i n]
       | _ -> failwith "mu.sync_interval must be nonnegative seconds" in
     strings@lists@command@interval);
-  register_local_groups ~identity:"Maildir" ~accepts:all_groups { (base ~name:"Mu" ~matches:(String.is_prefix ~prefix:"maildir:") ~threaded:true
+  register_local_groups ~option:"camulus-mu-subscriptions" ~source:(fun _->"maildir:"^text(get "camulus-mail-root")) ~accepts:all_groups { (base ~name:"Mu" ~matches:(String.is_prefix ~prefix:"maildir:") ~threaded:true
     ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_ -> Value.of_int_exn (submit (Mu_backend.Thread id)))) with
     start=(fun()->if truth(get "camulus-mail-sender")then(
       run "camulus-mail-configure"[get "camulus-mail-root";get "camulus-mail-muhome";get "camulus-mail-sender";

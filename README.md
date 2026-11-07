@@ -11,7 +11,6 @@
 - 已读只表示正文进入过可见区域，不会从列表移除。`d` 移除时间线里当前已处理的进展，保留订阅；后续新进展可以再次出现。
 - `m` 选择或创建收藏夹。收藏会持久保存正文、图片和邮件附件。支持嵌套文件夹、同一内容加入多个文件夹，以及分别收藏整条讨论和单独一楼。首页、组目录及阅读界面都可按 `f` 或点击顶部 `[收藏夹 · f]` 打开收藏夹目录，再点击文件夹浏览已保存内容。收藏可离线阅读。
 - 普通列表中的收藏条目显示为红色；收藏夹内部使用普通颜色。Nix 包自动引入 `emacs-webkit`，由 Camulus 的[公共 WebKit 接口](docs/WEBKIT.md)统一加载。图形界面提供 GStreamer 解码插件后，正文视频可原位播放；重绘正文保留播放器和播放进度。浏览器模块不可用时保留可点击的视频链接。
-- 搜索限定在当前组，由后端决定远端搜索或本地搜索。没有全局搜索。
 - 阅读界面使用文本 / SHR，默认内嵌显示题图和正文图片；已安装并加载 Olivetti 时启用对应排版。
 
 | 按键 | 行为 |
@@ -20,7 +19,6 @@
 | `h` | 回统一时间线 |
 | `RET` | 打开当前内容 |
 | `g` / `n` | 刷新 / 下一页 |
-| `/` | 当前组内搜索，取决于后端能力 |
 | `d` | 移除当前进展；收藏夹中则移除收藏归属 |
 | `m` / `f` | 选择收藏夹 / 打开收藏夹 |
 | `s` | 后端提供的订阅或追踪设置 |
@@ -32,13 +30,12 @@
 
 | 后端 | 当前范围 |
 | --- | --- |
-| Mu | mu 本地索引与搜索、回复树、MIME 附件、自动保存草稿、纯 OCaml SMTP 发送、移动到 Archive；同步仍使用外部 mbsync |
-| Reddit | OAuth、subreddit、回复及提及、组内搜索、渐进回复树、投票；回复/发帖编辑界面未完成 |
-| Discourse | 最新讨论、分类、远端通知、会话追踪管理、远端搜索、渐进回复树、点赞与追踪设置；回复/发帖已有后端接口，编辑界面待接入 |
+| Mu | mu 本地索引、回复树、MIME 附件、自动保存草稿、纯 OCaml SMTP 发送、移动到 Archive；同步仍使用外部 mbsync |
+| Reddit | OAuth、subreddit、回复及提及、渐进回复树、投票；回复/发帖编辑界面未完成 |
+| Discourse | 最新讨论、分类、远端通知、会话追踪管理、渐进回复树、点赞与追踪设置；回复/发帖已有后端接口，编辑界面待接入 |
 | RSS / Atom | Syndic 格式解析、后端订阅列表、正文与 enclosure 附件归档 |
 | JSON Feed 1.1 | `next_url` 分页、后端订阅列表、正文与附件归档 |
 | Blogger | Atom 列表、打开时提取公开网页全文、图片归档 |
-| 机核 | 用户动态、文章正文、图库；尚无评论树、点赞或发帖 |
 | The Atlantic / Jane Street | 作者 feed 或文章列表、网页正文与图片 |
 | 知乎 / 豆瓣 | 作者或个人入口、正文与图片；豆瓣支持渐进评论树及[广播、帖子和评论点赞](docs/DOUBAN.md)；两者均使用 Camulus 的[公共 Firefox Cookie 能力](docs/FIREFOX_COOKIES.md) |
 | 网易云 | 公开动态、图片与歌曲链接；不下载歌曲音源 |
@@ -86,13 +83,13 @@ emacsWithPackages (epkgs: [
          (group . "posts"))))
 ```
 
-首页或组目录按 `U`，或运行 `M-x camulus-subscriptions`，查看当前订阅来源。该页面重新读取后端的关注入口，按 `s` 修改所选来源的关注状态，按 `g` 刷新；取消关注后注册组仍保留。Discourse 的通知来源自动按已注册且已认证站点提供，按 `T` 管理远端会话追踪。
+首页或组目录按 `U`，或运行 `M-x camulus-subscriptions`，查看当前订阅来源。该页面重新读取后端的关注入口，按 `s` 打开所选后端的订阅 Customize 选项，按 `g` 刷新；取消关注后注册组仍保留。Discourse 的通知来源自动按已注册且已认证站点提供，按 `T` 管理远端会话追踪。
 
 首页按 `B` 进入组目录，`C` 定制浏览组，支持组订阅的组上按 `s` 订阅或取消订阅。列表中 `S` 管理当前来源组；`s` 管理后端提供的具体关注目标，例如 Discourse 话题。注册和浏览不会订阅，取消订阅也不会删除浏览入口。
 
 订阅来源的本地优先级通过 `camulus-subscription-priorities` 设置，未设置的来源默认为 2 级。`camulus-home-priorities` 选择主页显示的级别，`nil` 显示全部；例如 `(setopt camulus-home-priorities '(1 2))`。筛选不取消订阅，不影响组浏览、已读或收藏；`U` 面板仍列出全部订阅。
 
-订阅是由后端读取和修改的运行状态。Discourse 话题追踪保存在远端；本地组关注及 RSS / JSON Feed 关注保存在 `~/.local/state/camulus/`（遵循 `XDG_STATE_HOME`），由命令维护，不需要手写订阅配置。首页汇集后端返回的时间线来源；Discourse 直接使用远端通知，不保存本地订阅开关。
+本地订阅由各后端的 `defcustom` 选项声明，例如 `camulus-rss-subscriptions`、`camulus-mu-subscriptions`、`camulus-reddit-subscriptions`。通过 `setopt` 或 Customize 配置，刷新主页生效，不维护 JSON 订阅文件。Discourse 会话追踪保存在远端，主页直接汇集远端会话通知。详见 [订阅配置](docs/ENTRIES.md)。
 
 后端各自定义可定制选项，Customize 保存到用户的 `custom-file`。旧 JSON 数据可用 `(camulus-import-json-config CONFIG-PATH GROUPS-PATH)` 一次性导入变量，再通过 Customize 保存。正常启动读取 Emacs 选项。
 

@@ -20,7 +20,6 @@ type receipt = Comment_created of Reader.Content.message | Post_created of strin
 type operation =
   | Identity
   | List of group * string option
-  | Search of group * string * string option
   | Thread of string
   | Vote of string * Reader.Content.vote
   | Reply of string * string

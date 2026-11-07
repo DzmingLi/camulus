@@ -59,23 +59,18 @@ let with_backend f =
   f b file sleeps;
   check (Queue.is_empty Mock.script) "unconsumed expected requests"
 
-let listing_search () = with_backend @@ fun b _ _ ->
+let listing_pages () = with_backend @@ fun b _ _ ->
   auth ();
   expect "/r/ocaml/new.json" (fun r -> check (field r "raw_json"="1") "raw JSON";
     response (listing ~after:(str "t3_next") [post]));
   expect "/r/ocaml/new.json" (fun r -> check (field r "after"="t3_next") "cursor"; response (listing [post]));
-  expect "/r/ocaml/search.json" (fun r ->
-    check (field r "restrict_sr"="on" && field r "q"="effects & 模块") "scoped encoding";
-    check (field r "sort"="new") "no popularity sorting"; response (listing [post]));
   let p = B.list b (R.Subreddit "ocaml") ~after:None in
   check (p.after=Some "t3_next") "listing next cursor";
   let p2 = B.list b (R.Subreddit "ocaml") ~after:p.after in
-  let found = B.search b (R.Subreddit "ocaml") ~query:"effects & 模块" ~after:None in
-  check ((List.hd p.messages).id=(List.hd p2.messages).id && p.messages=found.messages) "identity across entrances";
+  check ((List.hd p.messages).id=(List.hd p2.messages).id) "identity across pages";
   raises (function R.Invalid_input _ -> true | _ -> false)
-    (fun () -> B.list b (R.Subreddit "ocaml/../../api") ~after:None);
-  raises (function R.Unsupported _ -> true | _ -> false)
-    (fun () -> B.search b R.Notifications ~query:"x" ~after:None)
+    (fun () -> B.list b (R.Subreddit "ocaml/../../api") ~after:None)
+
 
 let progressive_thread () = with_backend @@ fun b _ _ ->
   let batches = ref [] in
@@ -208,7 +203,7 @@ let cancellation_and_single_refresh () = with_backend @@ fun b _ _ ->
   let refreshes = List.filter (fun r -> path r="/api/v1/access_token") !Mock.requests in
   check (List.length refreshes=1) "cancelled read does not poison session or duplicate refresh"
 
-let tests = ["listing/search",listing_search;"progressive tree",progressive_thread;
+let tests = ["listing pages",listing_pages;"progressive tree",progressive_thread;
   "morechildren batching",batch_limits;"partial trees",partial_and_validation;
   "lazy notifications",notifications;"401/429",refresh_and_rate;"writes",writes;
   "vote boundary",vote_boundary;"OAuth scopes",missing_scope;"OAuth state/storage",oauth_state;

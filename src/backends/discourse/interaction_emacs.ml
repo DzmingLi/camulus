@@ -88,9 +88,6 @@ let install ()=
   (let open Defun.Let_syntax in let%map_open site=required "site"string and group=optional_with_nil "group"value in browse site(if truth group then text group else "latest"));
  optional ~interactive:true "camulus-reader-discourse-refresh"(fun more->if truth more then run "camulus-reader-more"[]else run "camulus-reader-refresh"[];nil);
  define0 ~interactive:true "camulus-reader-discourse-more"(fun()->run "camulus-reader-more"[]);
- Defun.defun(Symbol.intern "camulus-reader-discourse-search")[%here]~docstring:"Search the current forum group."
-  ~interactive:(Prompt "Search this Discourse group: ")(Returns Value.Type.unit)
-  (let open Defun.Let_syntax in let%map_open query=required "query"string in run "camulus-reader-search"[s query]);
  define0 ~interactive:true "camulus-reader-discourse-categories"(fun()->
   let buffer=Buffer.to_value(Current_buffer.get())and source=get "camulus-reader--source"in
   ignore(request(alist["op",s "categories";"site",s(String.drop_prefix(text source)10)])(callback(fun data reason->

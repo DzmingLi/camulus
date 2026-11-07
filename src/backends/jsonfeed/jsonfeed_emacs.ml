@@ -8,22 +8,17 @@ module Connection = Rss_emacs.Connect(struct
   let is_source=Jsonfeed_backend.is_source
   let source_of_url=Jsonfeed_backend.source_of_url
   let url_of_source=Jsonfeed_backend.url_of_source
-  let followed=Subscription.followed
-  let get=Subscription.get
-  let set=Subscription.set
 end)
 let install_protocol = Connection.install_protocol
 let install ~submit () =
-  let followed=Connection.followed ~submit and submit=Connection.request ~submit in
-  custom ~kind:Customization.Type.File "camulus-jsonfeed-subscriptions-file" (data_path "XDG_STATE_HOME" "~/.local/state" "jsonfeed-subscriptions.json") "Backend state file.";
-  register { (base ~name:"JSON Feed" ~matches:Jsonfeed_backend.is_source ~threaded:false
+  let submit=Connection.request ~submit in
+  register_local_groups ~option:"camulus-jsonfeed-subscriptions" ~source:Jsonfeed_backend.source_of_url
+    ~accepts:(fun ~source ~group->String.equal (Jsonfeed_backend.url_of_source source) group) { (base ~name:"JSON Feed" ~matches:Jsonfeed_backend.is_source ~threaded:false
     ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Value.of_int_exn (submit (Rss_backend.Read(Jsonfeed_backend.url_of_source source,id))))) with
     attachment=Some (fun ~source ~id ~group:_ ~part ~destination ->
       Value.of_int_exn (submit (Rss_backend.Attachment(Jsonfeed_backend.url_of_source source,id,part,destination))));
-    start=(fun()->run "camulus-jsonfeed-subscriptions-configure"[get "camulus-jsonfeed-subscriptions-file"]);
-    events=["rss"];can_subscribe_group=(fun ~source ~group -> String.equal group (Jsonfeed_backend.url_of_source source));
-    subscription_target=Some (fun ~source ~selected:_ -> Some(Jsonfeed_backend.url_of_source source));
-    browser=Some("JSON Feed","camulus-jsonfeed");followed=Some(fun () -> Pending(Value.of_int_exn (followed ()))) };
+    events=["rss"];
+    browser=Some("JSON Feed","camulus-jsonfeed") };
   Defun.defun (Symbol.intern "camulus-jsonfeed") [%here] ~docstring:"Browse a JSON Feed without subscribing."
     ~interactive:(Prompt "JSON Feed URL: ") (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open url=required "url" string in

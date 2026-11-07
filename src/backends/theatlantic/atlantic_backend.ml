@@ -38,7 +38,6 @@ module Make(H:R.Http.S)=struct
  let source=source
  let create ()=Feed.create ~decode ()
  let list t group ~after=Feed.list t (feed_url group) ~after
- let search t group ~query ~after=Feed.search t (feed_url group) ~query ~after
  let read t group id=Feed.read t (feed_url group) id
  let archive t group id=
    let a,files=Feed.archive t (feed_url group) id in

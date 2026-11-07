@@ -195,19 +195,7 @@ let timeline db ~entries =
     ~events
     ~groups:(fun root key -> Hashtbl.fold (fun identity groups acc ->
       if root identity=key then groups @ acc else acc) origins [] |> List.sort_uniq String.compare)
-(* Search results share identities/read state, but never enter the cached timeline. *)
-let search_rows db ~source messages =
-  let root,items=components db in
-  let saved=favorite_components db root in
-  let seen=Hashtbl.create 32 in
-  `List(List.filter_map(fun (m:M.message) ->
-    let key=root(source,m.id) in
-    if Hashtbl.mem seen key then None else begin
-      Hashtbl.add seen key ();
-      let unread=List.exists(fun r -> root(s r.(0),s r.(1))=key && n r.(8)=0) items in
-      Some(`Assoc["source",`String source;"id",`String m.id;"thread_id",(match m.thread_id with None->`Null | Some s->`String s);"title",`String m.title;
-        "author",`String m.author;"unread",`Bool unread;"favorite",`Bool(Hashtbl.mem saved key)])
-    end) messages)
+
 let folder_parts path =
   let parts=String.split_on_char '/' path in
   if List.exists(fun p -> p="" || p="." || p=".." || String.contains p '\000') parts then invalid_arg "Invalid folder path";
@@ -276,7 +264,7 @@ type operation =
   | Legacy_groups | Feed of string * string
   | Timeline of (string * string) list
   | Dismiss_timeline of string * string * int
-  | Refresh of string * string * string option * string option | Refresh_archives
+  | Refresh of string * string * string option | Refresh_archives
   | Dismiss of string * string * string * int
   | Folders | Mkdir of string | Remove_folder of string | Favorites of string
   | Favorite of string * target * string * string
@@ -308,7 +296,7 @@ let operation_of_json j =
   | "refresh-archives" -> Refresh_archives
   | "refresh" ->
     let optional k=match get k with `Null->None | `String s when s<>"" -> Some s | _->invalid_arg("Invalid "^k) in
-    Refresh(string "source",string "group",optional "after",optional "query")
+    Refresh(string "source",string "group",optional "after")
   | "dismiss" -> Dismiss(string "source",string "group",string "id",integer "revision")
   | "folders" -> Folders | "mkdir" -> Mkdir(string "folder")
   | "remove-folder" -> Remove_folder(string "folder") | "favorites" -> Favorites(string "folder")

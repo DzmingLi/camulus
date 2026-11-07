@@ -14,59 +14,26 @@ type group = string
 type cursor = string
 type article = Decode.article
 let article_json a = `Assoc["kind",`String "article";"message",Reader.Content_state.message_json a.Decode.message;"attachments",Decode.attachments a]
-type operation = List of group | Search of group * string | Read of group * string | Attachment of group * string * int * string
+type operation = List of group | Read of group * string | Attachment of group * string * int * string
 let operation_of_json j =
   let open Yojson.Safe.Util in
   let str k=j |> member k |> to_string in
   let url=Http.validate(str "url") in
   match str "op" with
-  | "list" -> List url | "search" -> Search(url,str "query") | "read" -> Read(url,str "id")
+  | "list" -> List url | "read" -> Read(url,str "id")
   | "attachment" -> let part=j |> member "part" |> to_int in
     if part<0 then invalid_arg "Invalid attachment part";
     Attachment(url,str "id",part,str "destination")
   | _ -> invalid_arg "Unknown RSS operation"
-let operation_url = function List u | Search(u,_) | Read(u,_) | Attachment(u,_,_,_) -> u
+let operation_url = function List u | Read(u,_) | Attachment(u,_,_,_) -> u
 module Make (H:Http.S) = struct
   type cached = { endpoint:string; etag:string option; modified:string option; articles:article list }
-  type t = { cache:(string,cached) Hashtbl.t; lock:Eio.Mutex.t; subscriptions_file:string option; decode:url:string -> string -> article list }
+  type t = { cache:(string,cached) Hashtbl.t; lock:Eio.Mutex.t; decode:url:string -> string -> article list }
   type nonrec group=group
   type nonrec cursor=cursor
   let source=source
-  let create ?subscriptions_file ?(decode=Decode.parse) () = {cache=Hashtbl.create 16;lock=Eio.Mutex.create ();subscriptions_file;decode}
+  let create ?(decode=Decode.parse) () = {cache=Hashtbl.create 16;lock=Eio.Mutex.create ();decode}
   let locked t f = Eio.Mutex.lock t.lock;Fun.protect ~finally:(fun () -> Eio.Mutex.unlock t.lock) f
-  module Subscription = struct
-    type nonrec t = t
-    type target = string
-    type settings = bool
-    let access t f =
-      let path=match t.subscriptions_file with Some p when not(Filename.is_relative p) -> p
-        | _ -> failwith "Configure an absolute RSS subscriptions file" in
-      Eio_unix.run_in_systhread(fun () ->
-        let rec mkdir p = if not(Sys.file_exists p) then
-          (mkdir(Filename.dirname p);try Unix.mkdir p 0o700 with Unix.Unix_error(Unix.EEXIST,_,_)->()) in
-        mkdir(Filename.dirname path);
-        let fd=Unix.openfile (path^".lock") [Unix.O_CREAT;Unix.O_RDWR;Unix.O_CLOEXEC] 0o600 in
-        Fun.protect ~finally:(fun () -> Unix.close fd) (fun () ->
-          Unix.lockf fd Unix.F_LOCK 0;
-          let urls=if not(Sys.file_exists path) then [] else
-            match Yojson.Safe.from_file path with
-            | `List xs -> List.map(function `String u -> Http.validate u | _ -> failwith "Invalid RSS subscriptions file") xs
-            | _ -> failwith "Invalid RSS subscriptions file" in
-          f path urls))
-    let followed t = locked t (fun () -> access t (fun _ urls -> urls))
-    let get t url = let url=Http.validate url in
-      locked t (fun () -> access t (fun _ urls -> List.mem url urls))
-    let set t url subscribed = let url=Http.validate url in
-      locked t (fun () -> access t (fun path urls ->
-        let urls=List.filter((<>)url) urls in
-        let urls=List.sort_uniq String.compare (if subscribed then url::urls else urls) in
-        let temp,ch=Filename.open_temp_file ~temp_dir:(Filename.dirname path) ".rss-subscriptions-" ".json" in
-        Fun.protect ~finally:(fun () -> close_out_noerr ch;try Sys.remove temp with Sys_error _ -> ()) (fun () ->
-          Yojson.Safe.to_channel ch (`List(List.map(fun u -> `String u) urls));
-          output_char ch '\n';flush ch;Unix.fsync(Unix.descr_of_out_channel ch);close_out ch;
-          Unix.rename temp path)))
-  end
-  let followed = Subscription.followed
   let header k r=List.assoc_opt k r.Http.headers
   let fetch ?cached url =
     let rec go visited url =
@@ -103,14 +70,6 @@ module Make (H:Http.S) = struct
   let list t url ~after =
     if after<>None then invalid_arg "RSS has no pagination cursor";
     locked t (fun () -> page(load t url))
-  let search t url ~query ~after =
-    if after<>None then invalid_arg "RSS has no pagination cursor";
-    let contains haystack needle =
-      let h=String.lowercase_ascii haystack and n=String.lowercase_ascii needle in
-      let rec loop i = i+String.length n<=String.length h &&
-        (String.sub h i (String.length n)=n || loop(i+1)) in loop 0 in
-    locked t (fun () -> load t url |> List.filter(fun a -> let m=a.Decode.message in
-      contains (m.title^" "^m.author^" "^m.body^" "^Option.value m.html ~default:"") query) |> page)
   let read t url id = locked t (fun () ->
     let articles=match Hashtbl.find_opt t.cache url with Some c -> c.articles | None -> load t url in
     match List.find_opt(fun a -> a.Decode.message.id=id) articles with
@@ -136,7 +95,3 @@ module Make (H:Http.S) = struct
       with ex -> close_out_noerr ch;(try Unix.unlink destination with _ -> ());raise ex)
 end
 module Live = Make(Transport)
-
-module Subscription : Reader.Backend.Subscription with type t = Live.t and type target = string and type settings = bool = Live.Subscription
-
-let followed = Live.Subscription.followed

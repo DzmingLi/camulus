@@ -28,7 +28,7 @@
  (libraries zhihu_backend douban_backend rss_backend reader eio_posix sqlite3 uri yojson unix))
 
 (executable (name publication_live) (modules publication_live)
- (libraries atlantic_backend janestreet_backend zhihu_backend douban_backend netease_backend public_inbox_backend blogger_backend gcores_backend rss_backend reader eio_posix uri yojson))
+ (libraries atlantic_backend janestreet_backend zhihu_backend douban_backend netease_backend public_inbox_backend blogger_backend rss_backend reader eio_posix uri yojson))
 
 (test (name inbox_sources_test) (modules inbox_sources_test)
  (libraries netease_backend public_inbox_backend mu_backend rss_backend eio_posix zip))
@@ -36,8 +36,8 @@
 (test (name jsonfeed_test) (modules jsonfeed_test)
  (libraries jsonfeed_backend rss_backend reader eio_posix yojson unix))
 
-(test (name blogger_gcores_test) (modules blogger_gcores_test)
- (libraries blogger_backend gcores_backend rss_backend reader eio_posix yojson))
+(test (name blogger_test) (modules blogger_test)
+ (libraries blogger_backend rss_backend reader eio_posix yojson))
 
 (executable (name webkit_probe) (modules webkit_probe)
  (libraries reader_emacs_backend ecaml)

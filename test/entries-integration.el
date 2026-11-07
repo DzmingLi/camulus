@@ -22,7 +22,7 @@
   (let* ((directory (make-temp-file "reader-entries" t))
          (camulus-reader-config-file (expand-file-name "config.json" directory))
          (camulus-reader-groups-file (expand-file-name "groups.json" directory))
-          (camulus-group-subscriptions-file (expand-file-name "group-subscriptions.json" directory))
+
          (camulus-groups nil) (camulus-discourse-sites nil))
     (unwind-protect
         (progn
@@ -47,28 +47,32 @@
   (let ((event (cl-find-if (lambda (e) (and (eq (car e) 'content-state) (= id (cadr e)))) camulus-probe--events)))
     (nth 3 event)))
 
-(ert-deftest entries-rss-subscription-without-content-database ()
-  (let* ((directory (make-temp-file "reader-subscriptions" t))
-         (file (expand-file-name "rss.json" directory))
-         (request '((source . "rss:https://example.test/feed") (target . "https://example.test/feed"))))
+(ert-deftest entries-local-subscriptions-are-custom-options ()
+  (let* ((directory (make-temp-file "custom-subscriptions" t))
+         (custom-file (expand-file-name "custom.el" directory))
+         (user-init-file (expand-file-name "init.el" directory))
+         (previous (default-value 'camulus-rss-subscriptions)))
     (unwind-protect
         (progn
-          (camulus-content-state-configure "")
-          (camulus-rss-subscriptions-configure file)
-          (camulus-probe-session-start)
-          (should (equal "unsubscribed" (alist-get 'setting (camulus-entries-test-await (camulus-subscription-submit request)))))
-          (camulus-entries-test-await (camulus-subscription-submit (cons '(setting . "subscribed") request)))
-          (should (= 1 (length (alist-get 'rows (camulus-entries-test-await (camulus-rss-followed))))))
-          (camulus-probe-session-stop) (camulus-probe-session-start)
-          (should (equal "subscribed" (alist-get 'setting (camulus-entries-test-await (camulus-subscription-submit request)))))
-          ;; The backend rereads its authority; external changes are visible.
-          (with-temp-file file (insert "[]"))
-          (should (equal "unsubscribed" (alist-get 'setting (camulus-entries-test-await (camulus-subscription-submit request)))))
-          (should-not (directory-files directory nil "sqlite")))
-      (camulus-probe-session-stop)
+          (dolist (option '(camulus-rss-subscriptions camulus-jsonfeed-subscriptions
+                            camulus-mu-subscriptions camulus-reddit-subscriptions
+                            camulus-theatlantic-subscriptions camulus-janestreet-subscriptions
+                            camulus-blogger-subscriptions camulus-douban-subscriptions
+                            camulus-zhihu-subscriptions camulus-netease-subscriptions
+                            camulus-public-inbox-subscriptions))
+            (should (custom-variable-p option)))
+          (dolist (command '(camulus-group-subscriptions-configure camulus-rss-subscriptions-configure
+                             camulus-jsonfeed-subscriptions-configure camulus-group-subscription-submit
+                             camulus-group-followed camulus-rss-followed camulus-jsonfeed-followed camulus-gcores camulus-reader-search
+                             camulus-reader-rss-search camulus-reader-discourse-search))
+            (should-not (fboundp command)))
+          (customize-save-variable 'camulus-rss-subscriptions '("https://example.test/feed"))
+          (set-default 'camulus-rss-subscriptions nil)
+          (load custom-file nil t)
+          (should (equal (default-value 'camulus-rss-subscriptions) '("https://example.test/feed")))
+          (should-not (directory-files directory nil "\\.json$")))
+      (set-default 'camulus-rss-subscriptions previous)
       (delete-directory directory t))))
-
-
 
 (ert-deftest entries-backend-settings-validated-before-application ()
   (let ((camulus-reader-config-file (make-temp-file "backend-settings"))
@@ -99,7 +103,7 @@
   (dolist (command '(camulus-zhihu-login camulus-zhihu-logout camulus-zhihu-login-code camulus-zhihu-login-cancel))
     (should-not (fboundp command)))
   (should-not (boundp 'camulus-zhihu-session-file))
-  (dolist (source '("atlantic" "janestreet" "zhihu" "douban" "netease" "public-inbox" "blogger" "gcores"))
+  (dolist (source '("atlantic" "janestreet" "zhihu" "douban" "netease" "public-inbox" "blogger"))
     (with-temp-buffer
       (camulus-reader-feed-mode)
       (camulus-reader--set-rows (list `((source . ,source) (id . "one") (title . "Test") (author . "A"))))
@@ -145,7 +149,7 @@
          (camulus-reader-config-file (expand-file-name "config.json" directory))
          (camulus-reader-groups-file (expand-file-name "groups.json" directory))
          (camulus-state-file (expand-file-name "state.sqlite3" directory))
-         (camulus-group-subscriptions-file (expand-file-name "group-subscriptions.json" directory))
+
          (camulus-groups nil) (camulus-discourse-sites nil) opened)
     (unwind-protect
         (progn
@@ -177,81 +181,55 @@
       (camulus-probe-session-stop)
       (delete-directory directory t))))
 
-(ert-deftest group-subscriptions-are-mutable-state-independent-of-registration ()
-  (let* ((directory (make-temp-file "group-subscriptions" t))
-         (file (expand-file-name "groups-state.json" directory))
-         (request '((source . "janestreet") (group . "posts")))
-         (camulus-groups '(((name . "Jane Street") (source . "janestreet") (group . "posts")))))
+(ert-deftest group-subscriptions-use-current-options-independent-of-registration ()
+  (let ((camulus-janestreet-subscriptions nil)
+        (camulus-groups '(((name . "Jane Street") (source . "janestreet") (group . "posts"))))
+        (camulus-mail-sender nil) (camulus-reddit-username nil))
     (unwind-protect
         (progn
           (camulus-content-state-configure "")
-          (camulus-group-subscriptions-configure file)
-          (camulus-probe-session-start)
-          (should-not (alist-get 'rows (camulus-entries-test-await (camulus-group-followed "janestreet"))))
-          (with-temp-buffer
-            (camulus-reader-groups-mode)
-            (let ((inhibit-read-only t))
-              (insert (propertize "Jane Street" 'camulus-reader-entry (car camulus-groups))))
-            (goto-char (point-min))
-            (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "subscribed")))
-              (call-interactively (key-binding (kbd "s")))
-              (camulus-probe-await (lambda () (= 0 (hash-table-count camulus-reader--requests))) 10)))
-          (camulus-probe-session-stop) (camulus-probe-session-start)
-          (should (equal "subscribed" (alist-get 'setting (camulus-entries-test-await (camulus-group-subscription-submit request)))))
-          (let ((rows (alist-get 'rows (camulus-entries-test-await (camulus-group-followed "janestreet")))))
-            (should (equal (camulus-reader-home--merge-entries rows) camulus-groups)))
-          (camulus-entries-test-await (camulus-group-subscription-submit (cons '(setting . "unsubscribed") request)))
-          (should-not (alist-get 'rows (camulus-entries-test-await (camulus-group-followed "janestreet"))))
-          (should (= 1 (length camulus-groups)))
-          ;; Externally changed backend state is authoritative on the next read.
-          (with-temp-file file (insert "[{\"backend\":\"janestreet\",\"source\":\"janestreet\",\"group\":\"posts\"}]"))
-          (should (equal "subscribed" (alist-get 'setting (camulus-entries-test-await (camulus-group-subscription-submit request)))))
-          (should-not (directory-files directory nil "sqlite")))
-      (camulus-probe-session-stop)
-      (delete-directory directory t))))
+          (camulus-subscriptions)
+          (should-not camulus-reader-subscriptions--entries)
+          (setopt camulus-janestreet-subscriptions '("posts"))
+          (camulus-subscriptions-refresh)
+          (should (equal (mapcar (lambda (e) (alist-get 'group e)) camulus-reader-subscriptions--entries) '("posts")))
+          (setopt camulus-janestreet-subscriptions nil)
+          (camulus-subscriptions-refresh)
+          (should-not camulus-reader-subscriptions--entries)
+          (should (= 1 (length camulus-groups))))
+      (when (get-buffer "*Camulus subscriptions*") (kill-buffer "*Camulus subscriptions*"))
+      (camulus-probe-session-stop))))
 
-(ert-deftest subscriptions-view-reads-backends-and-keeps-browsing-registry ()
-  (let* ((directory (make-temp-file "subscriptions-view" t))
-         (camulus-reader-config-file (expand-file-name "config.json" directory))
-         (camulus-reader-groups-file (expand-file-name "groups.json" directory))
-         (state (expand-file-name "subscriptions.json" directory))
-         (entry '((name . "Jane Street") (source . "janestreet") (group . "posts")))
-         (camulus-groups (list entry '((name . "Browse only") (source . "zhihu") (group . "answers.test")))))
+(ert-deftest subscriptions-view-reads-options-and-opens-backend-customization ()
+  (let* ((entry '((name . "Jane Street") (source . "janestreet") (group . "posts")))
+         (camulus-groups (list entry '((name . "Browse only") (source . "zhihu") (group . "answers.test"))))
+         (camulus-janestreet-subscriptions '("posts"))
+         (camulus-rss-subscriptions '("https://example.test/feed"))
+         (camulus-mail-sender nil) (camulus-reddit-username nil))
     (unwind-protect
         (save-window-excursion
           (camulus-content-state-configure "")
-          (camulus-group-subscriptions-configure state)
-          (camulus-rss-subscriptions-configure (expand-file-name "rss.json" directory))
-          (camulus-jsonfeed-subscriptions-configure (expand-file-name "jsonfeed.json" directory))
-          (camulus-probe-session-start)
-          (camulus-entries-test-await (camulus-group-subscription-submit '((source . "janestreet") (group . "posts") (setting . "subscribed"))))
-          (camulus-entries-test-await (camulus-subscription-submit '((source . "rss:https://example.test/feed") (target . "https://example.test/feed") (setting . "subscribed"))))
-          ;; A newer refresh supersedes callbacks from the previous invocation.
           (camulus-subscriptions) (camulus-subscriptions)
-          (camulus-probe-await (lambda () (= 0 camulus-reader-subscriptions--pending)) 10)
+          (should (= 0 camulus-reader-subscriptions--pending))
           (should-not camulus-reader-subscriptions--errors)
           (should (string-match-p "example.test/feed" (buffer-string)))
           (should-not (string-match-p "Browse only" (buffer-string)))
           (goto-char (point-min)) (search-forward "Jane Street")
-          (cl-letf (((symbol-function 'completing-read)
-                     (lambda (prompt &rest _) (should (string-match-p "Jane Street" prompt)) "unsubscribed")))
-            (call-interactively (key-binding (kbd "s")))
-            (camulus-probe-await (lambda () (= 0 (hash-table-count camulus-reader--requests))) 10))
-          (should (= 0 camulus-reader-subscriptions--pending))
+          (cl-letf (((symbol-function 'customize-variable)
+                     (lambda (option &rest _)
+                       (should (eq option 'camulus-janestreet-subscriptions))
+                       (setopt camulus-janestreet-subscriptions nil))))
+            (call-interactively (key-binding (kbd "s"))))
+          (camulus-subscriptions-refresh)
           (should-not (string-match-p "Jane Street" (buffer-string)))
           (should (equal (car camulus-groups) entry))
-          ;; A failed provider is visible, rather than being called unsubscribed.
-          (with-temp-file state (insert "invalid state"))
+          ;; Invalid option values are surfaced as provider errors.
+          (setq camulus-janestreet-subscriptions '(nil))
           (camulus-subscriptions-refresh)
-          (camulus-probe-await (lambda () (= 0 camulus-reader-subscriptions--pending)) 10)
           (should camulus-reader-subscriptions--errors)
           (should (string-match-p "could not be read" (buffer-string)))
-          (should-not (string-match-p "No subscriptions" (buffer-string)))
-          (camulus-subscriptions-refresh)
-          (kill-buffer (current-buffer))
-          (camulus-probe-await (lambda () (= 0 (hash-table-count camulus-reader--requests))) 10))
+          (should-not (string-match-p "No subscriptions" (buffer-string))))
       (when (get-buffer "*Camulus subscriptions*") (kill-buffer "*Camulus subscriptions*"))
-      (camulus-probe-session-stop)
-      (delete-directory directory t))))
+      (camulus-probe-session-stop))))
 
 (ert-run-tests-batch-and-exit)

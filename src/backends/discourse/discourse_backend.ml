@@ -29,7 +29,7 @@ type tracking=Regular | Tracking | Watching | Muted
 let tracking_code=function Muted->0 | Regular->1 | Tracking->2 | Watching->3
 let tracking_string=function Muted->"muted" | Regular->"regular" | Tracking->"tracking" | Watching->"watching"
 let tracking_of_string=function "regular"->Regular | "tracking"->Tracking | "watching"->Watching | "muted"->Muted | _->invalid_arg "Invalid Discourse tracking level"
-type operation=Categories | List of group*cursor option | Search of group*string*cursor option
+type operation=Categories | List of group*cursor option
  | Thread of string | Read of string | Like of string*bool | Send of draft
  | Track of string*tracking | Topic_state of string | Attachment of string*int*string
  | Subscriptions of tracking*cursor option | Subscription_change of string*tracking option
@@ -75,12 +75,12 @@ module Make(H:Http.S)=struct
    if D.num "id" j<>n then failwith "Unexpected Discourse category";
    let slug=D.str "slug" j in if slug="" then failwith "Missing category slug";
    Hashtbl.replace t.categories n slug;slug
- let cursor_scope group query=Yojson.Safe.to_string(`List[`String(group_string group);`String query])
- let page_number group query after =match after with None->0 | Some s ->
+ let cursor_scope group context=Yojson.Safe.to_string(`List[`String(group_string group);`String context])
+ let page_number group context after =match after with None->0 | Some s ->
    let j=try Yojson.Safe.from_string s with _->invalid_arg "Invalid Discourse cursor" in
    let n=D.num "page" j in
-   if D.str "scope" j<>cursor_scope group query || n<1 || n>10000 then invalid_arg "Cursor belongs to another Discourse group or query";n
- let cursor group query n = Some(Yojson.Safe.to_string(`Assoc["scope",`String(cursor_scope group query);"page",`Int(n+1)]))
+   if D.str "scope" j<>cursor_scope group context || n<1 || n>10000 then invalid_arg "Cursor belongs to another Discourse group or listing";n
+ let cursor group context n = Some(Yojson.Safe.to_string(`Assoc["scope",`String(cursor_scope group context);"page",`Int(n+1)]))
  let notification_message t n =
    let topic=D.num "topic_id" n in
    if topic<=0 then None else
@@ -115,23 +115,6 @@ module Make(H:Http.S)=struct
      let topics=D.list "topics" j in
      let topics=List.filter(fun j -> match group with Category id -> D.num "category_id" j=id | _->true) topics in
      {C.messages=List.map(D.summary ~site:t.config.site) topics;after=(if D.str "more_topics_url" j<>"" then cursor group "" n else None)}
- let search t group ~query ~after =
-   if group=Notifications then failwith "Discourse notification entries do not provide remote search";
-   let n=page_number group query after in
-   let scoped=query^(match group with Notifications->assert false | Latest->"" | Category id->" category:"^string_of_int id | Topic id->" topic:"^string_of_int id) in
-   let j=call t "/search.json" ["q",scoped;"page",string_of_int(n+1)] in
-   let topics=D.optional_list "topics" j in
-   let hits=D.optional_list "posts" j in
-   let seen=Hashtbl.create 32 in
-   let messages=List.filter_map(fun hit ->
-     let topic=D.num "topic_id" hit in
-     let meta=List.find_opt(fun x -> D.num "id" x=topic) topics in
-     match meta with None->failwith "Search hit has no topic metadata" | Some meta ->
-     if Hashtbl.mem seen topic || not(match group with Notifications->assert false | Latest->true | Category n->D.num "category_id" meta=n | Topic n->topic=n) then None else begin
-       Hashtbl.add seen topic ();
-       Some(D.summary ~site:t.config.site meta)
-     end) hits in
-   {C.messages;after=(if D.field "more_full_page_results" (D.field "grouped_search_result" j)=`Bool true then cursor group query n else None)}
  let thread t id ~emit_article ~emit =
    let topic,_=D.parse_id id in
    let j=call t (Printf.sprintf "/t/%d.json" topic) [] in
@@ -260,7 +243,6 @@ module Make(H:Http.S)=struct
    try match operation with
    | Categories -> emit(Category_list(categories t))
    | List(g,c) -> emit(Page(list t g ~after:c))
-   | Search(g,q,c) -> emit(Page(search t g ~query:q ~after:c))
    | Thread id -> thread t id ~emit_article:(fun a->emit(Article a)) ~emit:(fun b->emit(Thread_batch b))
    | Read id -> emit(Article(read t id))
    | Like(id,liked) -> emit(Liked(set_like_article t ~id ~liked))
@@ -292,7 +274,6 @@ let operation_of_json j =
  match str "op" with
  | "categories"->Categories
  | "list"->List(group_of_string(str "group"),after)
- | "search"->Search(group_of_string(str "group"),str "query",after)
  | "thread"->Thread(id()) | "read"->Read(id())
  | "like"->let liked=match D.field "liked" j with `Bool b->b | _->invalid_arg "Missing liked boolean" in Like(id(),liked)
  | "reply"->Send(Reply{parent=id();text=str "text"})

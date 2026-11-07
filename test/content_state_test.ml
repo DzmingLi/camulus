@@ -21,7 +21,6 @@ let () =
     S.save_archive db ~source ~target:S.Article ~id:root.id ~folder:"first" [archive root];
     check(favorite db=`Bool true) "saved article marks its conversation even when the latest row is a reply";
     check(field "favorite" (List.hd(rows(S.timeline db ~entries:[source,group])))=`Bool true) "home shares favorite state";
-    check(field "favorite" (List.hd(rows(S.search_rows db ~source [reply])))=`Bool true) "search shares favorite state";
     check(field "favorite" (List.hd(rows(S.feed db ~source:"other" ~group)))=`Bool false) "favorite identity is source scoped";
     check(S.copy_favorite db ~source ~target:S.Article ~id:root.id ~folder:"second") "copy favorite to another folder";
     S.remove_favorite db ~source ~target:S.Article ~id:root.id ~folder:"first";
@@ -34,7 +33,7 @@ let () =
     check(field "unread" (List.hd(rows(S.feed db ~source ~group)))=`Bool false) "unfavorite preserves read state";
     S.save_archive db ~source ~target:S.Thread ~id:"thread" ~folder:"threads" [archive root;archive reply];
     check(favorite db=`Bool true) "native thread anchor marks conversation");
-  print_endline "PASS: persistent conversation favorite state, source isolation, search and multiple folders"
+  print_endline "PASS: persistent conversation favorite state, source isolation and multiple folders"
 let () =
   let path=Filename.temp_file "reader-state-" ".sqlite3" in
   Fun.protect ~finally:(fun () -> Sys.remove path) @@ fun () ->

@@ -50,18 +50,15 @@
          (camulus-probe-session-stop) (camulus-content-state-configure "")
          (delete-directory directory t)))))
 
-(ert-deftest discourse-group-search-pagination-and-expanded-thread ()
+(ert-deftest discourse-group-pagination-and-expanded-thread ()
   (camulus-discourse-test-session
    (camulus-reader-discourse site "category:3") (camulus-discourse-test-idle)
    (should (= 1 (length tabulated-list-entries)))
    (camulus-reader-discourse-more) (camulus-discourse-test-idle)
    (should (= 2 (length tabulated-list-entries)))
-   (camulus-reader-discourse-search "missing") (camulus-discourse-test-idle)
-   (should-not tabulated-list-entries)
-   (camulus-reader-discourse-search "body") (camulus-discourse-test-idle)
-   (should (= 1 (length tabulated-list-entries)))
    (should-not (alist-get 'rows (camulus-discourse-test-result `((op . "feed") (source . ,source) (group . ,"topic:7")) "feed" t)))
-   (goto-char (point-min)) (camulus-reader-open) (camulus-discourse-test-idle)
+   (goto-char (point-min)) (search-forward "Discourse topic 7") (beginning-of-line)
+   (camulus-reader-open) (camulus-discourse-test-idle)
    (with-current-buffer "*Reader thread*"
      (should (= 3 (hash-table-count camulus-reader--messages)))
      (should camulus-reader--complete)
@@ -259,11 +256,10 @@
                                       '("latest" "category:3" "topic:7" "replies" "watching"))))))
      ;; Old full-site subscriptions must not re-enter Home after an upgrade.
      (with-temp-file camulus-group-subscriptions-file (insert previous))
-     (should-error (camulus-group-followed source))
+     (should-not (fboundp 'camulus-group-followed))
      (camulus) (camulus-discourse-test-idle)
      (should (equal (mapcar (lambda (row) (alist-get 'group row)) camulus-reader-home--entries) '("notifications")))
-     (dolist (group '("latest" "category:3" "topic:7" "replies" "notifications" "watching" "tracking"))
-       (should-error (camulus-group-subscription-submit `((source . ,source) (group . ,group) (setting . "subscribed")))))
+     (should-not (fboundp 'camulus-group-subscription-submit))
      (with-temp-buffer
        (camulus-reader-groups-mode)
        (let ((inhibit-read-only t)) (insert (propertize "Forum" 'camulus-reader-entry latest)))

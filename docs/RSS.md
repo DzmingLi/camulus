@@ -1,6 +1,6 @@
 # RSS / Atom 后端
 
-RSS 2.0、RSS 1.0/RDF 和 Atom 1.0 共用 `src/backends/rss/` 中的 OCaml 后端。使用 Syndic 1.8.0 解析标准字段和日期，格式自动识别，无需账户配置；实现 `Backend.S` 的列表与组内搜索，以及单篇读取和附件下载，不实现 `Backend.Threading`。
+RSS 2.0、RSS 1.0/RDF 和 Atom 1.0 共用 `src/backends/rss/` 中的 OCaml 后端。使用 Syndic 1.8.0 解析标准字段和日期，格式自动识别，无需账户配置；实现 `Backend.S` 的列表，以及单篇读取和附件下载，不实现 `Backend.Threading`。
 
 ## 使用
 
@@ -8,16 +8,16 @@ RSS 2.0、RSS 1.0/RDF 和 Atom 1.0 共用 `src/backends/rss/` 中的 OCaml 后�
 nix develop -c make reader-demo
 ```
 
-通过 [入口配置](ENTRIES.md) 声明 RSS URL，或 `M-x camulus-reader-rss` 输入地址浏览，按 `s` 选择 subscribed。关注由 RSS 后端独立文件保存，`G` 可以选择这些关注入口；浏览和配置入口不会自动关注。首页 `g` 拉取当前入口。
+通过 `setopt camulus-rss-subscriptions` 声明主页订阅的 URL 列表，`camulus-groups` 单独配置浏览入口。也可以 `M-x camulus-reader-rss` 输入地址浏览，按 `s` 打开后端的 Customize 订阅选项。没有独立订阅文件。首页 `g` 刷新来源。
 
 - 每篇文章独立一行；`RET` 在右侧打开正文，支持文本及 SHR HTML 阅读。
 - `m` 选择收藏文件夹，保存文章和所有声明的 enclosure 附件；支持多个文件夹及嵌套目录。
 - 附件按钮位于文章下面，可以下载；收藏中的附件直接从本地数据库保存，不访问网络。
 - `d` 只从首页移除当前修订。重复拉取同一内容不会复活条目；新文章或已有文章的新修订会进入 feed。
-- `s` 选择 unsubscribed 取消关注；从后端发现的入口中移除，显式配置的入口和既有收藏保留。
+- 从 `camulus-rss-subscriptions` 移除 URL 即取消订阅；浏览入口和既有收藏保留。
 - `f` 打开收藏，读取持久副本。
 
-也可以 `M-x camulus-reader-rss` 输入地址，先浏览而不订阅。该列表中 `/` 搜索当前订阅源提供的文章，空查询恢复列表；`g` 刷新、`RET` 阅读、`m` 收藏、`h` 回首页。搜索不查询全网，不声称覆盖订阅源已经移除的历史内容。
+也可以 `M-x camulus-reader-rss` 输入地址，先浏览而不订阅。`g` 刷新、`RET` 阅读、`m` 收藏、`h` 回首页。
 
 ## 内容与身份
 
@@ -46,9 +46,9 @@ XML 直接交给 Syndic / Xmlm 解析，不额外预扫描或限制大小、深�
 `make test` 包含 RSS/Atom 的 OCaml 测试和三个新的原生 Emacs 集成测试：
 
 - RSS/RDF/Atom、命名空间、CDATA、XHTML、相对链接、日期与时区、稳定身份和修订。
-- 重定向、条件请求、304 缓存、失败保留缓存、非法协议与无效 feed 拒绝、组内搜索。
+- 重定向、条件请求、304 缓存、失败保留缓存、非法协议与无效 feed 拒绝。
 - 首页订阅、处理后去重、新修订重现、文件夹选择、正文和二进制附件归档、重启后的离线阅读。
-- Atom 无订阅浏览、组内搜索及下载；慢 HTTP 请求期间其他任务继续运行，取消正常结束。
+- Atom 无订阅浏览及下载；慢 HTTP 请求期间其他任务继续运行，取消正常结束。
 - 数据库 v1 → v2 保留既有 MIME，最后一个收藏归属移除时清理附件。
 
 测试使用合成内容与本地 HTTP 服务，无需真实订阅或远端账户。首次全量回归中，原有 32 项 Emacs 测试通过，新测试发现终端 SHR 将 HTML 正文换行过窄。修正后，3 项 RSS/Atom 测试与 3 项共享持久阅读界面测试全部通过；OCaml 测试也通过，包括 schema 迁移。原始回归与修复后的针对性验证分别记录在 rss-test-results.txt（本地验证输出） 和 rss-followup-test-results.txt（本地验证输出）。

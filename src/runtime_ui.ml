@@ -5,7 +5,7 @@ open! Ecaml
 module Runtime = Reader.Runtime
 module Protocol = Reader.Protocol
 module CS = Reader.Content_state
-type Protocol.work += Local of CS.operation | Group_followed of string | Group_subscription of Reader.Local_subscriptions.target * string option
+type Protocol.work += Local of CS.operation
 type Protocol.payload += State_result of Yojson.Safe.t
 external open_channel : Value.t -> Os.file_descr = "ecaml_probe_open_channel"
 
@@ -22,7 +22,6 @@ let next_id = ref 0
 let dropped_stale = ref 0
 let backend_hosts : Reader_backend.host list ref = ref []
 let state_file = ref None
-let group_subscriptions_file = ref None
 
 let get_runtime () =
   ensure_ui ();
@@ -39,13 +38,7 @@ let start_runtime process =
   let notify_ui () = ignore (Reader.Host.notify fd : bool) in
   try
     let hosts=List.filter_map !Reader_backend.worker_factories ~f:(fun prepare -> prepare ~notify:notify_ui) in
-    let group_rules = !Reader_backend.local_group_rules in
-    let subscribable (target : Reader.Local_subscriptions.target) =
-      Option.value_map (List.Assoc.find group_rules target.backend ~equal:String.equal) ~default:false
-        ~f:(fun accepts -> accepts ~source:target.source ~group:target.group) in
     let extension ~net ~now ~sleep =
-      let group_subscriptions=Option.map !group_subscriptions_file ~f:Reader.Local_subscriptions.create in
-      let groups () = Option.value_exn ~message:"Configure group subscriptions state before startup" group_subscriptions in
       let db_lock = Eio.Mutex.create () in
       (* A late response must not replace a newer entry snapshot in storage.
          Atomics are read by the storage system thread under db_lock. *)
@@ -67,14 +60,9 @@ let start_runtime process =
       let worker source=List.find workers ~f:(fun w -> w.Reader_backend.matches_source source)
         |> Option.value_exn ~message:"Source is not configured" in
       let archived ~refresh source target id =
-        let complete=ref false and bytes=ref 0 in
+        let complete=ref false in
         let articles=Stdlib.Hashtbl.create 64 in
-        let add a =
-          bytes := !bytes + String.length a.CS.message.body +
-            Option.value_map a.message.html ~default:0 ~f:String.length +
-            Option.value_map a.raw ~default:0 ~f:String.length +
-            List.sum (module Int) a.files ~f:(fun (_,data) -> String.length data);
-          if !bytes > 128 * 1024 * 1024 then failwith "Archive exceeds the 128 MiB operation limit";
+        let add (a:CS.archived) =
           Stdlib.Hashtbl.replace articles a.message.id a in
         complete:=(worker source).archive ~source ~refresh target id ~add
           ~native_thread:(fun id -> storage(fun db -> CS.native_thread db ~source ~id) |> Option.value_exn);
@@ -123,19 +111,18 @@ let start_runtime process =
             try Stdlib.output_string ch data;Stdlib.flush ch;Os.fsync fd;Stdlib.close_out ch
             with ex -> Stdlib.close_out_noerr ch;(try Os.unlink destination with _ -> ());raise ex);
           reply emit "saved" ["path",`String destination]
-        | Refresh(source,group,after,query) ->
+        | Refresh(source,group,after) ->
           let version=match Stdlib.Hashtbl.find_opt entry_versions (source,group) with
             | Some v -> v
             | None -> let v=Atomic.make 0 in Stdlib.Hashtbl.add entry_versions (source,group) v;v in
           let epoch=Atomic.fetch_and_add version 1 + 1 in
-          let page=(worker source).page ~source group ~after ~query in
+          let page=(worker source).page ~source group ~after in
           let result=storage(fun db ->
             if Atomic.get version <> epoch then None else begin
               CS.observe ~replace:(Option.is_none after) db ~source
-                ~group:(if Option.is_none query then Some group else None) page.messages;
+                ~group:(Some group) page.messages;
               let states=CS.snapshots db ~source (List.map page.messages ~f:(fun m -> m.Reader.Content.id)) in
-              let rows=match query with None -> CS.feed db ~source ~group
-                | Some _ -> CS.search_rows db ~source page.messages in
+              let rows=CS.feed db ~source ~group in
               Some(states,rows)
             end) in
           (match result with
@@ -159,17 +146,6 @@ let start_runtime process =
       in
       fun work ~emit -> match work with
       | Local operation -> state operation emit
-      | Group_followed backend ->
-        reply emit "entries" ["rows",`List(List.map (List.filter (Reader.Local_subscriptions.followed (groups ()) ~backend) ~f:subscribable) ~f:(fun target ->
-          `Assoc["name",`String(target.source^" · "^target.group);"source",`String target.source;"group",`String target.group]))]
-      | Group_subscription(target,setting) ->
-        if not(subscribable target)then invalid_arg "This backend does not offer a subscription for this group";
-        Option.iter setting ~f:(fun setting -> Reader.Local_subscriptions.set (groups ()) target
-          (match setting with "subscribed"->true | "unsubscribed"->false | _->invalid_arg "Invalid group subscription setting"));
-        let subscribed=Reader.Local_subscriptions.get (groups ()) target in
-        reply emit "subscription" ["source",`String target.source;"target",`String target.group;
-          "setting",`String(if subscribed then "subscribed" else "unsubscribed");
-          "choices",`List[`String "unsubscribed";`String "subscribed"]]
       | work ->
         if not(List.exists workers ~f:(fun worker ->
           worker.execute work ~observe:(fun ~source messages -> observe emit source None messages) ~emit)) then
@@ -280,9 +256,6 @@ let request_subscription source target setting = submit_work ~service:true (Read
 let configured_sources = Reader_backend.configured_sources
 
 
-let followed_groups ~backend = submit_work ~service:true (Group_followed backend)
-let subscribe_group ~backend ~source ~group ~setting =
-  submit_work ~service:true (Group_subscription({Reader.Local_subscriptions.backend;source;group},setting))
 
 let s=Value.of_utf8_bytes
 let sym=Value.intern

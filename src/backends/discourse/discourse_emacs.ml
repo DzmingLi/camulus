@@ -17,9 +17,9 @@ let prepare ~notify:_ =
       | Some backend -> backend
       | None -> let backend=Discourse.Live.create(Discourse.config site) in Stdlib.Hashtbl.add forums site backend;backend in
     {matches_source=Discourse.is_source;
-     page=(fun ~source group ~after ~query ->
+     page=(fun ~source group ~after ->
        let backend=forum(Discourse.site_of_source source) and group=Discourse.group_of_string group in
-       match query with None -> Discourse.Live.list backend group ~after | Some query -> Discourse.Live.search backend group ~query ~after);
+       Discourse.Live.list backend group ~after);
      archive=(fun ~source ~refresh:_ target id ~native_thread:_ ~add ->
        let backend=forum(Discourse.site_of_source source) in
        match target with

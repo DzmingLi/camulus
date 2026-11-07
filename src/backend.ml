@@ -6,7 +6,6 @@ module type S = sig
   type cursor
   val source : string
   val list : t -> group -> after:cursor option -> Content.page
-  val search : t -> group -> query:string -> after:cursor option -> Content.page
 end
 
 (** Optional capabilities: a backend need not implement them to be readable. *)

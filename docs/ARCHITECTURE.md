@@ -20,7 +20,6 @@ src/
   runtime.ml                 后台 domain 与 Eio 调度
   runtime_ui.ml              Emacs 会话宿主、结果收发、通用状态操作
   content_state.ml            SQLite 内容状态与归档
-  local_subscriptions.ml     后端选择使用的本地组订阅状态
   http.ml                    公共 HTTP 类型、URL 策略与 ocurl 执行
   html.ml                    Lambda Soup DOM 上的阅读正文清理与媒体提取
   credentials.ml             凭据文件读写与 Firefox Cookie 提供器
@@ -62,13 +61,13 @@ test/                       OCaml 测试、Emacs 集成测试、协议模拟服�
 
 ### 模块签名描述后端能做什么
 
-[backend.ml](../src/backend.ml) 中的 `module type S` 是一个 OCaml 模块签名。实现它的模块需要提供自己的会话类型 `t`、组类型 `group`、游标类型 `cursor`，以及列表和搜索操作。这里的 `S` 是签名名称，并不代表一个后台线程或服务实例。
+[backend.ml](../src/backend.ml) 中的 `module type S` 是一个 OCaml 模块签名。实现它的模块需要提供自己的会话类型 `t`、组类型 `group`、游标类型 `cursor`，以及列表操作。这里的 `S` 是签名名称，并不代表一个后台线程或服务实例。
 
 抽象类型让后端保留自己的模型：Discourse 可以使用 `Latest`、`Category`、`Topic`、`Notifications` 等变体，RSS 可以使用 feed URL，邮件可以使用本地查询或邮件目录。公共界面边界再把组和游标转换成字符串。
 
 `Threading`、`Voting`、`Liking`、`Writing`、`Subscription` 和 `Topic_tracking` 是独立的可选签名。RSS 无须伪造 thread，单向点赞也无须伪造反对票。`Subscription` 的 `target` 和 `settings` 属于后端，所以论坛的追踪级别不会被压缩成统一的布尔开关。
 
-目前基本签名仍包含 `search`；不支持某种搜索的入口由后端拒绝。例如 Discourse 通知流不提供远端搜索。声明签名本身不会自动生成界面能力或完成注册。
+基础签名只要求来源标识和组内分页列表。声明签名本身不会自动生成界面能力或完成注册。
 
 ### Functor 注入依赖
 
@@ -97,7 +96,7 @@ JSON Feed 的格式解析交给外部 `jsonfeed` 库，当前只接受 1.1。Cam
 
 [Content.message](../src/content.ml) 中，`id` 标识一条内容；`thread_id` 可选，表示来源真正提供的会话标识；`parent_id` 和 `references` 描述回复关系。状态存储使用 `(source, id)` 作为内容身份，避免两个站点相同的数字 ID 相互覆盖。
 
-同一条内容通过组、搜索、通知或收藏进入时，应得到同一个身份，才能共用已读和收藏状态。后端不能为了区分入口给同一条内容随意创造新 ID。
+同一条内容通过组、通知或收藏进入时，应得到同一个身份，才能共用已读和收藏状态。后端不能为了区分入口给同一条内容随意创造新 ID。
 
 邮件可以没有稳定的原生 thread ID。`content_state.ml` 的 `components` 根据父消息、引用关系和可用的原生会话关联构造连通分量，用于列表合并与归档覆盖判断。这个内部结果不是邮件协议中的永久 thread ID，也不按相同标题强行合并邮件。
 
@@ -125,7 +124,7 @@ sequenceDiagram
     U->>U: 检查视图有效性并更新 buffer
 ```
 
-以组刷新为例，`Reader_ui.load_list` 提交 `Content_state.Refresh`。`runtime_ui.ml` 的状态处理调用匹配的 worker，拿到 `Content.page` 后写入入口快照，再返回列表行和已读、收藏状态。`reader_ui.ml` 更新对应 buffer。搜索也走后端，但搜索结果不会被当作新的订阅入口。
+以组刷新为例，`Reader_ui.load_list` 提交 `Content_state.Refresh`。`runtime_ui.ml` 的状态处理调用匹配的 worker，拿到 `Content.page` 后写入入口快照，再返回列表行和已读、收藏状态。`reader_ui.ml` 更新对应 buffer。
 
 文章阅读通常由后端注册的 `read` 能力提交专属任务；后端可以逐批返回正文和回复树。用户关闭或切换视图后，即使响应已经在路上，Emacs 界面仍需要判断它是否属于当前视图，不能仅凭“请求成功”更新屏幕。
 
@@ -169,7 +168,7 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 组是浏览入口，由来源和组标识组成。`camulus-groups` 为它增加名字，注册组不会订阅，取消订阅也不删除浏览入口。首页顶部的后端按钮按后端筛选这些已注册入口。
 
-订阅是后端提供的可选能力。RSS 只需要记录关注哪些 URL；Discourse 从服务器读取会话追踪状态，并提供远端追踪管理面板。Discourse 时间线使用已注册且已认证站点的会话通知，不把浏览全站等同于订阅全站，也不保留另一套“回复我的”组订阅。
+本地订阅是各后端声明的 Customize 选项。RSS 直接读取 `camulus-rss-subscriptions` 中的 URL；不经过后台任务或 JSON 状态文件。Discourse 从服务器读取会话追踪状态，并提供远端追踪管理面板。Discourse 时间线使用已注册且已认证站点的会话通知，不把浏览全站等同于订阅全站，也不保留另一套“回复我的”组订阅。
 
 主页向各后端的 `followed` 能力询问个人来源，允许立即返回或异步返回。它合并这些来源、应用优先级筛选，再调度入口刷新；当前主页最多同时刷新 4 个入口。后端可提供没有单独注册浏览组的通知流，显示名字则尽量复用已有组配置。
 
@@ -216,7 +215,7 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 `d` 默认移除当前列表中已经处理的进展。活动序号记录移除边界，来源时间负责显示排序；它们不是同一个时间概念。新的活动版本可以重新出现，重复拉取同一版本不应复活已移除的条目。统一时间线也会合并跨入口的相同活动，避免仅因新增一个入口而重复提醒。
 
-邮件通过后端的 `delete` 能力覆盖这个默认动作，移动到 Trash，并通过邮件同步流程反映到远端。收藏夹中的 `d` 只移除当前收藏关系。搜索结果目前不支持列表删除操作。
+邮件通过后端的 `delete` 能力覆盖这个默认动作，移动到 Trash，并通过邮件同步流程反映到远端。收藏夹中的 `d` 只移除当前收藏关系。
 
 ### 收藏意味着持久保存
 
@@ -271,7 +270,7 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 | --- | --- | --- |
 | [Html](../src/html.ml) 的解析、DOM 遍历与序列化 | 已使用 [Lambda Soup](https://github.com/aantron/lambdasoup) | 内容清理策略、媒体提取、站点正文选择规则 |
 
-这些是后续替换候选，不表示当前代码已完成迁移。`Html` 已经借助 Markup 解析 HTML；继续引入 DOM 库的收益主要是查询和重写，不应把整个模块称为自写 HTML 解析器。重复的字符串搜索和 HTML 转义也可先复用已有辅助函数，无须为每个小函数增加一个依赖。
+表中已迁移的项目使用现成库；其余条目仍是后续替换候选。少量后端特有的内容清理和 HTML 片段转义保留在调用处。
 
 ## 验证与当前限制
 

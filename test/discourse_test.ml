@@ -52,11 +52,6 @@ let () =
   queue:=[response(`Assoc["topic_list",`Assoc["topics",`List[]]])];
   ignore(M.list session (B.Category 3) ~after:page.after);
   check(String.starts_with ~prefix:base (List.hd !requests).url) "never trust pagination URL with credentials";
-  queue:=[response(`Assoc["topics",`List[summary();summary ~id:9 ~category:4 ()];
-    "posts",`List[`Assoc["topic_id",`Int 7];`Assoc["topic_id",`Int 7];`Assoc["topic_id",`Int 9]];
-    "grouped_search_result",`Assoc["more_full_page_results",`Bool false]])];
-  check(List.length (M.search session (B.Category 3) ~query:"OCaml category:4" ~after:None).messages=1) "search merges threads and enforces current category";
-  check(Uri.get_query_param(Uri.of_string (List.hd !requests).url) "q"=Some "OCaml category:4 category:3") "remote scoped query";
   queue:=[response(topic[post 100 1 0]);response(post ~liked:true 100 1 0)];
   M.set_like session ~id:"topic:7/post:1" ~liked:true;
   check((List.hd !requests).meth=B.Http.Post) "like posts to API";
@@ -106,7 +101,6 @@ let () =
   check(List.exists(fun (m:Reader.Content.message)->m.id="topic:7/post:1")page.messages) "topic notifications without a floor open the root";
   check((List.hd !requests).meth=B.Http.Get) "notifications fetched without mark-read writes";
   check(fails(fun()->ignore(M.list other B.Notifications ~after:page.after))) "notification cursor bound to site";
-  check(fails(fun()->ignore(M.search session B.Notifications ~query:"x" ~after:None))) "no unscoped search substitute";
   check(List.for_all(fun (m:Reader.Content.message)->m.thread_id=Some "topic:7")page.messages) "no standalone notification articles";
   queue:=[response(`Assoc["notifications",`List[notification ~topic:0 ~floor:0 11 12;`Assoc["data",`String "invalid JSON"]];"total_rows_notifications",`Int 70])];
   let empty=M.list session B.Notifications ~after:None in
@@ -121,4 +115,4 @@ let () =
   check(List.length !requests=count) "anonymous failure sends nothing";
   queue:=[response ~status:429 `Null];
   check(fails(fun()->ignore(M.list session B.Latest ~after:None))) "rate limit reported");
- print_endline "PASS: Discourse identities, progressive threads, strict pagination, scoped search, User API, likes, writes, tracking and archives"
+ print_endline "PASS: Discourse identities, progressive threads, strict pagination, User API, likes, writes, tracking and archives"

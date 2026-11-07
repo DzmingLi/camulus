@@ -40,7 +40,6 @@ let () =
     check((B.list b url ~after:None).after=p.after) "304 retains pagination";
     check(List.assoc_opt "If-None-Match" (List.hd !requests).headers=Some "v1") "conditional HTTP";
     check(fails(fun()->ignore(B.list b "https://other.test/feed" ~after:p.after))) "cursor feed scope";
-    check(fails(fun()->ignore(B.search b url ~query:"x" ~after:p.after))) "cursor search scope";
     queue:=[response 200 (feed [item "two" "Second"])];
     let p2=B.list b url ~after:p.after in
     check(p2.after=None && (List.hd p2.messages).id="two") "next page";
@@ -50,14 +49,9 @@ let () =
     queue:=[response 200 (feed ~next:url [])];
     check(fails(fun()->ignore(B.list b url ~after:None))) "pagination loop";
     queue:=[response 200 (feed [item "one" "Hello"])];
-    check(List.length(B.search b url ~query:"HELLO" ~after:None).messages=1) "feed search";
     queue:=[response 200 (feed ~next:"/page2" [item "one" "Head"]);
       response 304 "";response 200 (feed [item "two" "Changed older item"])];
     ignore(B.refresh b url);
     check((B.read b url "two").message.html=Some "Changed older item") "archive refresh revalidates older pages";
-    let file=Filename.temp_file "jsonfeed-followed" ".json" in Sys.remove file;
-    let t=B.create ~subscriptions_file:file () in B.Subscription.set t url true;
-    check(B.Subscription.followed (B.create ~subscriptions_file:file ())=[url]) "persistent subscriptions";
-    B.Subscription.set t url false;check(B.Subscription.followed t=[]) "unsubscribe";
-    Sys.remove file;Sys.remove(file^".lock"));
-  print_endline "PASS: JSON Feed 1.1 library parsing, pagination, identity, conditional HTTP, archives and subscriptions"
+    ());
+  print_endline "PASS: JSON Feed 1.1 library parsing, pagination, identity, conditional HTTP and archives"

@@ -14,7 +14,6 @@ nix develop -c make reader-demo
 
 - `RET`：右侧打开整棵回复树，默认展开。
 - `g`：重新查询本地索引。
-- `/`：当前 Maildir 内搜索，支持 mu 查询语法；空字符串恢复普通列表。
 - `n`：下一页。
 - `c` / `r`：新建 / 回复，summary 所在窗口切换为 Message 编辑 buffer，右侧阅读窗口保留。
 - `D`：打开当前账户的草稿组；`RET` 恢复编辑。
@@ -33,7 +32,7 @@ nix develop -c make reader-demo
 
 `Mu_backend.Readable` 实现统一阅读接口，`Mu_backend.Writing` 提供邮件专属 draft/receipt。由 `mu_emacs.ml` 注册会话和执行能力，公共运行时通过 worker 接口调用，可与 Reddit 共用同一个工作 domain。整体关系见 [架构文档](ARCHITECTURE.md)。
 
-列表和搜索只读索引元数据。组内搜索同时采用 mu 查询约束和结果 Maildir 校验。按 Message-ID / 引用关系合并 summary 条目，不以相同主题合并讨论；列表以当前结果中最新的一封作为打开入口。邮件的 `thread_id` 保持 `None`，`Thread` 参数是入口邮件 ID，不是永久 thread ID。
+列表只读索引元数据，按当前 Maildir 查询并校验结果范围。按 Message-ID / 引用关系合并 summary 条目，不以相同主题合并讨论；列表以当前结果中最新的一封作为打开入口。邮件的 `thread_id` 保持 `None`，`Thread` 参数是入口邮件 ID，不是永久 thread ID。
 
 打开 thread 时，mu 查找相关邮件，OCaml 先发布元数据，再逐封解析正文，最后发布完成状态。父子关系优先取单一 `In-Reply-To`，否则取 `References` 最后一项。缺失父邮件保留为孤立节点；渲染有循环保护。每封邮件同时发布附件元数据，保存附件时重新解码并写入所选文件。Mrmime 处理 HTML、文本、字符集、quoted-printable、base64、编码标题和附件名。附带的 `message/rfc822` 作为附件，不混入外层回复树。
 
@@ -65,7 +64,7 @@ SMTP 在 Eio 工作 domain 内直接使用 TCP、tls-eio 和 Colombe 的调度�
 
 ## 邮件归档
 
-在统一首页或邮件组的 summary 列表按 `d`，邮件后端会将当前组中属于该讨论的邮件移入同一账户的 `Trash`，成功后更新本地索引和列表缓存。失败时不写入 feed 移除标记；部分成功会报告数量并刷新实际剩余内容。已在 Trash 的邮件不会再次删除或永久清除。搜索结果暂不执行 `d`，收藏文件夹中的 `d` 仍只取消收藏归属。
+在统一首页或邮件组的 summary 列表按 `d`，邮件后端会将当前组中属于该讨论的邮件移入同一账户的 `Trash`，成功后更新本地索引和列表缓存。失败时不写入 feed 移除标记；部分成功会报告数量并刷新实际剩余内容。已在 Trash 的邮件不会再次删除或永久清除。收藏文件夹中的 `d` 仍只取消收藏归属。
 
 移入 Trash 保留完整 MIME、附件及已有标志，不额外添加会使 mbsync expunge 的 `T` 标志。其他账户和 Sent 中的副本保留；本地移动由下一次邮件同步推送到 IMAP。
 
@@ -97,7 +96,7 @@ MAIL_SENDER='your-address@example.org' MAIL_GROUP='/account/Inbox' \
 nix develop -c make mail-live
 ```
 
-只输出条目数量和状态，不输出主题、地址、正文，不发信、不标记已读、不重建个人索引。本次 Mrmime 替换后的本机只读验证返回 8 个 summary 条目，打开并解码了 1 封真实邮件，组内搜索通过，记录见 `pure-ocaml-mail-live-results.txt`。另有合成回归测试保证长 Message-ID 不会因格式化折行而改变。
+只输出条目数量和状态，不输出主题、地址、正文，不发信、不标记已读、不重建个人索引。本次 Mrmime 替换后的本机只读验证返回 8 个 summary 条目，打开并解码了 1 封真实邮件，记录见 `pure-ocaml-mail-live-results.txt`。另有合成回归测试保证长 Message-ID 不会因格式化折行而改变。
 
 最新完整验证通过 OCaml 测试及 26 个 Emacs 集成测试：9 个运行时、4 个 Reddit、8 个邮件阅读/发送、5 个草稿/归档流程。新增测试覆盖自动保存和窗口布局、跨重启恢复、版本冲突、账户选择、归档字节/标志/范围、Sent 副本以及不确定发送后禁止重放。归档只操作合成邮箱，发信只连接 loopback TLS 测试服务，没有移动个人邮件或实际发信。记录见 `pure-ocaml-mail-test-results.txt`。本次未做图形 WebKit 或长时间运行验证。
 

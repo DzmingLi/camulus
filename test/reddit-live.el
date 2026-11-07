@@ -28,9 +28,6 @@
         (with-current-buffer "*Reader thread*"
           (unless (> (hash-table-count camulus-reader--messages) 0) (error "Empty live thread"))
           (message "PASS: native Reddit reply tree, %d messages" (hash-table-count camulus-reader--messages)))
-        (with-current-buffer "*Reader*"
-          (camulus-reader-search "effects")
-          (camulus-probe-await (lambda () (= 0 (hash-table-count camulus-reader--requests))) 60))
         (unless (> beats 0) (error "Emacs heartbeat did not run"))
         (unless (camulus-probe-signals-unchanged) (error "Reddit worker changed host signal handlers"))
         (message "PASS: native HTTP + UI heartbeat (%d ticks), GC and host signals" beats))

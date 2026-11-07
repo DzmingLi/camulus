@@ -43,10 +43,10 @@ let () =
   let p2=B.list b "/Inbox" ~after:p.after in
   check ((List.hd p2.messages).id="mail:reply@test" && p2.after=None) "thread merge, stable pagination";
   check (List.length !calls=1) "pagination uses snapshot";
-  expect_error(fun () -> B.search b "/Other" ~query:"" ~after:p.after);
-  ignore(B.search b "/Inbox" ~query:"needle OR subject:other" ~after:None);
+  expect_error(fun () -> B.list b "/Other" ~after:p.after);
+  ignore(B.list b "/Inbox" ~after:None);
   let argv,_=List.hd !calls in
-  check (List.hd(List.rev argv)="(maildir:\"/Inbox\") AND (needle OR subject:other)") "query scoped";
+  check (List.hd(List.rev argv)="maildir:\"/Inbox\"") "listing scoped to its maildir";
   print_endline "PASS grouping, no subject-only merge, scope, cursor isolation";
   let article=B.read b "mail:root@test" in
   check (article.message.thread_id=None) "no invented native thread id";

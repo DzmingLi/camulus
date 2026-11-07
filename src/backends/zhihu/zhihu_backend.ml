@@ -70,7 +70,6 @@ module Make(H:R.Http.S)=struct
   if more && data=[] then failwith "Zhihu returned empty non-final page";
   List.iter(fun (a:D.article)->Hashtbl.replace t.cache a.message.id a)articles;
   {C.messages=List.map(fun(a:D.article)->a.message)articles;after=if more then Some(Yojson.Safe.to_string(`List[`String group;`Int(offset+List.length data)])) else None}
- let search _ _ ~query:_ ~after:_=failwith "Zhihu author entries do not provide scoped remote search"
  let read t _group id=match Hashtbl.find_opt t.cache id with Some a->a|None->
   let kind,raw=match String.split_on_char ':' id with ["article";n]->"articles",numeric n|["answer";n]->"answers",numeric n|_->invalid_arg "Invalid Zhihu identity" in
   let j=request t ~referer:"https://www.zhihu.com/" ("https://www.zhihu.com/api/v4/"^kind^"/"^raw) in

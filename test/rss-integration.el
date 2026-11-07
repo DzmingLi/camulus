@@ -27,9 +27,10 @@
   `(let* ((directory (make-temp-file "rss-reader" t))
           (camulus-reader-config-file (expand-file-name "config.json" directory))
           (camulus-reader-groups-file (expand-file-name "groups.json" directory))
-          (camulus-group-subscriptions-file (expand-file-name "group-subscriptions.json" directory))
-          (camulus-reader-rss-subscriptions-file (expand-file-name "rss-subscriptions.json" directory))
-          (camulus-jsonfeed-subscriptions-file (expand-file-name "jsonfeed-subscriptions.json" directory))
+
+
+
+          (camulus-rss-subscriptions nil) (camulus-jsonfeed-subscriptions nil)
           (camulus-groups nil)
           (camulus-state-file (expand-file-name "state.sqlite" directory))
           (camulus-mail-sender nil) (camulus-reddit-username nil)
@@ -51,8 +52,7 @@
 (ert-deftest rss-home-subscribe-read-favorite-and-offline-enclosure ()
   (camulus-rss-test-session
    (camulus (car camulus-groups)) (camulus-rss-test-idle)
-   (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "subscribed")))
-     (camulus-reader-subscription) (camulus-rss-test-idle))
+   (setopt camulus-rss-subscriptions (list url))
    (camulus-rss-test-idle)
    (camulus-reader-refresh) (camulus-rss-test-idle)
    (should (= 1 (length tabulated-list-entries)))
@@ -96,16 +96,12 @@
        (set-buffer-multibyte nil) (insert-file-contents-literally destination)
        (should (equal (buffer-string) (unibyte-string 82 83 83 0 97 116 116 97 99 104 109 101 110 116 255 10)))))))
 
-(ert-deftest atom-browse-search-live-enclosure-without-subscription ()
+(ert-deftest atom-browse-live-enclosure-without-subscription ()
   (camulus-rss-test-session
    (setq url (concat camulus-rss-test-base "/atom"))
    (camulus-reader-rss url) (camulus-rss-test-idle)
    (should (= 1 (length tabulated-list-entries)))
    (should-not (alist-get 'rows (camulus-rss-test-state `((op . "feed") (source . ,source) (group . ,url)) "feed")))
-   (camulus-reader-rss-search "missing") (camulus-rss-test-idle)
-   (should-not tabulated-list-entries)
-   (camulus-reader-rss-search "PLAIN") (camulus-rss-test-idle)
-   (should (= 1 (length tabulated-list-entries)))
    (goto-char (point-min)) (camulus-reader-open) (camulus-rss-test-idle)
    (with-current-buffer "*Reader thread*"
      (should (string-match-p "Atom plain <b>text</b>" (buffer-string))))
@@ -134,16 +130,14 @@
           (camulus-groups (append camulus-groups
                                      '(((name . "Unavailable") (source . "not-configured") (group . "inbox") )
                                        ((name . "Browse only") (source . "not-configured") (group . "browse"))))))
-     (dolist (feed (list url atom missing))
-       (camulus-rss-test-await (camulus-subscription-submit
-                          `((source . ,(concat "rss:" feed)) (target . ,feed) (setting . "subscribed")))))
+     (setopt camulus-rss-subscriptions (list url atom missing))
      (camulus) (camulus-rss-test-idle)
      (should camulus-reader--home)
      (should (= 3 (length camulus-reader-home--entries)))
      (should (= 2 (length tabulated-list-entries)))
      (should (= 1 (length camulus-reader-home--errors)))
      (should (string-prefix-p "Home" (apply #'concat header-line-format)))
-     (should-error (camulus-reader-search "anything") :type 'user-error)
+     (should-not (fboundp 'camulus-reader-search))
      (goto-char (point-min))
      (let* ((selected (camulus-reader--selected)) (selected-source (alist-get 'source selected))
             (entry (camulus-reader-home-row-entry selected)))
@@ -163,9 +157,7 @@
      (should (= 1 (length tabulated-list-entries)))
      (should (>= (length camulus-reader-home--errors) 2))
      ;; Removing a backend subscription removes membership on the next refresh.
-     (dolist (feed (list url atom missing))
-       (camulus-rss-test-await (camulus-subscription-submit
-                          `((source . ,(concat "rss:" feed)) (target . ,feed) (setting . "unsubscribed")))))
+     (setopt camulus-rss-subscriptions nil)
      (camulus-reader-refresh) (camulus-rss-test-idle)
      (should-not tabulated-list-entries))))
 
@@ -180,9 +172,7 @@
           (camulus-home-priorities '(1))
           (custom-file (expand-file-name "custom.el" directory))
           (user-init-file (expand-file-name "init.el" directory)))
-     (dolist (feed (list url atom-url))
-       (camulus-rss-test-await
-        (camulus-subscription-submit `((source . ,(concat "rss:" feed)) (target . ,feed) (setting . "subscribed")))))
+     (setopt camulus-rss-subscriptions (list url atom-url))
      (camulus) (camulus-rss-test-idle)
      (should (= 1 (length camulus-reader-home--entries)))
      (should (equal source (alist-get 'source (car camulus-reader-home--entries))))

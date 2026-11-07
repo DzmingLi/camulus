@@ -12,13 +12,12 @@
 | 单个帖子 | `t3_…` 原生 thread 身份，独立读取 |
 | 回复树 | 首批立即返回，后续逐批 `morechildren`，处理继续展开分支 |
 | 顺序 | 同级按发布时间、ID 排序，不采用热度排序 |
-| 搜索 | 指定 subreddit 内的远端搜索及分页 |
 | 通知 | 返回 reply/mention 活动及原生 thread、comment ID；不自动获取正文或标已读 |
 | 身份 | 当前 OAuth 账户查询 |
 | 写入 | 回复帖子/评论、发表文本帖子、上票/撤票/下票 |
 | 授权 | 刷新 token、完整授权码流程、随机 state 校验、0600 原子保存 |
 
-帖子和评论在列表、搜索、通知及回复树中保留相同原生 ID。通知按活动返回，后续个人 feed 可按 `thread` 合并；不会用通知读取隐式修改已读状态。
+帖子和评论在列表、通知及回复树中保留相同原生 ID。通知按活动返回，后续个人 feed 可按 `thread` 合并；不会用通知读取隐式修改已读状态。
 
 ## 直接试用
 
@@ -38,7 +37,7 @@ nix develop -c make reader-demo
 (camulus-reddit-browse "ocaml")
 ```
 
-列表中 `RET` 在右侧打开整个回复树，默认展开；`s` 在当前 subreddit 搜索，空查询回到普通列表；`n` 加载下一页，`g` 刷新。关闭阅读 buffer 会取消其请求；同一阅读 buffer 切换帖子时，旧请求结果不会覆盖新帖子。
+列表中 `RET` 在右侧打开整个回复树，默认展开；`s` 打开 Reddit 订阅选项；`n` 加载下一页，`g` 刷新。关闭阅读 buffer 会取消其请求；同一阅读 buffer 切换帖子时，旧请求结果不会覆盖新帖子。
 
 浏览、回复树、投票与收藏都使用同一个原生界面，见 [README](../README.md#阅读与内容管理)。
 
@@ -71,7 +70,7 @@ Reader.Runtime                 与具体后端无关的调度和生命周期
 
 线程/消息关系使用普通不可变 OCaml 记录。`Content.message.thread_id` 是 option，未把 Reddit 的原生稳定 thread ID 假设强加给邮件后端。JSON 只用于 Emacs 边界，跨 domain 通信仍然是类型化 OCaml 值。
 
-`Backend.S` 只要求来源标识、组内列表和搜索；讨论树加载由独立的 `Backend.Threading` 提供。Reddit 和 Maildir 均实现该能力，未来的 RSS 后端可以只实现基础接口。投票参数、操作结果和 `Content.message.my_vote` 使用 `Content.vote = Upvote | Downvote | No_vote`。Reddit 请求和现有 Emacs JSON 边界保留 `1/-1/0` 编码，非法输入在边界拒绝。
+`Backend.S` 只要求来源标识、组内列表；讨论树加载由独立的 `Backend.Threading` 提供。Reddit 和 Maildir 均实现该能力，未来的 RSS 后端可以只实现基础接口。投票参数、操作结果和 `Content.message.my_vote` 使用 `Content.vote = Upvote | Downvote | No_vote`。Reddit 请求和现有 Emacs JSON 边界保留 `1/-1/0` 编码，非法输入在边界拒绝。
 
 ## 交互式投票
 
@@ -102,7 +101,6 @@ summary 列表和回复树都支持 `+` 赞成、`-` 反对、`0` 取消投票�
 ```elisp
 (camulus-reddit-request "{\"op\":\"subreddit\",\"name\":\"ocaml\"}")
 (camulus-reddit-request "{\"op\":\"thread\",\"id\":\"t3_POST_ID\"}")
-(camulus-reddit-request "{\"op\":\"search\",\"name\":\"ocaml\",\"query\":\"effects\"}")
 (camulus-reddit-request "{\"op\":\"notifications\"}")
 ```
 
@@ -114,7 +112,7 @@ summary 列表和回复树都支持 `+` 赞成、`-` 反对、`0` 取消投票�
 
 - `make test`：10 组 Reddit 协议测试、4 项新增原生模块/界面 ERT，加上原有核心、9 项 Emacs 集成测试和退出测试。
 - `make reddit-live`：显式指定环境变量后进行只读联调，默认不包含在 `make test` 中。
-- 真实原生模块：读取 25 个帖子、3 条内容的回复树、25 条组内搜索结果；期间 Emacs 心跳运行 515 次，并完成并发 GC 和 SIGPIPE/SIGCHLD 不变检查。
+- 真实原生模块：读取 25 个帖子、3 条内容的回复树；期间 Emacs 心跳运行 515 次，并完成并发 GC 和 SIGPIPE/SIGCHLD 不变检查。
 - 没有进行真实发帖、回复、投票、token 文件替换或远端已读变更。写入功能通过注入传输的协议测试验证，尚未实际发布测试内容。
 
 原始测试输出见 `reddit-test-results.txt` 和 `reddit-live-results.txt`。图形显示的视觉效果、长期运行及实际编辑/发布流程还未验证。

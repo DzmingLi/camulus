@@ -12,7 +12,6 @@ val legacy_groups : t -> (string * string) list
 val feed : t -> source:string -> group:string -> Yojson.Safe.t
 val timeline : t -> entries:(string * string) list -> Yojson.Safe.t
 val dismiss_timeline : t -> source:string -> id:string -> through:int -> unit
-val search_rows : t -> source:string -> Content.message list -> Yojson.Safe.t
 val dismiss : t -> source:string -> group:string -> id:string -> through:int -> unit
 val folders : t -> string list
 val mkdir : t -> string -> unit
@@ -30,7 +29,7 @@ type operation =
   | Legacy_groups | Feed of string * string
   | Timeline of (string * string) list
   | Dismiss_timeline of string * string * int
-  | Refresh of string * string * string option * string option | Refresh_archives
+  | Refresh of string * string * string option | Refresh_archives
   | Dismiss of string * string * string * int
   | Folders | Mkdir of string | Remove_folder of string | Favorites of string
   | Favorite of string * target * string * string

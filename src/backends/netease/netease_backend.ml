@@ -53,7 +53,6 @@ module Make(H:R.Http.S)=struct
   if more && (events=[] || next="" || Some next=time) then failwith "NetEase invalid continuation";
   List.iter(fun(a:D.article)->Hashtbl.replace t.cache a.message.id a)articles;
   {C.messages=List.map(fun(a:D.article)->a.message)articles;after=if more then Some(Yojson.Safe.to_string(`List[`String group;`String(numeric next)]))else None}
- let search _ _ ~query:_ ~after:_=failwith "NetEase user events do not offer scoped remote search"
  let read t group id=
   match Hashtbl.find_opt t.cache id with Some a->a|None->
   ignore(list t group ~after:None);

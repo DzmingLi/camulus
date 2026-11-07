@@ -161,7 +161,7 @@
    (let* ((data (camulus-state-test-result `((op . "states") (source . ,source) (ids . ["mail:reply@example.test"])) "states")))
      (should (alist-get 'read (car (alist-get 'items (alist-get 'data data))))))))
 
-(ert-deftest state-search-favorites-turn-red-and-return-to-read-gray-after-last-removal ()
+(ert-deftest state-favorites-turn-red-and-return-to-read-gray-after-last-removal ()
   (camulus-state-test-session
    (save-window-excursion
      (camulus-state-test-request `((op . "refresh") (source . ,source) (group . "/Inbox")))
@@ -169,11 +169,10 @@
      (camulus-state-test-request `((op . "read") (source . ,source)
                              (ids . ["mail:root@example.test" "mail:reply@example.test" "mail:child@example.test"]) (value . t)))
      (camulus (car camulus-groups)) (camulus-state-test-ui-idle)
-     (camulus-reader-search "needle") (camulus-state-test-ui-idle)
-     (should (= 1 (length tabulated-list-entries)))
-     (goto-char (point-min))
-     (let ((id (alist-get 'id (camulus-reader--selected))))
-       (cl-labels ((face () (ensure-list (get-text-property 0 'face (aref (cadar tabulated-list-entries) 3)))))
+     (should (= 3 (length tabulated-list-entries)))
+     (goto-char (point-min)) (search-forward "Re: 测试主题") (beginning-of-line)
+     (let ((id (alist-get 'id (camulus-reader--selected))) (key (tabulated-list-get-id)))
+       (cl-labels ((face () (ensure-list (get-text-property 0 'face (aref (cadr (assoc key tabulated-list-entries)) 3)))))
          (should (memq 'camulus-reader-read (face)))
          (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "chosen")))
            (camulus-reader-save) (camulus-state-test-ui-idle))
@@ -187,7 +186,6 @@
          (camulus-state-test-ui-idle)
          (should (memq 'camulus-reader-read (face)))
          (should-not (memq 'camulus-reader-favorite (face)))
-         (should (equal camulus-reader--query "needle"))
-         (should (= 1 (length tabulated-list-entries))))))))
+         (should (= 3 (length tabulated-list-entries))))))))
 
 (ert-run-tests-batch-and-exit)

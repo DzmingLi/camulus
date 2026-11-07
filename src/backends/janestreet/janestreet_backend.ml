@@ -42,7 +42,6 @@ module Make(H:R.Http.S)=struct
  let source=source
  let create ()={feed=Feed.create ~decode ();full=Hashtbl.create 64;lock=Eio.Mutex.create ()}
  let list t group ~after=validate_group group;Feed.list t.feed feed_url ~after
- let search t group ~query ~after=validate_group group;Feed.search t.feed feed_url ~query ~after
  let read t group id =
    validate_group group;ignore(post_url id);
    let a=Feed.read t.feed feed_url id in

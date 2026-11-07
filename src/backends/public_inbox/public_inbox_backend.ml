@@ -79,12 +79,6 @@ module Make(H:R.Http.S)=struct
  let list t group ~after=
   if after<>None then invalid_arg "Public-inbox thread mbox has no cursor";
   {C.messages=List.map(fun a->a.article.message)(load t group);after=None}
- let search t group ~query ~after=
-  let page=list t group ~after in
-  let query=String.lowercase_ascii query in
-  let contains text=let text=String.lowercase_ascii text in
-   let n=String.length query in let rec scan i=i+n<=String.length text && (String.sub text i n=query || scan(i+1)) in scan 0 in
-  {page with messages=List.filter(fun (m:C.message)->contains(m.title^" "^m.author^" "^m.body^Option.value m.html ~default:""))page.messages}
  let read_record t id=let id=canonical id in match Hashtbl.find_opt t.cache id with Some a->a|None->
   ignore(load t id);match Hashtbl.find_opt t.cache id with Some a->a|None->failwith "Message absent from public-inbox thread"
  let read t _ id=(read_record t id).article

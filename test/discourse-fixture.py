@@ -82,7 +82,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return self.respond(200,dict(topic_list=dict(topics=topics,
                         more_topics_url='/latest?page=%d'%(page+1) if len(matching)>page+1 else None)))
                 topics=[self.topic()] if self.level==expected else []
-                if q.get('search')==['missing']: topics=[]
                 return self.respond(200,dict(topic_list=dict(topics=topics)))
             page=int(q.get('page',['0'])[0])
             topics=[self.topic()] if page==0 else [self.topic(8)]
@@ -91,12 +90,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 Handler.list_started=True
                 time.sleep(0.7)
             return self.respond(200, dict(topic_list=dict(topics=topics, more_topics_url='/latest?page=1' if page==0 else None)))
-        if path == '/search.json':
-            query=q.get('q',[''])[0]
-            if 'category:3' not in query: return self.respond(422, dict(errors=['Missing category scope']))
-            topics=[] if 'missing' in query else [self.topic()]
-            return self.respond(200, dict(topics=topics, posts=[dict(topic_id=7, post_number=2)] if topics else [],
-                                         grouped_search_result=dict(more_full_page_results=False)))
         if path == '/t/99.json': time.sleep(5)
         if Handler.manage and path in ('/t/8.json','/t/9.json'):
             number=int(path.split('/')[2].split('.')[0])

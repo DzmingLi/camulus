@@ -40,7 +40,7 @@ type draft = { to_ : string list; cc : string list; subject : string; body : str
 type receipt = { message_id : string }
 type saved_draft = { key : string; group : string; revision : string; source_text : string; indexed : bool }
 type move_result = { destination : string; moved : string list; failed : int }
-type operation = List of group * cursor option | Search of group * string * cursor option
+type operation = List of group * cursor option
   | Thread of string | Read of string | Attachment of string * int * string | Send of draft
   | Draft_new of string * string option | Draft_open of string
   | Draft_save of string * string * string | Draft_list of string
@@ -55,7 +55,7 @@ type result = Page of M.page * bool | Thread_batch of M.thread_batch | Article o
 type process_result = { status : int; stdout : string }
 type run = ?input:string -> ?timeout:float -> string list -> process_result
 type submit = profile:string -> sender:string -> recipients:string list -> string -> unit
-type snapshot = { group : string; query : string; rows : M.message list; truncated : bool }
+type snapshot = { group : string; rows : M.message list; truncated : bool }
 type t = { config : config; run : run; submit : submit; headers : (string,header) Hashtbl.t;
            snapshots : (string,snapshot) Hashtbl.t; mutable serial : int; mutable truncated : bool; mutations : Eio.Mutex.t }
 let source="mail"
@@ -105,7 +105,7 @@ let summaries (headers:header list) =
   Hashtbl.fold(fun _ m acc -> m::acc) groups [] |>
   List.sort(fun (a:M.message) (b:M.message) -> let c=Float.compare b.M.created a.M.created in if c=0 then String.compare a.id b.id else c)
 
-let search t group ~query ~after =
+let list t group ~after =
   if group="" || group.[0]<>'/' then error "Group must be a Maildir path beginning with /";
   let key,offset,snap = match after with
     | Some cursor ->
@@ -113,14 +113,13 @@ let search t group ~query ~after =
        | [key;off] ->
          let offset=try int_of_string off with _ -> error "Invalid mail cursor" in
          let snap=match Hashtbl.find_opt t.snapshots key with Some x -> x | None -> error "Expired mail cursor; refresh" in
-         if snap.group<>group || snap.query<>query || offset<0 || offset>List.length snap.rows then error "Cursor belongs to another search";
+         if snap.group<>group || offset<0 || offset>List.length snap.rows then error "Cursor belongs to another mail group";
          key,offset,snap
        | _ -> error "Invalid mail cursor")
     | None ->
       let scope="maildir:"^quote group in
-      let q=if String.trim query="" then scope else "("^scope^") AND ("^query^")" in
       (* Defense in depth: enforce the group after mu query parsing as well. *)
-      let found=find t q in
+      let found=find t scope in
       let truncated=List.length found>t.config.max_headers in
       let found=List.filter(fun (h:header) -> h.maildir=group) found in
       List.iter (remember t) found;
@@ -131,12 +130,11 @@ let search t group ~query ~after =
         let oldest=Hashtbl.fold(fun k _ n -> min n (int_of_string k)) t.snapshots max_int in
         Hashtbl.remove t.snapshots (string_of_int oldest)
       end;
-      let snap={group;query;rows;truncated} in Hashtbl.add t.snapshots key snap;key,0,snap in
+      let snap={group;rows;truncated} in Hashtbl.add t.snapshots key snap;key,0,snap in
   let rows=List.filteri(fun i _ -> i>=offset && i<offset+t.config.page_size) snap.rows in
   let next=offset+List.length rows in
   t.truncated<-snap.truncated;
   {M.messages=rows;after=(if next<List.length snap.rows then Some(key^":"^string_of_int next) else None)}
-let list t group ~after = search t group ~query:"" ~after
 
 let resolve t id =
   (* Resolve fresh paths from the index, so Maildir flag renames do not change IDs. *)
@@ -398,7 +396,7 @@ let send_draft t key expected = with_mutation t @@ fun () ->
 
 module Readable : Reader.Backend.S with type t=t and type group=group and type cursor=cursor = struct
   type nonrec t=t type nonrec group=group type nonrec cursor=cursor
-  let source=source let list=list let search=search
+  let source=source let list=list
 end
 module Threading : Reader.Backend.Threading with type t=t = struct
   type nonrec t = t
@@ -413,7 +411,6 @@ let operation_of_json j =
   let after=match get j "after" with `String s -> Some s | _ -> None in
   match required "op" with
   | "list" -> List(required "group",after)
-  | "search" -> Search(required "group",required "query",after)
   | "thread" -> Thread(required "id") | "read" -> Read(required "id")
   | "attachment" ->
     let part=match get j "part" with `Int n when n>0 -> n | _ -> error "Invalid attachment part" in
@@ -452,7 +449,6 @@ let result_json = function
   | Sent r -> `Assoc["kind",`String "sent";"id",`String r.message_id]
 let execute t op ~emit = match op with
   | List(g,a) -> let p=list t g ~after:a in emit(Page(p,t.truncated))
-  | Search(g,q,a) -> let p=search t g ~query:q ~after:a in emit(Page(p,t.truncated))
   | Thread id -> thread_full t id ~article_emit:(fun a -> emit(Article a)) ~emit:(fun b -> emit(Thread_batch b))
   | Read id -> emit(Article(read t id))
   | Attachment(id,part,destination) -> save_attachment t id part destination;emit(Saved destination)

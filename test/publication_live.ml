@@ -9,17 +9,12 @@ let ()=Eio_posix.run(fun _->
  run "Jane Street full post" (fun()->let page=Janestreet_backend.Live.list j "posts" ~after:None in
   let body=Janestreet_backend.Live.read j "posts" (List.hd page.messages).id in
   if String.length(Option.get body.message.html)<200 then failwith "Body unexpectedly short";List.length page.messages);
- let b=Blogger_backend.Live.create() and g=Gcores_backend.Live.create() in
+ let b=Blogger_backend.Live.create() in
  run "Blogger full post" (fun()->let group="posts.dostoe.blogspot.com" in
   let p=Blogger_backend.Live.list b group ~after:None in
   let a=Blogger_backend.Live.read b group (List.hd p.messages).id in
   if String.length(Option.get a.message.html)<200 then failwith "Missing full Blogger body";
   Option.iter(fun c->ignore(Blogger_backend.Live.list b group ~after:(Some c)))(p.after);
-  List.length p.messages);
- run "Gcores user talks" (fun()->let group="talks.31418" in
-  let p=Gcores_backend.Live.list g group ~after:None in
-  ignore(Gcores_backend.Live.read g group (List.hd p.messages).id);
-  Option.iter(fun c->ignore(Gcores_backend.Live.list g group ~after:(Some c)))(p.after);
   List.length p.messages);
  let n=Netease_backend.Live.create() and p=Public_inbox_backend.Live.create() in
  run "NetEase events" (fun()->List.length(Netease_backend.Live.list n "events.398686067" ~after:None).messages);

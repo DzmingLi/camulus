@@ -38,17 +38,6 @@ let () =
   let module B=R.Make(H) in
   let response ?(headers=[]) status body : R.Http.response={status;headers;body} in
   Eio_posix.run(fun _ ->
-    let file=Filename.temp_file "rss-subscriptions" ".json" in
-    Sys.remove file;
-    let subscribed=B.create ~subscriptions_file:file () in
-    check(not(B.Subscription.get subscribed url)) "initial RSS following state";
-    B.Subscription.set subscribed url true;
-    let reopened=B.create ~subscriptions_file:file () in
-    check(B.Subscription.get reopened url) "RSS subscriptions survive backend restart without SQLite";
-    B.Subscription.set reopened url false;
-    check(not(B.Subscription.get subscribed url)) "RSS accepts outside following changes";
-    check(!requests=[]) "following an RSS feed does not fetch content";
-    Sys.remove file;Sys.remove(file^".lock");
     let backend=B.create () in
     queue:=[response ~headers:["location","/actual"] 302 "";response ~headers:["etag","\"v1\""] 200 (rss())];
     let p=B.list backend url ~after:None in
@@ -58,7 +47,6 @@ let () =
     check(List.assoc_opt "If-None-Match" (List.hd !requests).headers=Some "\"v1\"") "conditional request";
     check((B.read backend url "stable").message.id="stable") "read without another fetch";
     queue:=[response ~headers:["location","/actual"] 302 "";response 304 ""];
-    check(List.length (B.search backend url ~query:"HELLO" ~after:None).messages=1) "feed-scoped search";
     queue:=[response 200 "A\000BC"];
     let article,files=B.archive backend url "stable" in
     check(files=[0,"A\000BC"]) "archive enclosure bytes";
@@ -87,4 +75,4 @@ let () =
     queue:=[response 200 "<broken>"];
     check(fails(fun () -> ignore(B.list backend url ~after:None))) "bad refresh fails";
     check((B.read backend url "stable").message.id="stable") "bad refresh preserves cache");
-  print_endline "PASS: RSS/Atom parsing, namespaces, dates, identity, conditional GET, search, archives and enclosures"
+  print_endline "PASS: RSS/Atom parsing, namespaces, dates, identity, conditional GET, archives and enclosures"

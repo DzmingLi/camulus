@@ -22,8 +22,6 @@
             (let* ((events (request `((op . "thread") (id . ,(alist-get 'id (car rows))))))
                    (articles (cl-remove-if-not (lambda (x) (equal (alist-get 'kind x) "article")) events)))
               (message "PASS: real local mail thread, %d decoded messages" (length articles))))
-          (request `((op . "search") (group . ,group) (query . "date:today..now")))
-          (message "PASS: real group-scoped search")
           (camulus-probe-gc) (garbage-collect)
           (unless (camulus-probe-signals-unchanged) (error "Host signals changed"))
           (message "PASS: GC and unchanged SIGPIPE/SIGCHLD; no send or mailbox writes"))

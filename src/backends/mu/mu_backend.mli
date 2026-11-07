@@ -18,7 +18,7 @@ type draft = { to_ : string list; cc : string list; subject : string; body : str
 type receipt = { message_id : string }
 type saved_draft = { key : string; group : string; revision : string; source_text : string; indexed : bool }
 type move_result = { destination : string; moved : string list; failed : int }
-type operation = List of group * cursor option | Search of group * string * cursor option
+type operation = List of group * cursor option
   | Thread of string | Read of string | Attachment of string * int * string | Send of draft
   | Draft_new of string * string option | Draft_open of string
   | Draft_save of string * string * string | Draft_list of string
