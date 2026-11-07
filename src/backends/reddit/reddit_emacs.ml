@@ -6,13 +6,10 @@ module CS = Reader.Content_state
 let reddit_config = ref None
 type Protocol.work += Reddit of Reddit_backend.operation
 type Protocol.payload += Reddit_result of Reddit_backend.result
-let reddit_service = function
-  | Reddit_backend.Vote _ | Reply _ | Submit _ | Authorize | Complete_authorization _ -> true
-  | _ -> false
 let source () = Option.map !reddit_config ~f:(fun c -> "reddit:"^c.Reddit_backend.username)
 let submit_operation ~submit operation =
   if Option.is_none !reddit_config then failwith "Configure reddit first";
-  submit ~service:(reddit_service operation) (Reddit operation)
+  submit (Reddit operation)
 module Voting = Reader.Voting
 let votes = Voting.create ()
 let vote_of_int = function
@@ -59,7 +56,7 @@ let prepare ~notify:_ =
     Voting.clear votes;
     {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now ~sleep ~groups:_ ->
       let backend=Reddit_backend.Live.create ~config ~now ~sleep in
-      {matches_source=String.equal ("reddit:"^config.username);
+      {matches_source=String.equal ("reddit:"^config.username);all_pages=false;
        page=(fun ~source:_ group ~after ->
          let group=if String.equal group "notifications" then Reddit_backend.Notifications
            else if String.is_prefix group ~prefix:"post:" then Reddit_backend.Post(String.drop_prefix group 5)
@@ -98,7 +95,7 @@ let install_protocol ~ensure_ui ~idle ~submit =
      ignore (Reddit_backend.Decode.require_thing id : string);
      let previous = vote_of_int previous and direction = vote_of_int direction in
      if Voting.is_pending votes id then failwith "A vote for this item is still pending";
-     let request=submit ~service:true (Reddit (Vote (id,direction))) in
+     let request=submit (Reddit (Vote (id,direction))) in
      Voting.start votes ~id ~request ~previous ~direction;
      request);
   defun (Symbol.intern "camulus-reddit-vote-state") [%here]
@@ -139,7 +136,6 @@ let install ~submit ~configured () =
   custom ~kind:Customization.Type.File "camulus-reddit-token-file" (call "expand-file-name" [s "~/News/nnreddit/refresh-token"]) "Backend configuration option.";
   custom ~kind:Customization.Type.String "camulus-reddit-client-id" (s "5oagOpX2_NKVDej_iuZjFA") "Backend configuration option.";
   custom ~kind:Customization.Type.String "camulus-reddit-redirect-uri" (s "http://127.0.0.1:17973") "Backend configuration option.";
-  register_settings "reddit"(string_settings["username","camulus-reddit-username";"token_file","camulus-reddit-token-file"]);
   register_local_groups ~option:"camulus-reddit-subscriptions" ~source:(fun _->"reddit:"^text(get "camulus-reddit-username")) ~accepts:all_groups { (base ~name:"Reddit" ~matches:(String.is_prefix ~prefix:"reddit:") ~threaded:true
     ~read:(fun ~source:_ ~id ~thread_id ~group:_ ->
       Value.of_int_exn (submit (Reddit_backend.Thread (Option.value thread_id ~default:id))))) with

@@ -26,13 +26,6 @@ module type Liking = sig
   val set_like : t -> id:string -> liked:bool -> unit
 end
 
-module type Writing = sig
-  type t
-  type draft
-  type receipt
-  val send : t -> draft -> receipt
-end
-
 (** Optional backend-owned following policy. Targets and settings deliberately
     remain abstract: an RSS URL and a forum topic need different policies.
     [get] reads the backend's current authority, including remote changes;

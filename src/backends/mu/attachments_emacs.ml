@@ -30,10 +30,10 @@ let save x part destination open_after =
     ~part:(integer(field "part" part)) ~destination in
   let finished=Function.to_value(Defun.lambda [%here] (Returns Value.Type.value)
     (let open Defun.Let_syntax in let%map_open event=required "event" value in
-     if Value.eq(call "nth" [i 3;event])(sym "completed") then (
+     if Value.eq(call "nth" [i 2;event])(sym "completed") then (
        if open_after then run "find-file-other-window" [s destination]
        else message "Saved attachment: %s" [s destination])
-     else message "Attachment: %s" [call "nth" [i 4;event]];
+     else message "Attachment: %s" [call "nth" [i 3;event]];
      nil)) in
   run "puthash" [request;finished;get "camulus-reader--completions"]
 let save_selected () =

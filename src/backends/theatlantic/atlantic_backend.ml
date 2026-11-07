@@ -39,10 +39,7 @@ module Make(H:R.Http.S)=struct
  let create ()=Feed.create ~decode ()
  let list t group ~after=Feed.list t (feed_url group) ~after
  let read t group id=Feed.read t (feed_url group) id
- let archive t group id=
-   let a,files=Feed.archive t (feed_url group) id in
-   {Reader.Content_state.message=a.message;attachments=D.attachments a;files;raw=None}
+ let archive t group id=Feed.archive t (feed_url group) id
  let attachment t group id part path=Feed.attachment t (feed_url group) id part path
 end
 module Live=Make(R.Transport)
-module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live

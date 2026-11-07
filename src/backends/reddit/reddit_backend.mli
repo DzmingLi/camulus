@@ -14,9 +14,6 @@ type config = {
 val config : username:string -> token_file:string -> config
 val validate_config : config -> unit
 type group = Subreddit of string | Post of string | Notifications
-type draft = Comment of { parent : string; text : string }
-           | Text_post of { subreddit : string; title : string; text : string }
-type receipt = Comment_created of Reader.Content.message | Post_created of string
 type operation =
   | Identity
   | List of group * string option
@@ -39,7 +36,7 @@ type result =
 
 (** A session belongs to one Eio domain. Tokens, identity and OAuth state are
     encapsulated; concurrent fibers share refresh and request pacing.
-    [Http.S] is injectable for deterministic protocol tests. *)
+    Network requests are supplied through [Http.S]. *)
 module Make (_ : Http.S) : sig
   type t
   type nonrec group = group
@@ -55,11 +52,6 @@ module Make (_ : Http.S) : sig
   val execute : t -> operation -> emit:(result -> unit) -> unit
 end
 module Live : module type of Make(Transport)
-module Readable : Reader.Backend.S with type t = Live.t and type group = group and type cursor = string
-module Threading : Reader.Backend.Threading with type t = Live.t
-module Voting : Reader.Backend.Voting with type t = Live.t
-module Writing : Reader.Backend.Writing with type t = Live.t
-  and type draft = draft and type receipt = receipt
 
 (** JSON is used only at the Emacs/CLI boundary, not for cross-domain messages. *)
 val operation_of_json : Yojson.Safe.t -> operation

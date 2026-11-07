@@ -13,7 +13,6 @@ type t = {
   events : event Queue.t;
   stop_requested : bool Atomic.t;
   lifecycle : lifecycle Atomic.t;
-  finished : bool Atomic.t;
   command_read : Unix.file_descr;
   command_write : Unix.file_descr;
   notify_ui : unit -> unit;
@@ -41,7 +40,7 @@ let publish t event =
   in put ()
 
 let worker t () =
-  Fun.protect ~finally:(fun () -> Atomic.set t.finished true; t.notify_ui ()) @@ fun () ->
+  Fun.protect ~finally:t.notify_ui @@ fun () ->
   try
     Eio_posix.run ~manage_signals:false @@ fun env ->
     let clock = Eio.Stdenv.mono_clock env in
@@ -56,27 +55,12 @@ let worker t () =
         publish t (Finished (request, Failed "worker busy: 32 active jobs"))
       else begin
         let cancelled, cancel = Eio.Promise.create () in
-        Hashtbl.add jobs request.id (request.owner, cancelled, cancel);
+        Hashtbl.add jobs request.id (cancelled, cancel);
         Eio.Fiber.fork ~sw (fun () ->
           let outcome =
             try
               Eio.Fiber.first
-                (fun () ->
-                  match request.work with
-                  | Fail -> failwith "synthetic backend failure"
-                  | Delay { seconds; steps } ->
-                    for step = 1 to steps do
-                      Eio.Time.Mono.sleep clock (seconds /. float_of_int steps);
-                      publish t (Progress (request, step))
-                    done
-                  | Allocate rounds ->
-                    for step = 1 to rounds do
-                      let batch = Array.init 500 (fun i -> String.make (128 + i mod 64) 'x') in
-                      ignore (Sys.opaque_identity batch);
-                      if step mod 10 = 0 then Gc.full_major ();
-                      Eio.Fiber.yield ()
-                    done
-                  | work -> handle work ~emit:(fun data -> publish t (Data (request,data))))
+                (fun () -> handle request.work ~emit:(fun data -> publish t (Data (request,data))))
                 (fun () -> Eio.Promise.await cancelled; raise User_cancelled);
               Completed
             with
@@ -104,13 +88,8 @@ let worker t () =
           | Some (Cancel id) ->
             (match Hashtbl.find_opt jobs id with
              | None -> ()
-             | Some (_, promise, resolver) ->
+             | Some (promise, resolver) ->
                if not (Eio.Promise.is_resolved promise) then Eio.Promise.resolve resolver ());
-            consume (budget - 1)
-          | Some (Close_view generation) ->
-            Hashtbl.iter (fun _ (owner, promise, resolver) ->
-              if owner = View generation && not (Eio.Promise.is_resolved promise) then
-                Eio.Promise.resolve resolver ()) jobs;
             consume (budget - 1)
         in consume 32
       done;
@@ -119,27 +98,31 @@ let worker t () =
     Atomic.set t.lifecycle Stopped
   with ex -> Atomic.set t.lifecycle (Crashed (Printexc.to_string ex))
 
-let create ?(extension = fun ~net:_ ~now:_ ~sleep:_ _ ~emit:_ -> failwith "Unsupported backend task") ~notify_ui () =
+let create ~extension ~notify_ui () =
   let command_read, command_write = Unix.pipe ~cloexec:true () in
   Unix.set_nonblock command_read;
   Unix.set_nonblock command_write;
   let t = {
     commands = Queue.create ~size_exponent:8; events = Queue.create ~size_exponent:9;
     stop_requested = Atomic.make false; lifecycle = Atomic.make Starting;
-    finished = Atomic.make false; command_read; command_write; notify_ui; extension;
+    command_read; command_write; notify_ui; extension;
     domain = None;
   } in
   (try t.domain <- Some (Domain.spawn (worker t)) with ex ->
      Unix.close command_read; Unix.close command_write; raise ex);
   t
 
+let finished t = match Atomic.get t.lifecycle with
+  | Stopped | Crashed _ -> true
+  | Starting | Running -> false
+
 let submit t command =
-  if Atomic.get t.stop_requested || Atomic.get t.finished then false
+  if Atomic.get t.stop_requested || finished t then false
   else if Queue.try_push t.commands command then (wake t.command_write; true)
   else false
 
 let request_stop t =
-  if not (Atomic.get t.finished) then begin
+  if not (finished t) then begin
     Atomic.set t.stop_requested true;
     wake t.command_write
   end
@@ -148,7 +131,7 @@ let take_event t = Queue.pop_opt t.events
 let status t = Atomic.get t.lifecycle
 
 let reap t =
-  if not (Atomic.get t.finished) then false
+  if not (finished t) then false
   else begin
     (match t.domain with
      | None -> ()

@@ -13,17 +13,18 @@ type group = string
 type cursor = string
 type article = Decode.article
 val article_json : article -> Yojson.Safe.t
-type operation = List of group | Read of group * string | Attachment of group * string * int * string
-val operation_of_json : Yojson.Safe.t -> operation
-val operation_url : operation -> string
 module Make (_:Http.S) : sig
+  type 'a cache
   type t
   include Reader.Backend.S with type t := t and type group = group and type cursor = cursor
   val create : ?decode:(url:string -> string -> article list) -> unit -> t
-  val fetch_articles : t -> string -> string * article list
+
+  (** Cache the complete decoded response, including any pagination metadata. *)
+  val create_cache : decode:(url:string -> string -> 'a) -> unit -> 'a cache
+  val fetch_cached : 'a cache -> string -> string * 'a
   val download_url : string -> string
   val read : t -> group -> string -> article
-  val archive : t -> group -> string -> article * (int * string) list
+  val archive : t -> group -> string -> Reader.Content_state.archived
   val attachment : t -> group -> string -> int -> string -> unit
 end
 module Live : module type of Make(Transport)

@@ -6,19 +6,16 @@ module CS = Reader.Content_state
 let mail_config = ref None
 type Protocol.work += Mail of Mu_backend.operation
 type Protocol.payload += Mail_result of Mu_backend.result
-let mail_service = function
-  | Mu_backend.Send _ | Attachment _ | Draft_new _ | Draft_save _ | Draft_send _ | Archive _ | Trash _ | Sync _ -> true
-  | _ -> false
 let source () = Option.map !mail_config ~f:(fun c -> "maildir:"^c.Mu_backend.root)
 let submit_operation ~submit operation =
   if Option.is_none !mail_config then failwith "Configure maildir first";
-  submit ~service:(mail_service operation) (Mail operation)
+  submit (Mail operation)
 let process_bridge = ref None
 let drain_processes () = match !process_bridge with
     | None -> []
     | Some bridge -> List.map (Mu_backend.Process.drain bridge) ~f:(function
       | Mu_backend.Process.Start r -> Value.list [Value.intern "host-start";Value.of_int_exn r.id;
-          Value.list (List.map r.argv ~f:Value.of_utf8_bytes);Value.of_utf8_bytes r.input_path;Value.of_int_exn r.limit]
+          Value.list (List.map r.argv ~f:Value.of_utf8_bytes)]
       | Cancel id -> Value.list [Value.intern "host-cancel";Value.of_int_exn id])
 
 let prepare ~notify =
@@ -27,20 +24,17 @@ let prepare ~notify =
     process_bridge:=Some bridge;
     {drain=drain_processes;close=(fun () -> process_bridge:=None);
      create=(fun ~net ~now ~sleep ~groups:_ ->
-       let run ?(input="") ?timeout argv =
-         let r=Mu_backend.Process.run bridge ~now ~sleep ~input ?timeout argv in
-         {Mu_backend.status=r.status;stdout=r.stdout} in
+       let run=Mu_backend.Process.run bridge ~now ~sleep in
        let submit ~profile ~sender ~recipients message =
          let smtp=List.Assoc.find config.Mu_backend.smtp_profiles profile ~equal:String.equal
            |> Option.value_exn ~message:"Configure an SMTP profile before sending" in
          Mu_backend.Smtp.send ~net ~sleep smtp ~sender ~recipients message in
        let backend=Mu_backend.create ~config ~run ~submit in
-       {matches_source=String.equal ("maildir:"^config.root);
+       {matches_source=String.equal ("maildir:"^config.root);all_pages=false;
         page=(fun ~source:_ group ~after -> Mu_backend.list backend group ~after);
         archive=(fun ~source:_ ~refresh:_ target id ~native_thread:_ ~add ->
           let capture (a:Mu_backend.article) =
-            let attachments=match Mu_backend.result_json (Article a) with
-              | `Assoc fields -> List.Assoc.find_exn fields ~equal:String.equal "attachments" | _ -> assert false in
+            let attachments=`List(List.map a.attachments ~f:Mu_backend.attachment_json) in
             add {CS.message=a.message;attachments;raw=Some(Mu_backend.raw_message backend a.message.id);files=[]} in
           match target with
           | CS.Article -> capture(Mu_backend.read backend id);true
@@ -49,7 +43,7 @@ let prepare ~notify =
               | Article a -> capture a | Thread_batch b -> complete:=b.complete | _ -> ());!complete);
         execute=(fun work ~observe ~emit -> let observe=observe ~source:("maildir:"^config.root) in match work with
           | Mail operation -> Mu_backend.execute backend operation ~emit:(fun result ->
-            let messages=match result with Mu_backend.Page(p,_) -> p.messages | Thread_batch b -> b.messages | Article a -> [a.message] | _ -> [] in
+            let messages=match result with Mu_backend.Page p -> p.messages | Thread_batch b -> b.messages | Article a -> [a.message] | _ -> [] in
             if not(List.is_empty messages) then observe messages;
             emit(Mail_result result));true
           | _ -> false)})})
@@ -134,10 +128,10 @@ let sync ~submit ~manual () =
       (let open Defun.Let_syntax in let%map_open event=required "event" value in
        if Option.equal Int.equal !sync_request (Some id) then (
          sync_request:=None;
-         if Value.eq (call "nth" [i 3;event]) (sym "completed") then (
+         if Value.eq (call "nth" [i 2;event]) (sym "completed") then (
            run "camulus-reader--refresh-source" [source];
            if manual then message "Mail synchronized and indexed" [])
-         else message "Mail sync: %s" [call "nth" [i 4;event]]);
+         else message "Mail sync: %s" [call "nth" [i 3;event]]);
        nil)) in
     run "puthash" [i id;finish;get "camulus-reader--completions"]
 let start_sync ~submit () =
@@ -163,24 +157,6 @@ let install ~submit ~configured ~request_state () =
   custom ~kind:Customization.Type.Integer "camulus-mail-sync-interval" (i 0) "Backend configuration option.";
   define0 ~interactive:true "camulus-mail-sync" (fun () ->
     run "camulus-reader-start" [];sync ~submit ~manual:true ());
-  register_settings "mu"(fun j->
-    let strings=string_settings ["root","camulus-mail-root";"muhome","camulus-mail-muhome";"sender","camulus-mail-sender";"account","camulus-mail-account"]j in
-    let lists=List.filter_map ["accounts","camulus-mail-accounts",3;"smtp_profiles","camulus-mail-smtp-profiles",6]~f:(fun(k,var,width)->match json_field k j with
-     |`Null->None
-     |`List rows when List.for_all rows~f:(function `List cells when List.length cells=width ->
-       List.for_alli cells~f:(fun index->function `Int port when width=6 && index=2->port>0 && port<65536|`String _->not(width=6 && index=2)|_->false)|_->false)->Some(var,of_json(`List rows))
-     |_->failwith("Invalid mu setting: "^k))in
-    let command=match json_field "sync_command" j with
-      | `Null -> []
-      | `List args when List.for_all args ~f:(function `String arg -> not(String.contains arg '\000') | _ -> false)
-          && (match args with `String first::_ -> not(String.is_empty first) | [] -> true | _ -> false) ->
-        ["camulus-mail-sync-command",of_json (`List args)]
-      | _ -> failwith "mu.sync_command must be an argument array" in
-    let interval=match json_field "sync_interval" j with
-      | `Null -> []
-      | `Int n when n>=0 -> ["camulus-mail-sync-interval",i n]
-      | _ -> failwith "mu.sync_interval must be nonnegative seconds" in
-    strings@lists@command@interval);
   register_local_groups ~option:"camulus-mu-subscriptions" ~source:(fun _->"maildir:"^text(get "camulus-mail-root")) ~accepts:all_groups { (base ~name:"Mu" ~matches:(String.is_prefix ~prefix:"maildir:") ~threaded:true
     ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_ -> Value.of_int_exn (submit (Mu_backend.Thread id)))) with
     start=(fun()->if truth(get "camulus-mail-sender")then(

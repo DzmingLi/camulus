@@ -23,13 +23,23 @@ let callback f=lambda2(fun data reason->f data(if truth reason then Some(text re
 let for_readers source f=
  List.iter(Buffer.all_live())~f:(fun buffer->Current_buffer.set_temporarily Sync buffer~f:(fun()->
   if truth(call "derived-mode-p"[sym "camulus-reader-article-mode"]) && Value.equal(get "camulus-reader--source")source then f()))
+(* Discover forum identities for credentials without validating unrelated groups.
+   Invalid forum URLs are reported when their group is opened. *)
+let registered_sites () =
+ List.filter_map (values(get "camulus-groups")) ~f:(fun entry ->
+  let source=field "source" entry in
+  if not(truth(call "stringp" [source])) || not(Discourse_backend.is_source(text source)) then None else
+  try Some(Discourse_backend.site_of_source(text source),entry) with Invalid_argument _ -> None)
+ |> List.stable_dedup ~compare:(fun (a,_) (b,_) -> String.compare a b)
 let setup ()=
  set "camulus-discourse--authenticated-sites" nil;
  List.iter["camulus-discourse--callbacks";"camulus-discourse--likes";"camulus-discourse--like-values"]~f:(fun name->run "clrhash"[get name]);
  run "camulus-discourse-clear-config"[];
  Credentials_emacs.with_sources (List.map(values(get "camulus-discourse-auth-sources"))~f:text)(fun()->
-  List.iter(values(get "camulus-discourse-sites"))~f:(fun value->
-   let site=call "camulus-discourse-site"[value]in
+  let sites=List.map(values(get "camulus-discourse-sites")) ~f:(fun value -> Discourse_backend.Decode.site(text value)) @
+   List.map(registered_sites ()) ~f:fst |> List.dedup_and_sort ~compare:String.compare in
+  List.iter sites ~f:(fun value->
+   let site=s value in
    let headers=if truth(call "fboundp"[sym "discourse-auth-headers"])then call "discourse-auth-headers"[site]else(
     match Credentials_emacs.auth_source ~port:"discourse-user-api" ~require_user:true (text site) with
     |None->nil
@@ -76,10 +86,10 @@ let install ()=
  define1 "camulus-discourse--event"(fun event->let id=call "nth"[i 1;event]in
   let f=hget "camulus-discourse--callbacks"id in if truth f then(
    let kind=call "car"[event]in
-   if Value.eq kind(sym "discourse")then ignore(Value.funcallN f[call "nth"[i 3;event];nil]:Value.t)
+   if Value.eq kind(sym "discourse")then ignore(Value.funcallN f[call "nth"[i 2;event];nil]:Value.t)
    else if Value.eq kind(sym "finished")then(remove "camulus-discourse--callbacks"id;
-    if not(Value.eq(call "nth"[i 3;event])(sym "completed"))then(
-     let reason=call "nth"[i 4;event]in ignore(Value.funcallN f[nil;reason]:Value.t);message "Discourse: %s"[reason])));nil);
+    if not(Value.eq(call "nth"[i 2;event])(sym "completed"))then(
+     let reason=call "nth"[i 3;event]in ignore(Value.funcallN f[nil;reason]:Value.t);message "Discourse: %s"[reason])));nil);
  hook "camulus-probe-event-hook""camulus-discourse--event";
  Defun.defun(Symbol.intern "camulus-discourse--apply-like")[%here]~docstring:"Reconcile like responses with pending edits."(Returns Value.Type.value)
   (let open Defun.Let_syntax in let%map_open item=required "message"value and source=required "source"value and request=required "request"value in apply_like item source request);

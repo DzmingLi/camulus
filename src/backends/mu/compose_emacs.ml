@@ -82,9 +82,9 @@ let install ()=
  List.iter["camulus-mail--group";"camulus-mail-draft-key";"camulus-mail-draft-revision"]~f:(fun name->variable name nil;run "make-variable-buffer-local"[sym name]);
  define1 "camulus-mail--action-event"(fun event->let id=call "nth"[i 1;event]in let id=if truth(call "integerp"[id])then integer id else -1 in
   Option.iter(Hashtbl.find actions id)~f:(fun(receive,finish)->let kind=call "car"[event]in
-   if Value.eq kind(sym "mail")then receive(call "nth"[i 3;event])
+   if Value.eq kind(sym "mail")then receive(call "nth"[i 2;event])
    else if Value.eq kind(sym "finished")then(
-    Hashtbl.remove actions id;let state=call "nth"[i 3;event]and reason=call "nth"[i 4;event]in
+    Hashtbl.remove actions id;let state=call "nth"[i 2;event]and reason=call "nth"[i 3;event]in
     match finish with Some f->f state reason|None->if not(Value.eq state(sym "completed"))then message "Mail: %s"[reason]));nil);
  hook "camulus-probe-event-hook""camulus-mail--action-event";
  define0 "camulus-mail--no-direct-send"(fun()->user_error "Use C-c C-c to send through the OCaml mail backend");

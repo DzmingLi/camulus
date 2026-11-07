@@ -56,7 +56,7 @@ module Make(H:R.Http.S)=struct
  let list t group ~after=
   let kind,user_type,user=parts group in
   let offset=match after with None->0|Some s->(match Yojson.Safe.from_string s with
-   | `List[`String g;`Int n] when g=group && n>0 && n<=1000000->n|_->invalid_arg "Invalid Zhihu cursor") in
+   | `List[`String g;`Int n] when g=group && n>0->n|_->invalid_arg "Invalid Zhihu cursor") in
   let url=Uri.of_string("https://www.zhihu.com/api/v4/members/"^user^"/"^kind) |> fun u->
    Uri.add_query_params' u (if kind="articles" then
     ["include","data[*].comment_count,content,voteup_count,created,updated;data[*].author.vip_info";
@@ -81,6 +81,5 @@ module Make(H:R.Http.S)=struct
  let attachment t group id part destination=R.Article.attachment ~download(read t group id)part destination
 end
 module Live=Make(R.Transport)
-module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live
 
 let create_live ~cookies () = Live.create ~cookies ()

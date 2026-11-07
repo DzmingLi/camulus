@@ -64,7 +64,7 @@ nix develop -c make reader-demo
 
 授权继续使用已有的 `M-x discourse-auth-login`，本次没有另建授权协议或替换凭据存储。新站点可以直接匿名浏览；在运行时已经启动之后新增或变更授权，需要先 `M-x camulus-probe-session-stop`，再启动 reader。`emacs -Q` 不会自动加载个人 auth-source 配置，私有论坛需要在该会话中提供原有认证配置。
 
-API 凭据只发往指定站点及其部署路径。API 请求不跟随重定向，避免凭据泄漏；分页只使用后端生成且绑定当前组/查询的游标，不直接访问响应中给出的任意 URL。附件支持 CDN 重定向，跨域时不发送 User API 凭据。远端使用 HTTPS，仅测试允许 loopback HTTP。
+API 凭据只发往指定站点及其部署路径。API 请求不跟随重定向，避免凭据泄漏；分页只使用后端生成且绑定当前组/查询的游标，不直接访问响应中给出的任意 URL。附件支持 CDN 重定向，跨域时不发送 User API 凭据。远端使用 HTTPS，也允许 loopback HTTP。
 
 ## 身份、回复树与归档
 
@@ -94,18 +94,6 @@ HTTP 响应、附件下载和归档不设大小配额。连接超时 10 秒，�
 | `topic-state` | `id`，读取服务器当前 notification level |
 | `attachment` | 文章 `id`、数字 `part`、本地 `destination` |
 
-回复、发帖与 tracking 已实现后端接口及模拟服务测试。回复/发帖编辑界面仍待接入；当前界面已接入点赞和通用订阅设置。**持久离线写入队列尚未实现**。HTTP 超时、5xx 或无法确认的写入回执会报告结果不确定，不自动重发；确认论坛实际状态后再决定后续操作。
+回复、发帖与 tracking 已实现后端接口。回复/发帖编辑界面仍待接入；当前界面已接入点赞和通用订阅设置。**持久离线写入队列尚未实现**。HTTP 超时、5xx 或无法确认的写入回执会报告结果不确定，不自动重发；确认论坛实际状态后再决定后续操作。
 
 `Subscription.get/set` 直接读写远端 notification level；`Topic_tracking.list` 用于会话追踪管理。个人时间线只读取服务器通知，不维护第二份本地追踪或通知选择状态。
-
-## 验证
-
-入口与订阅重构后的完整结果见 entries-test-results.txt（本地验证输出）。
-
-新增 OCaml 测试覆盖身份、分批树、缺页失败、分类隔离、游标隔离、凭据头、点赞幂等、回复回执、写入不确定且不重试、tracking 读写，以及 CDN 下载不携带认证信息。
-
-Emacs 测试覆盖组浏览、分页、完整展开的树、入口/移除/新回复、通知自动发现、移除后新通知恢复、远端追踪变化和并发刷新缓存、归档更新、重启后的离线正文与二进制附件、User API 写入、乐观点赞与旧结果协调、取消及其他任务继续运行。写入测试全部针对 loopback 模拟论坛，不修改真实论坛账户或发布真实帖子。
-
-原有 35 项 Emacs 回归与最初 4 项 Discourse 测试通过；补充点赞竞争测试与父楼归档占位处理后，5 项 Discourse 测试及 OCaml 测试通过。记录见 discourse-test-results.txt（本地验证输出） 和 discourse-followup-test-results.txt（本地验证输出）。另对 `discourse.nixos.org` 匿名 GET 最新列表及一个讨论，核对了当前 API 的分页、stream 与 post 字段；未进行真实认证写入测试。
-
-参考：[官方 API 文档](https://docs.discourse.org/)、[TopicsController](https://github.com/discourse/discourse/blob/main/app/controllers/topics_controller.rb)、[PostActionsController](https://github.com/discourse/discourse/blob/main/app/controllers/post_actions_controller.rb)。本地旧实现只用于核对认证、ID 和分页约定；归档与统一 feed 使用当前 OCaml 阅读器的实现。

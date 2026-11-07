@@ -98,5 +98,3 @@ module Make(H:R.Http.S)=struct
   R.Article.attachment ~download:(fun _->bytes) record.article part destination
 end
 module Live=Make(R.Transport)
-module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live
-module Threading : Reader.Backend.Threading with type t=Live.t = Live

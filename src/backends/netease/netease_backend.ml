@@ -62,4 +62,3 @@ module Make(H:R.Http.S)=struct
  let attachment t group id part destination=R.Article.attachment ~download(read t group id)part destination
 end
 module Live=Make(R.Transport)
-module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live

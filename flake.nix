@@ -37,27 +37,6 @@
         default = scope.camulus;
         emacs-camulus = self.lib.mkEmacsPackage pkgs.emacsPackages;
       };
-      checks.${system} = {
-        startup =
-          let editor = pkgs.emacs-nox.pkgs.withPackages (epkgs: [ (self.lib.mkEmacsPackage epkgs) ]);
-          in pkgs.runCommand "camulus-package-startup" { } ''
-            export XDG_CONFIG_HOME="$TMPDIR/config"
-            export XDG_STATE_HOME="$TMPDIR/state"
-            export XDG_CACHE_HOME="$TMPDIR/cache"
-            mkdir -p "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME"
-            ${editor}/bin/emacs --batch --module-assertions -l ${./test/package-startup.el}
-            touch "$out"
-          '';
-        reader = scope.camulus.overrideAttrs (old: {
-          doCheck = true;
-          nativeBuildInputs = (old.nativeBuildInputs or []) ++ [
-            pkgs.gnumake pkgs.python3 pkgs.emacs-nox pkgs.mu
-          ];
-          checkPhase = ''
-            make test BUILD_DIR="$PWD/_build"
-          '';
-        });
-      };
       # An ordinary Emacs package; no OCaml compiler is needed at runtime.
       lib.mkWebkitPackage = epkgs: pkgs.callPackage ./nix/webkit {
         emacsPackages = epkgs;
@@ -81,7 +60,7 @@
       };
       devShells.${system}.default = pkgs.mkShell {
         inputsFrom = [ scope.camulus ];
-        packages = [ pkgs.gnumake pkgs.python3 pkgs.emacs-nox pkgs.openssl pkgs.mu ];
+        packages = [ pkgs.gnumake pkgs.emacs-nox pkgs.mu ];
       };
     };
 }

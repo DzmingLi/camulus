@@ -7,7 +7,7 @@ module C=Reader.Content_state
 
 type operation = Read of string | Attachment of string * int * string | Like of string * bool
 type P.work += Douban of operation
-type P.payload += Douban_content of Yojson.Safe.t | Douban_liked of string * D.reaction
+type P.payload += Douban_liked of string * D.reaction
 let pending : int String.Table.t = String.Table.create ()
 let confirmed : (int * D.reaction) String.Table.t = String.Table.create ()
 let redraw () =
@@ -19,7 +19,7 @@ let prepare ~notify:_ =
  Some {drain=(fun()->[]);close=(fun()->Hashtbl.clear pending;Hashtbl.clear confirmed);
   create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ->
    let backend=D.create_live ~cookies:(Reader.Credentials.Firefox.get browser) () in
-   {matches_source=String.equal ("douban");
+   {matches_source=String.equal ("douban");all_pages=false;
     page=(fun ~source:_ group ~after->D.Live.list backend group ~after);
     archive=(fun ~source:_ ~refresh:_ target id ~native_thread:_ ~add->
      match target with
@@ -30,11 +30,11 @@ let prepare ~notify:_ =
      | Douban operation ->
        (match operation with
         | Read id->D.Live.stream_thread backend id
-          ~emit_article:(fun a->observe[a.message];emit(Douban_content(D.Live.article_json backend a)))
-          ~emit:(fun b->emit(Douban_content(`Assoc["kind",`String "thread";"thread",`String b.thread;
+          ~emit_article:(fun a->observe[a.message];emit(Presentation("rss",D.Live.article_json backend a)))
+          ~emit:(fun b->emit(Presentation("rss",`Assoc["kind",`String "thread";"thread",`String b.thread;
             "messages",`List(List.map b.messages ~f:(D.Live.message_json backend));"complete",`Bool b.complete])))
         | Attachment(id,part,destination)->D.Live.attachment backend "" id part destination;
-          emit(Douban_content(`Assoc["kind",`String "saved";"path",`String destination]))
+          emit(Presentation("rss",`Assoc["kind",`String "saved";"path",`String destination]))
         | Like(id,liked)->D.Live.set_like backend ~id ~liked;
           emit(Douban_liked(id,Option.value_exn(D.Live.reaction backend id))));true
      | _->false)})}
@@ -45,7 +45,6 @@ let install_protocol () =
  worker_factories:=prepare::!worker_factories;
  source_providers:=(fun()->Some "douban")::!source_providers;
  payload_renderers:=(function
-  | Douban_content data->Some("rss",data)
   | Douban_liked(id,r)->Some("douban-liked",`Assoc(("id",`String id)::D.reaction_fields(Some r)))
   | _->None)::!payload_renderers;
  event_observers:=(fun ~barrier event->
@@ -73,14 +72,14 @@ let install ~submit () =
   let item=call "gethash"[s id;get "camulus-reader--messages"] in
   if not(truth(call "gethash"[s id;get "camulus-reader--loaded"])) || truth(field "unavailable" item) then user_error "请等待该楼内容加载完成";
   if Hashtbl.mem pending id then user_error "该楼的点赞请求仍在提交";
-  let request=submit ~service:true (Douban(Like(id,liked))) in
+  let request=submit (Douban(Like(id,liked))) in
   Hashtbl.set pending ~key:id ~data:request;
   message "正在提交豆瓣点赞操作…" [] in
  define0 ~interactive:true "camulus-douban-like" (fun()->like true);
  define0 ~interactive:true "camulus-douban-unlike" (fun()->like false);
  register_local_groups ~option:"camulus-douban-subscriptions" ~source:(fun _->"douban") ~accepts:all_groups { (base ~name:"douban" ~matches:(String.equal "douban") ~threaded:true
-  ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_->i(submit ~service:false (Douban(Read id))))) with
-  attachment=Some(fun ~source:_ ~id ~group:_ ~part ~destination->i(submit ~service:true (Douban(Attachment(id,part,destination)))));
+  ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_->i(submit (Douban(Read id))))) with
+  attachment=Some(fun ~source:_ ~id ~group:_ ~part ~destination->i(submit (Douban(Attachment(id,part,destination)))));
   controls=[{key="l";hint="赞 · l";command="camulus-douban-like"};{key="L";hint="取消赞 · L";command="camulus-douban-unlike"}];
   article_marks=(fun item->if truth(field "like-count" item) then " · "^text(call "number-to-string"[field "like-count" item])^" 赞" else "");
   reconcile=(fun ~source:_ ~existing:_ ~request ~archived item->

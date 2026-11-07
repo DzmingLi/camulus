@@ -25,12 +25,11 @@ src/
   credentials.ml             凭据文件读写与 Firefox Cookie 提供器
   credentials_emacs.ml       Emacs auth-source 查询和延迟 secret 解析
   reader_backend.ml          当前 Emacs 能力注册与 worker 注册
-  reader_config.ml           Customize 配置、入口校验和优先级选项
+  reader_config.ml           Customize 配置、使用入口时的处理和优先级选项
   reader_ui.ml               时间线、组、收藏、阅读窗口
   writing.ml                 撰写会话、自动保存、关闭与发送协调
   reader_tracking_ui.ml      通用远端会话追踪面板
   reader_media.ml            正文媒体的 Emacs 呈现
-  reader_webkit.ml           Emacs WebKit 页面与消息通道
   firefox_cookies.ml         可复用的 Firefox 凭据读取能力
   host.ml / host_stubs.c     宿主通知和信号保护
   camulus_native.ml          链接后端、注册命令、装配 Emacs 界面
@@ -44,7 +43,6 @@ src/
 lisp/camulus.el              autoload 和原生模块加载
 nix/                        Emacs WebKit 的打包
 patches/                    Ecaml 与 Eio 的宿主适配补丁
-test/                       OCaml 测试、Emacs 集成测试、协议模拟服务
 ```
 
 物理上同在 `src/`，不意味着所有模块都依赖 Emacs。[src/dune](../src/dune) 定义了三个主要编译单元：
@@ -52,7 +50,7 @@ test/                       OCaml 测试、Emacs 集成测试、协议模拟服�
 | 编译单元 | 内容 | 是否依赖 Ecaml |
 | --- | --- | --- |
 | `reader` | 内容、状态、协议、运行时和一些宿主工具 | 否 |
-| `reader_emacs_backend` | `reader_backend`、`reader_webkit`、`credentials_emacs`、`writing` | 是 |
+| `reader_emacs_backend` | `reader_backend`、`credentials_emacs`、`writing` | 是 |
 | `camulus_native` | 原生入口、公共界面、配置、运行时宿主 | 是 |
 
 每个后端也区分协议库和 Emacs 适配库。例如 `reddit_backend` 处理 HTTP、OAuth 和内容，`reddit_emacs` 注册命令、快捷键及 worker。源码归入同一个后端目录，是为了便于按功能查找；Dune 的库依赖才决定代码能否在没有 Emacs 的情况下使用。
@@ -65,17 +63,23 @@ test/                       OCaml 测试、Emacs 集成测试、协议模拟服�
 
 抽象类型让后端保留自己的模型：Discourse 可以使用 `Latest`、`Category`、`Topic`、`Notifications` 等变体，RSS 可以使用 feed URL，邮件可以使用本地查询或邮件目录。公共界面边界再把组和游标转换成字符串。
 
-`Threading`、`Voting`、`Liking`、`Writing`、`Subscription` 和 `Topic_tracking` 是独立的可选签名。RSS 无须伪造 thread，单向点赞也无须伪造反对票。`Subscription` 的 `target` 和 `settings` 属于后端，所以论坛的追踪级别不会被压缩成统一的布尔开关。
+`Threading`、`Voting`、`Liking`、`Subscription` 和 `Topic_tracking` 是独立的可选签名。RSS 无须伪造 thread，单向点赞也无须伪造反对票。`Subscription` 的 `target` 和 `settings` 属于后端，所以论坛的追踪级别不会被压缩成统一的布尔开关。
 
 基础签名只要求来源标识和组内分页列表。声明签名本身不会自动生成界面能力或完成注册。
 
+适配器直接调用后端的 `Live` 模块（邮件则直接调用 `Mu_backend`），不再另设未被调用的 `Readable`、`Threading` 等转发模块。写入使用后端实际提供的 `reply`、`submit` 或 `send`，不再为统一 `Writing` 包装额外定义草稿和回执类型。公共界面仍通过 `Reader_backend` 注册的能力工作。
+
 ### Functor 注入依赖
 
-Reddit、RSS 等后端使用 `Make (Transport : Http.S)`。Functor 可以理解为“接收模块、返回模块”的函数：真实运行传入网络传输模块，协议测试传入可控制响应的传输模块。调用者仍使用同样的 `list`、`read` 或写入操作。
+Reddit、RSS 等后端使用 `Make (Transport : Http.S)`。Functor 可以理解为“接收模块、返回模块”的函数：后端接收网络传输模块。调用者仍使用同样的 `list`、`read` 或写入操作。
 
-这里隔离的是 HTTP 依赖，便于控制分页、失败、超时和认证响应；不是为了测试而额外创建一个业务层。实际网络和 Emacs 集成仍需要另外验证。
+这里隔离的是 HTTP 依赖，分页、错误和认证逻辑仍由后端处理。
 
 JSON Feed 的格式解析交给外部 `jsonfeed` 库，当前只接受 1.1。Camulus 保留版本检查、HTML 清理、URL 解析和到 `Content.message` 的转换。[jsonfeed_backend.ml](../src/backends/jsonfeed/jsonfeed_backend.ml) 不再依赖自写 `decode.ml`。RSS 和 JSON Feed 的 Emacs 接入通过 [rss_emacs.ml](../src/backends/rss/rss_emacs.ml) 中的 `Connect` functor 复用；各自保留解析器、分页游标和后端状态。
+
+Feed 的 HTTP 缓存保存完整解析结果，文章与下一页信息属于同一份响应，不再另存分页表。JSON Feed 和 Blogger 的公共刷新任务自动加载后续页，每批持久化并更新列表；浏览入口和 Home 都适用。Blogger 请求不指定 `max-results`，由来源决定返回数量。`C-c C-k` 停止当前列表加载，保留已收到的内容；有剩余页时可按 `n` 继续。刷新、切换来源或关闭列表会取消旧任务。
+
+RSS 浏览也使用 `reader_ui.ml` 的公共列表、刷新和内容状态流程，后端不再单独定义列表模式。界面内部直接提交 `Content_state.operation`，只有对外的 Lisp 请求入口需要解析请求字段。
 
 ### 注册把能力接入运行中的程序
 
@@ -100,7 +104,7 @@ JSON Feed 的格式解析交给外部 `jsonfeed` 库，当前只接受 1.1。Cam
 
 邮件可以没有稳定的原生 thread ID。`content_state.ml` 的 `components` 根据父消息、引用关系和可用的原生会话关联构造连通分量，用于列表合并与归档覆盖判断。这个内部结果不是邮件协议中的永久 thread ID，也不按相同标题强行合并邮件。
 
-`Content.tree_order` 负责显示顺序：同一父节点下按来源时间排序，时间相同再按 ID 排序；缺失父节点的消息仍保留，循环关系不会导致无限遍历。这个函数组织已有消息，并不负责获取缺失回复。
+`Reader_ui.render` 负责显示顺序：同一父节点下按来源时间排序，时间相同再按 ID 排序；缺失父节点的消息仍保留，循环关系不会导致无限遍历。界面用显式栈遍历已有消息，并不负责获取缺失回复；核心不再维护另一套未使用的排序实现。
 
 渐进加载通过 `thread_batch` 表达：`messages` 是本批消息，`gaps` 描述未展开的部分，`complete` 表示后端是否完成该次会话读取。Emacs 界面合并批次并保持阅读锚点；只有后端知道远端是否还有内容。
 
@@ -114,7 +118,7 @@ sequenceDiagram
     participant B as 后端 worker
     participant S as 内容状态
     U->>H: 提交操作
-    H->>R: Submit 包含 id owner work
+    H->>R: Submit 包含 id work
     H-->>U: 返回请求编号
     R->>B: 执行任务
     B-->>R: 内容批次或操作结果
@@ -156,11 +160,13 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 命令队列满时，提交返回失败，调用者不能把操作当作已接受。事件队列满时，后台 fiber 等待并检查停止请求。停止使用独立原子标记，因此不要求先在已满队列中排入一条停止消息。
 
+清理结束后，生命周期进入 `Stopped` 或 `Crashed`，提交和回收直接据此判断任务域是否结束，不再维护第二个完成标记。
+
 ### 取消和过期响应
 
-`Protocol.request` 包含 `id`、`owner` 和 `work`。`owner` 为 `View generation` 或 `Service`：前者可随视图关闭取消，后者允许操作离开当前视图后继续完成。运行时最多容纳 32 个活动任务，等待发布终态的任务也计入限额。
+`Protocol.request` 只包含 `id` 和 `work`。界面按请求 ID 取消已离开的列表或阅读任务，写入任务继续运行；运行时不再维护全局视图编号或任务归属分类。运行时最多容纳 32 个活动任务，等待发布终态的任务也计入限额。
 
-取消通过 promise 和 `Eio.Fiber.first` 传播。Emacs 界面同时检查视图代次和 buffer 内的请求 token；存储刷新还检查入口版本，阻止较早发出的慢响应覆盖较新的列表快照。这几处检查分别保护任务生命周期、界面和持久状态，不能相互替代。
+取消通过 promise 和 `Eio.Fiber.first` 传播。Emacs 界面检查 buffer 内的请求 ID 和 token；存储刷新还检查入口版本，阻止较早发出的慢响应覆盖较新的列表快照。这几处检查分别保护任务生命周期、界面和持久状态，不能相互替代。
 
 取消本地等待不表示远端写入已经撤销。当前 `voting.ml` 的 `Pending` 等状态是会话内乐观展示及结果协调，既不是持久离线队列，也不意味着等待下一轮定时同步才发送请求。通用离线写入重试尚未实现。
 
@@ -168,9 +174,13 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 组是浏览入口，由来源和组标识组成。`camulus-groups` 为它增加名字，注册组不会订阅，取消订阅也不删除浏览入口。首页顶部的后端按钮按后端筛选这些已注册入口。
 
+配置直接在使用处读取，不再有全量加载、校验和写回阶段。打开分组时检查当前入口并规范化其来源；Discourse 独立发现已注册的有效站点用于认证和通知，不修改用户选项。
+
 本地订阅是各后端声明的 Customize 选项。RSS 直接读取 `camulus-rss-subscriptions` 中的 URL；不经过后台任务或 JSON 状态文件。Discourse 从服务器读取会话追踪状态，并提供远端追踪管理面板。Discourse 时间线使用已注册且已认证站点的会话通知，不把浏览全站等同于订阅全站，也不保留另一套“回复我的”组订阅。
 
-主页向各后端的 `followed` 能力询问个人来源，允许立即返回或异步返回。它合并这些来源、应用优先级筛选，再调度入口刷新；当前主页最多同时刷新 4 个入口。后端可提供没有单独注册浏览组的通知流，显示名字则尽量复用已有组配置。
+主页通过各后端的 `followed` 能力直接读取配置中的个人来源。它合并这些来源、应用优先级筛选，再异步调度内容刷新；当前主页最多同时刷新 4 个入口。后端可提供没有单独注册浏览组的通知流，显示名字则尽量复用已有组配置。
+
+优先级接受负整数，在筛选和展示时读取，每次操作只解析一次规则；启动时不预先校验未使用的优先级配置。Feed 条目、附件数量、讨论分页、邮件及草稿体积不设业务配额。MIME、豆瓣评论和转发按实际嵌套层级处理，不再额外报错或截断深层内容；分页仍检查来源与进度，网络与进程仍支持超时和取消。
 
 优先级属于本地呈现偏好，作用于一个完整订阅来源 `(source, group)`。同一 Discourse 站点的通知流共用一个优先级，当前不区分其中各话题。
 
@@ -180,7 +190,7 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 | `camulus-default-subscription-priority` | 没有单独设置的来源级别，默认为 2 |
 | `camulus-home-priorities` | 主页显示哪些级别，`nil` 表示全部 |
 
-级别为非负整数，较小值代表较高优先级；可以约定 1 为重要、2 为普通、3 为稍后阅读。筛选采用明确的级别集合，不是阈值。列表内部仍按来源时间排序，不因优先级改变文章时间顺序。
+级别为整数，允许负数，较小值代表较高优先级；可以约定 1 为重要、2 为普通、3 为稍后阅读。筛选采用明确的级别集合，不是阈值。列表内部仍按来源时间排序，不因优先级改变文章时间顺序。
 
 ```elisp
 (setopt camulus-subscription-priorities
@@ -233,7 +243,7 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 未来 JMAP 后端可以直接使用 HTTP，不需要实现相同的外部进程机制。公共 `Runtime` 不要求所有后端都能启动子进程。
 
-[reader_webkit.ml](../src/reader_webkit.ml) 的接口负责打开页面、接收受限消息和关闭页面，属于 Emacs 宿主能力。正文的 SHR、图片和内联视频由 Emacs 界面呈现。它们不应变成来源协议库的硬依赖。
+[reader_media.ml](../src/reader_media.ml) 按需加载 WebKit 模块，管理正文中的视频播放器。正文的 SHR、图片和内联视频由 Emacs 界面呈现，不是来源协议库的依赖。
 
 [firefox_cookies.ml](../src/firefox_cookies.ml) 读取明确配置的 Firefox profile，筛选适用于 HTTPS 目标的未过期 Cookie。它不自行登录网站，也不是用户所有后端必须使用的全局认证系统。知乎和豆瓣可以选择它，其他后端可以使用 OAuth、User API Key 或自己的凭据机制。
 
@@ -254,7 +264,7 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 [http.ml](../src/http.ml) 定义共享的请求、响应和 HTTP 方法，以及基于 ocurl multi 的 Eio 传输。RSS、Reddit、Discourse 和使用 RSS 传输的内容后端不再各自维护 `curl_transport.ml`。传输统一处理 TLS、证书、连接与总超时、取消及句柄清理；不自动重试、不跟随重定向，也不查找或注入凭据。
 
-后端在自己的 `Transport` 模块指定 URL 策略：RSS 接受 HTTP/HTTPS，Reddit 只接受 HTTPS，Discourse 允许 HTTPS 和测试用的 loopback HTTP。具体的认证请求头、凭据发送目标及重定向规则由后端决定。例如 Discourse 媒体下载只向同源且符合站点挂载路径的地址附加密钥，RSS 的跨域重定向不携带其他来源的认证信息。
+后端在自己的 `Transport` 模块指定 URL 策略：RSS 接受 HTTP/HTTPS，Reddit 只接受 HTTPS，Discourse 允许 HTTPS 和 loopback HTTP。具体的认证请求头、凭据发送目标及重定向规则由后端决定。例如 Discourse 媒体下载只向同源且符合站点挂载路径的地址附加密钥，RSS 的跨域重定向不携带其他来源的认证信息。
 
 [credentials.ml](../src/credentials.ml) 负责有大小上限的凭据文件读取、调用者选择的私有文件权限检查，以及 0600 临时文件加原子替换的保存。允许读取 agenix 等机制提供的符号链接，保存时拒绝覆盖符号链接。Reddit 的刷新令牌和 Mu 的 SMTP 密码复用该模块；读取在 Eio 系统线程中执行。浏览器凭据通过 `Credentials.Firefox` 提供，仍使用既有只读 Firefox Cookie 实现。
 
@@ -272,11 +282,7 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 表中已迁移的项目使用现成库；其余条目仍是后续替换候选。少量后端特有的内容清理和 HTML 片段转义保留在调用处。
 
-## 验证与当前限制
-
-`nix develop -c make test` 同时运行 OCaml 测试和独立 Emacs 批处理进程中的集成测试，HTTP 与 SMTP 写入使用本地模拟服务。队列、取消、过期响应、界面焦点、归档、订阅和优先级筛选分别由对应测试覆盖。打包后的 `test/package-startup.el` 另外检查安装产物是否能够实际加载。
-
-[VALIDATION.md](VALIDATION.md) 是早期运行时验证记录，其中日期与范围只属于当时的实现；当前行为应以源码、当前测试和本页的实现边界为准。
+## 当前限制
 
 仍需持续注意：
 

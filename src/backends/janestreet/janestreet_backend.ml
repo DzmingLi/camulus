@@ -51,19 +51,8 @@ module Make(H:R.Http.S)=struct
      | Some cached when cached.message.activity=a.message.activity -> cached
      | _ -> let html=Feed.download_url (post_url a.message.url) in
        let full=full_post a html in Hashtbl.replace t.full id full;full)
- let archive t group id =
-   let a=read t group id in
-   let files=List.map(fun (e:D.enclosure)->e.part,Feed.download_url e.url)a.enclosures in
-   {Reader.Content_state.message=a.message;attachments=D.attachments a;raw=None;files}
+ let archive t group id = R.Article.archive ~download:Feed.download_url (read t group id)
  let attachment t group id part destination =
-   let a=read t group id in
-   let e=match List.find_opt(fun (e:D.enclosure)->e.part=part)a.enclosures with Some e->e | None->invalid_arg "Unknown attachment" in
-   let data=Feed.download_url e.url in
-   Eio_unix.run_in_systhread(fun ()->
-     let fd=Unix.openfile destination [Unix.O_CREAT;Unix.O_EXCL;Unix.O_WRONLY;Unix.O_CLOEXEC] 0o600 in
-     let ch=Unix.out_channel_of_descr fd in
-     try output_string ch data;flush ch;Unix.fsync fd;close_out ch
-     with ex->close_out_noerr ch;(try Sys.remove destination with _->());raise ex)
+   R.Article.attachment ~download:Feed.download_url (read t group id) part destination
 end
 module Live=Make(R.Transport)
-module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live

@@ -12,4 +12,3 @@ module Make (_:Rss_backend.Http.S) : sig
  val attachment : t -> group -> string -> int -> string -> unit
 end
 module Live : module type of Make(Rss_backend.Transport)
-module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor

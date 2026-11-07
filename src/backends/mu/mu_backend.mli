@@ -4,7 +4,7 @@ module Smtp : module type of Smtp
 type account_settings = { prefix : string; address : string; smtp_account : string }
 type config = {
   root : string; muhome : string; mu : string;
-  sender : string; account : string; page_size : int; max_headers : int;
+  sender : string; account : string; page_size : int;
   accounts : account_settings list; smtp_profiles : (string * Smtp.config) list;
 }
 val config : root:string -> muhome:string -> sender:string -> config
@@ -26,12 +26,12 @@ type operation = List of group * cursor option
   | Archive of string * string * bool
   | Trash of string * string * bool
   | Sync of string list
-type result = Page of Reader.Content.page * bool | Thread_batch of Reader.Content.thread_batch
+type result = Page of Reader.Content.page | Thread_batch of Reader.Content.thread_batch
   | Article of article | Saved of string | Sent of receipt
   | Draft of saved_draft | Drafts of saved_draft list | Archived of move_result | Trashed of move_result
   | Draft_sent of string * bool | Synced
-type process_result = { status : int; stdout : string }
-type run = ?input:string -> ?timeout:float -> string list -> process_result
+type process_result = Process.response = { status : int; stdout : string }
+type run = ?timeout:float -> string list -> process_result
 type submit = profile:string -> sender:string -> recipients:string list -> string -> unit
 type t
 val create : config:config -> run:run -> submit:submit -> t
@@ -42,10 +42,8 @@ val raw_message : t -> string -> string
 val save_attachment : t -> string -> int -> string -> unit
 val prepare : t -> draft -> string * string
 val send : t -> draft -> receipt
-module Readable : Reader.Backend.S with type t=t and type group=group and type cursor=cursor
-module Threading : Reader.Backend.Threading with type t=t
-module Writing : Reader.Backend.Writing with type t=t and type draft=draft and type receipt=receipt
 val operation_of_json : Yojson.Safe.t -> operation
+val attachment_json : attachment -> Yojson.Safe.t
 val result_json : result -> Yojson.Safe.t
 val execute : t -> operation -> emit:(result -> unit) -> unit
 

@@ -29,9 +29,6 @@ let validate_config config =
      || Uri.userinfo redirect <> None || Uri.query redirect <> [] || Uri.fragment redirect <> None then
     raise (Error (Invalid_input "OAuth redirect must be a loopback HTTP URI"))
 type group = Subreddit of string | Post of string | Notifications
-type draft = Comment of { parent : string; text : string }
-           | Text_post of { subreddit : string; title : string; text : string }
-type receipt = Comment_created of M.message | Post_created of string
 type operation =
   | Identity
   | List of group * string option
@@ -183,13 +180,7 @@ module Make (Transport : Http.S) = struct
     let post = String.sub root 3 (String.length root-3) in
     let known = Hashtbl.create 256 and expanded = Hashtbl.create 128 in
     let pending = Queue.create () and unresolved = Hashtbl.create 128 in
-    let pages = ref 0 in
-    let next_page () =
-      incr pages;
-      if !pages > 200 then raise (Error (Invalid_response "comment pagination limit; partial results retained"))
-    in
     let comment_page fields =
-      next_page ();
       let j = api t ~scope:"read" Get ("/comments/" ^ post ^ ".json")
         (["sort","old";"limit","100"] @ fields) in
       match j with `List [posts;comments] ->
@@ -207,11 +198,9 @@ module Make (Transport : Http.S) = struct
       !xs
     in
     let ingest things =
-      let changed = ref [] and count = ref 0 in
+      let changed = ref [] in
       let queue = Queue.create () in List.iter (fun x -> Queue.push x queue) things;
       while not (Queue.is_empty queue) do
-        incr count;
-        if !count > 10000 then raise (Error (Invalid_response "oversized comment page"));
         let thing = Queue.pop queue in
         let d = D.get "data" thing in
         match D.string "kind" thing with
@@ -253,7 +242,6 @@ module Make (Transport : Http.S) = struct
             | n,x::rest -> split (n-1) (x::acc) rest in
           let batch,rest = split 100 [] ids in
           List.iter (fun id -> Hashtbl.replace unresolved ("t1_" ^ id) parent) batch;
-          next_page ();
           let j = api t ~scope:"read" Get "/api/morechildren.json"
             ["link_id",root;"children",String.concat "," batch;"sort","old"] in
           ingest (D.things j); batches rest
@@ -336,19 +324,6 @@ module Make (Transport : Http.S) = struct
 end
 
 module Live = Make(Transport)
-module Readable : Reader.Backend.S with type t = Live.t and type group = group
-  and type cursor = string = Live
-module Threading : Reader.Backend.Threading with type t = Live.t = Live
-module Voting : Reader.Backend.Voting with type t = Live.t = Live
-module Writing = struct
-  type t = Live.t
-  type nonrec draft = draft
-  type nonrec receipt = receipt
-  let send t = function
-    | Comment {parent;text} -> Comment_created (Live.reply t ~parent ~text)
-    | Text_post {subreddit;title;text} -> Post_created (Live.submit t ~subreddit ~title ~text)
-end
-
 let operation_of_json json =
   let s k = D.string k json in
   let after = D.optional "after" json in

@@ -104,8 +104,6 @@ let observe ?(replace=false) db ~source ~group messages =
 let mark_read db ~source ids value =
   transaction db (fun () -> List.iter (fun id ->
     run db "UPDATE items SET is_read=? WHERE source=? AND id=?" [int(if value then 1 else 0);text source;text id]) ids)
-let legacy_groups db = query db "SELECT source,grp FROM legacy_subscriptions ORDER BY source,grp" []
-  |> List.map(fun r -> s r.(0),s r.(1))
 (* An internal connected component, not a native thread ID. Unknown ancestors are
    included so replies merge as missing headers arrive. No subject-based merging. *)
 let components db =
@@ -218,6 +216,11 @@ let write_files db source a =
   run db "DELETE FROM archive_files WHERE source=? AND id=?" [text source;text a.message.id];
   List.iter(fun (part,data) -> run db "INSERT INTO archive_files VALUES(?,?,?,?)"
     [text source;text a.message.id;int part;Q.Data.BLOB data]) a.files
+let write_archive db source a =
+  let payload=`Assoc["message",message_json a.message;"attachments",a.attachments] |> Yojson.Safe.to_string in
+  run db "INSERT INTO archives VALUES(?,?,?,?) ON CONFLICT(source,id) DO UPDATE SET payload=excluded.payload,raw=excluded.raw"
+    [text source;text a.message.id;text payload;(match a.raw with None -> Q.Data.NULL | Some raw -> Q.Data.BLOB raw)];
+  write_files db source a
 let attachment_archive db ~source ~id ~part =
   match query db "SELECT data FROM archive_files WHERE source=? AND id=? AND part=?" [text source;text id;int part] with
   | [r] -> Some(s r.(0)) | _ -> None
@@ -226,10 +229,7 @@ let save_archive db ~source ~target ~id ~folder articles =
   mkdir db folder;
   observe db ~source ~group:None (List.map(fun a -> a.message) articles);
   transaction db (fun () ->
-    List.iter(fun a ->
-      let payload=`Assoc["message",message_json a.message;"attachments",a.attachments] |> Yojson.Safe.to_string in
-      run db "INSERT INTO archives VALUES(?,?,?,?) ON CONFLICT(source,id) DO UPDATE SET payload=excluded.payload,raw=excluded.raw"
-        [text source;text a.message.id;text payload;(match a.raw with None -> Q.Data.NULL | Some raw -> Q.Data.BLOB raw)];write_files db source a) articles;
+    List.iter (write_archive db source) articles;
     run db "INSERT OR IGNORE INTO favorites VALUES(?,?,?,?)" [text folder;text source;text(kind target);text id])
 let memberships db = query db "SELECT source,kind,id,folder FROM favorites ORDER BY folder,source,id" []
   |> List.map(fun r -> s r.(0),(if s r.(1)="thread" then Thread else Article),s r.(2),s r.(3))
@@ -261,50 +261,16 @@ let raw_archive db ~source ~id =
 
 type operation =
   | States of string * string list | Read of string * string list * bool
-  | Legacy_groups | Feed of string * string
+  | Feed of string * string
   | Timeline of (string * string) list
   | Dismiss_timeline of string * string * int
   | Refresh of string * string * string option | Refresh_archives
   | Dismiss of string * string * string * int
-  | Folders | Mkdir of string | Remove_folder of string | Favorites of string
+  | Folders | Remove_folder of string | Favorites of string
   | Favorite of string * target * string * string
   | Unfavorite of string * target * string * string
   | Archive of string * target * string
   | Attachment of string * string * int * string
-let operation_of_json j =
-  let get k=match j with `Assoc xs -> Option.value(List.assoc_opt k xs) ~default:`Null | _ -> `Null in
-  let string k=match get k with `String s when s<>"" -> validate s;s | _ -> invalid_arg("Missing "^k) in
-  let boolean k=match get k with `Bool b -> b | _ -> invalid_arg("Missing boolean "^k) in
-  let integer k=match get k with `Int n when n>=0 -> n | _ -> invalid_arg("Invalid "^k) in
-  let ids ()=match get "ids" with `List xs when List.length xs<=5000 -> List.map(function `String s -> validate s;s | _ -> invalid_arg "Invalid ID") xs | _ -> invalid_arg "Invalid ID list" in
-  let target ()=match string "target" with "article" -> Article | "thread" -> Thread | _ -> invalid_arg "Invalid target" in
-  match string "op" with
-  | "states" -> States(string "source",ids())
-  | "read" -> Read(string "source",ids(),boolean "value")
-  | "legacy-groups" -> Legacy_groups
-  | "feed" -> Feed(string "source",string "group")
-  | "timeline" ->
-    let entries=match get "entries" with
-      | `List xs when List.length xs<=1000 -> List.map (function
-          | `Assoc xs ->
-            let field k=match List.assoc_opt k xs with Some(`String s) -> validate s;s | _ -> invalid_arg "Invalid timeline entry" in
-            field "source",field "group"
-          | _ -> invalid_arg "Invalid timeline entry") xs
-      | _ -> invalid_arg "Invalid timeline entries" in
-    Timeline entries
-  | "dismiss-timeline" -> Dismiss_timeline(string "source",string "id",integer "revision")
-  | "refresh-archives" -> Refresh_archives
-  | "refresh" ->
-    let optional k=match get k with `Null->None | `String s when s<>"" -> Some s | _->invalid_arg("Invalid "^k) in
-    Refresh(string "source",string "group",optional "after")
-  | "dismiss" -> Dismiss(string "source",string "group",string "id",integer "revision")
-  | "folders" -> Folders | "mkdir" -> Mkdir(string "folder")
-  | "remove-folder" -> Remove_folder(string "folder") | "favorites" -> Favorites(string "folder")
-  | "favorite" -> Favorite(string "source",target(),string "id",string "folder")
-  | "unfavorite" -> Unfavorite(string "source",target(),string "id",string "folder")
-  | "archive" -> Archive(string "source",target(),string "id")
-  | "attachment" -> Attachment(string "source",string "id",integer "part",string "destination")
-  | _ -> invalid_arg "Unknown content-state operation"
 let native_thread db ~source ~id = match query db "SELECT thread FROM items WHERE source=? AND id=?" [text source;text id] with
   | [r] when s r.(0)<>"" -> Some(s r.(0)) | _ -> None
 let copy_favorite db ~source ~target ~id ~folder =
@@ -324,10 +290,7 @@ let refresh_archive db ~source ~target ~id articles =
   transaction db (fun () ->
     (* A concurrent folder removal must never be undone by a late download. *)
     if query db "SELECT 1 FROM favorites WHERE source=? AND kind=? AND id=?" [text source;text(kind target);text id]<>[] then
-      List.iter(fun a ->
-        let payload=`Assoc["message",message_json a.message;"attachments",a.attachments] |> Yojson.Safe.to_string in
-        run db "INSERT INTO archives VALUES(?,?,?,?) ON CONFLICT(source,id) DO UPDATE SET payload=excluded.payload,raw=excluded.raw"
-          [text source;text a.message.id;text payload;(match a.raw with None -> Q.Data.NULL | Some raw -> Q.Data.BLOB raw)];write_files db source a) articles)
+      List.iter (write_archive db source) articles)
 
 let groups_for_item db ~source ~id =
  query db "SELECT DISTINCT grp FROM activities WHERE source=? AND id=? ORDER BY grp" [text source;text id]

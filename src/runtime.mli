@@ -4,7 +4,7 @@ type extension = net:Eio_unix.Net.t -> now:(unit -> float) -> sleep:(float -> un
 
 (** Owner-thread handle. Call all functions below from that same thread.
     [notify_ui] runs on the worker domain, must not call Emacs, block, or raise. *)
-val create : ?extension:extension -> notify_ui:(unit -> unit) -> unit -> t
+val create : extension:extension -> notify_ui:(unit -> unit) -> unit -> t
 
 (** [false] means no command was accepted: caller must not update its local state. *)
 val submit : t -> Protocol.command -> bool

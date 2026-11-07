@@ -33,7 +33,6 @@ type operation=Categories | List of group*cursor option
  | Thread of string | Read of string | Like of string*bool | Send of draft
  | Track of string*tracking | Topic_state of string | Attachment of string*int*string
  | Subscriptions of tracking*cursor option | Subscription_change of string*tracking option
-let service=function Like _|Send _|Track _|Attachment _|Subscription_change _ -> true | _ -> false
 type result=Page of C.page | Thread_batch of C.thread_batch | Article of D.article
  | Category_list of Yojson.Safe.t | Liked of D.article | Sent of D.article
  | Tracked of string*tracking | Topic_state_result of string*int | Saved of string
@@ -79,7 +78,7 @@ module Make(H:Http.S)=struct
  let page_number group context after =match after with None->0 | Some s ->
    let j=try Yojson.Safe.from_string s with _->invalid_arg "Invalid Discourse cursor" in
    let n=D.num "page" j in
-   if D.str "scope" j<>cursor_scope group context || n<1 || n>10000 then invalid_arg "Cursor belongs to another Discourse group or listing";n
+   if D.str "scope" j<>cursor_scope group context || n<1 then invalid_arg "Cursor belongs to another Discourse group or listing";n
  let cursor group context n = Some(Yojson.Safe.to_string(`Assoc["scope",`String(cursor_scope group context);"page",`Int(n+1)]))
  let notification_message t n =
    let topic=D.num "topic_id" n in
@@ -260,13 +259,6 @@ module Make(H:Http.S)=struct
  let thread t id ~emit=stream_thread t id ~emit_article:ignore ~emit
 end
 module Live=Make(Transport)
-module Subscription = Live.Subscription
-module Topic_tracking : Reader.Backend.Topic_tracking with type t=Live.t
-  and type target=string and type settings=tracking and type filter=tracking and type cursor=cursor = Live.Topic_tracking
-module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live
-module Threading : Reader.Backend.Threading with type t=Live.t = Live
-module Liking : Reader.Backend.Liking with type t=Live.t = Live
-module Writing = struct type t=Live.t type nonrec draft=draft type nonrec receipt=receipt let send=Live.send end
 let operation_of_json j =
  let str k=let s=D.str k j in if s="" then invalid_arg("Missing "^k);s in
  let id ()=let id=str "id" in ignore(D.parse_id id);id in

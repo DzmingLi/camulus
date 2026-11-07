@@ -16,7 +16,6 @@ let parse ~url:base input =
   let feed = result (Jsont.Json.decode Jsonfeed.jsont json) in
   (match Jsonfeed.validate feed with Ok () -> () | Error errors -> failwith (String.concat "; " errors));
   let items = Jsonfeed.items feed in
-  if List.length items>10000 then failwith "JSON Feed has too many items";
   let inherited = authors (Jsonfeed.authors feed) in
   let articles = List.map (fun item ->
     let id=I.id item in
@@ -32,7 +31,6 @@ let parse ~url:base input =
         if text_body<>"" then text_body else Reader.Html.text (Reader.Html.parse html_body) | x -> x in
       (match String.split_on_char '\n' summary with ""::_ | [] -> "Untitled" | first::_ -> first) | x -> x in
     let attachments=Option.value (I.attachments item) ~default:[] in
-    if List.length attachments>1000 then failwith "JSON Feed has too many attachments";
     let enclosures=List.mapi (fun part a ->
       let url=resolve base (A.url a) in
       if url="" then failwith "JSON Feed attachment has no URL";
@@ -59,38 +57,32 @@ let url_of_source source =
   String.sub source 9 (String.length source-9) |> R.Http.validate
 module Make(H:R.Http.S) = struct
   module Feed = R.Make(H)
-  type t = { feed:Feed.t; lock:Eio.Mutex.t; next:(string,string option) Hashtbl.t;
+  type t = { feed:(R.Decode.article list * string option) Feed.cache;
     articles:((string*string),R.Decode.article) Hashtbl.t }
   type group = string
   type cursor = string
   let source=source
   let create () =
-    let next=Hashtbl.create 16 in
-    let decode ~url body=let articles,after=parse ~url body in Hashtbl.replace next url after;articles in
-    {feed=Feed.create ~decode ();lock=Eio.Mutex.create ();next;articles=Hashtbl.create 64}
+    {feed=Feed.create_cache ~decode:parse ();articles=Hashtbl.create 64}
   let cursor root = function
     | None -> root,[]
     | Some value -> match Yojson.Safe.from_string value with
       | `List[`String scope; `String page; `List visited] when scope=root ->
         let visited=List.map(function `String s->s | _->invalid_arg "Invalid JSON Feed cursor")visited in
-        if List.length visited>=256 then failwith "JSON Feed pagination limit exceeded";
         R.Http.validate page,visited
       | _ -> invalid_arg "JSON Feed cursor belongs to another feed"
   let list t root ~after =
     ignore(R.Http.validate root);
     let page_url,visited=cursor root after in
-    Eio.Mutex.lock t.lock;
-    Fun.protect ~finally:(fun () -> Eio.Mutex.unlock t.lock) (fun () ->
-      if List.mem page_url visited then failwith "JSON Feed pagination loop";
-      let endpoint,articles=Feed.fetch_articles t.feed page_url in
-      let visited=List.sort_uniq String.compare (page_url::endpoint::visited) in
-      List.iter(fun (a:R.Decode.article)->Hashtbl.replace t.articles (root,a.message.id) a) articles;
-      let next=Option.join(Hashtbl.find_opt t.next endpoint) in
-      let after=Option.map(fun next ->
-        if List.mem next visited then failwith "JSON Feed pagination loop";
-        Yojson.Safe.to_string (`List[`String root;
-          `String next;`List(List.map(fun s->`String s)visited)])) next in
-      {C.messages=List.map(fun(a:R.Decode.article)->a.message) articles;after})
+    if List.mem page_url visited then failwith "JSON Feed pagination loop";
+    let endpoint,(articles,next)=Feed.fetch_cached t.feed page_url in
+    let visited=List.sort_uniq String.compare (page_url::endpoint::visited) in
+    List.iter(fun (a:R.Decode.article)->Hashtbl.replace t.articles (root,a.message.id) a) articles;
+    let after=Option.map(fun next ->
+      if List.mem next visited then failwith "JSON Feed pagination loop";
+      Yojson.Safe.to_string (`List[`String root;
+        `String next;`List(List.map(fun s->`String s)visited)])) next in
+    {C.messages=List.map(fun(a:R.Decode.article)->a.message) articles;after}
   (* Saved items on later pages must be revalidated during archive refresh. *)
   let refresh t root =
     let page=list t root ~after:None in

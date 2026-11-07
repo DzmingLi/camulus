@@ -15,7 +15,7 @@ let host group =
    String.for_all(function 'a'..'z'|'0'..'9'|'-'->true|_->false)label)labels) then invalid_arg "Invalid Blogger host";
  host
 let feed_url group index =
- "https://"^host group^"/feeds/posts/default?max-results=25"^(if index=1 then "" else "&start-index="^string_of_int index)
+ "https://"^host group^"/feeds/posts/default"^(if index=1 then "" else "?start-index="^string_of_int index)
 let full_post (a:D.article) body =
  let tree=Html.parse body in
  let node=match Html.find(fun n->Html.has_class "post-body" n || Html.attr "itemprop" n="articleBody") tree with
@@ -28,31 +28,28 @@ let full_post (a:D.article) body =
  {full with enclosures}
 module Make(H:R.Http.S)=struct
  module Feed=R.Make(H)
- type t={feed:Feed.t; next:(string,int option)Hashtbl.t; articles:((group*string),D.article)Hashtbl.t;
+ type t={feed:(D.article list * int option) Feed.cache; articles:((group*string),D.article)Hashtbl.t;
    full:((group*string),D.article)Hashtbl.t;lock:Eio.Mutex.t}
  type nonrec group=group
  type nonrec cursor=cursor
  let source=source
  let create ()=
-  let next=Hashtbl.create 16 in
   let decode ~url body=
    let articles,links=D.atom_page ~url body in
    let after=List.find_opt(fun(link:Syndic.Atom.link)->link.rel=Syndic.Atom.Link(Uri.of_string "next"))links
     |> Option.map(fun link->
       match Option.bind(Uri.get_query_param link.Syndic.Atom.href "start-index") int_of_string_opt with
-      | Some n when n>0 && n<=1000000->n | _->failwith "Invalid Blogger next-page index") in
-   Hashtbl.replace next url after;
-   articles in
-  {feed=Feed.create ~decode ();next;articles=Hashtbl.create 64;full=Hashtbl.create 64;lock=Eio.Mutex.create ()}
+      | Some n when n>0->n | _->failwith "Invalid Blogger next-page index") in
+   articles,after in
+  {feed=Feed.create_cache ~decode ();articles=Hashtbl.create 64;full=Hashtbl.create 64;lock=Eio.Mutex.create ()}
  let list t group ~after =
   ignore(host group);
   let index=match after with None->1|Some cursor->match Yojson.Safe.from_string cursor with
-    | `List[`String g;`Int n] when g=group && n>1 && n<=1000000->n
+    | `List[`String g;`Int n] when g=group && n>1->n
     | _->invalid_arg "Blogger cursor belongs to another group" in
   Eio.Mutex.lock t.lock;Fun.protect ~finally:(fun()->Eio.Mutex.unlock t.lock)(fun()->
-   let endpoint,articles=Feed.fetch_articles t.feed (feed_url group index) in
+   let _,(articles,next)=Feed.fetch_cached t.feed (feed_url group index) in
    List.iter(fun(a:D.article)->Hashtbl.replace t.articles(group,a.message.id)a)articles;
-   let next=Option.join(Hashtbl.find_opt t.next endpoint) in
    let after=Option.map(fun n->
      if n<=index || articles=[] then failwith "Blogger pagination did not advance";
      Yojson.Safe.to_string(`List[`String group;`Int n]))next in
@@ -64,11 +61,10 @@ module Make(H:R.Http.S)=struct
   page
  let read t group id =
   ignore(host group);
-  let rec find after pages=
-   if pages>=256 then failwith "Blogger lookup page limit exceeded";
+  let rec find after=
    let p=list t group ~after in match Hashtbl.find_opt t.articles(group,id),p.after with
-    | Some a,_->a |None,Some next->find(Some next)(pages+1)|None,None->failwith "Blogger article is no longer listed; open its archive" in
-  let a=match Hashtbl.find_opt t.articles(group,id)with Some a->a|None->find None 0 in
+    | Some a,_->a |None,Some next->find(Some next)|None,None->failwith "Blogger article is no longer listed; open its archive" in
+  let a=match Hashtbl.find_opt t.articles(group,id)with Some a->a|None->find None in
   Eio.Mutex.lock t.lock;Fun.protect ~finally:(fun()->Eio.Mutex.unlock t.lock)(fun()->
    match Hashtbl.find_opt t.full(group,id)with
    |Some cached when cached.message.activity=a.message.activity->cached
@@ -79,4 +75,3 @@ module Make(H:R.Http.S)=struct
  let attachment t group id part path=R.Article.attachment ~download(read t group id)part path
 end
 module Live=Make(R.Transport)
-module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live

@@ -30,13 +30,12 @@ let install ()=
  hook "camulus-probe-event-hook""camulus-reddit--vote-event";
  define1 "camulus-reddit--auth-event"(fun event->let id=call "nth"[i 1;event]in let id=if truth(call "integerp"[id])then integer id else -1 in
   Option.iter(Hashtbl.find auth_requests id)~f:(fun f->let kind=call "car"[event]in
-   if Value.eq kind(sym "reddit")then(let data=call "nth"[i 3;event]in
+   if Value.eq kind(sym "reddit")then(let data=call "nth"[i 2;event]in
     if String.equal(text(field "kind"data))"error"then message "Reddit: %s"[field "message"data]else f data)
    else if Value.eq kind(sym "finished")then(Hashtbl.remove auth_requests id;
-    if not(Value.eq(call "nth"[i 3;event])(sym "completed"))then message "Reddit authorization failed: %s"[call "nth"[i 4;event]]));nil);
+    if not(Value.eq(call "nth"[i 2;event])(sym "completed"))then message "Reddit authorization failed: %s"[call "nth"[i 3;event]]));nil);
  hook "camulus-probe-event-hook""camulus-reddit--auth-event";
  define0 ~interactive:true "camulus-reddit-authorize"(fun()->
-  run "camulus-reader-load-config"[];
   if not(truth(get "camulus-reddit-username"))then set "camulus-reddit-username"(call "read-string"[s "Reddit username: "]);
   run "camulus-reader-start"[];
   auth_action(alist["op",s "authorize"])(fun data->let url=field "url"data in

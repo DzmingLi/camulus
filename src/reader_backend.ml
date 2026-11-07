@@ -14,16 +14,12 @@ type topic_tracking = {
   list : source:string -> filter:string -> after:string option -> Value.t;
   change : source:string -> target:string -> setting:string option -> Value.t;
 }
-(* Source discovery can be immediate (configured authenticated sites) or an
-   asynchronous backend request. It does not imply local group subscriptions. *)
-type discovery = Immediate of Value.t | Pending of Value.t
 type t = {
   name : string;
   start : unit -> unit;
   on_refresh : unit -> unit;
   inline_attachments : bool;
   normalize : Value.t -> Value.t;
-  on_entry : Value.t -> unit;
   matches : string -> bool;
   threaded : bool;
   thread_contains_bodies : bool;
@@ -37,12 +33,12 @@ type t = {
   row_title : Value.t -> Value.t;
   browser : (string * string) option;
   entrances : unit -> entrance list;
-  followed : (unit -> discovery) option;
+  (* Read configured sources on the UI thread; fetching content is worker work. *)
+  followed : (unit -> Value.t list) option;
   can_subscribe_group : source:string -> group:string -> bool;
   subscription_option : string option;
   subscription_target : (source:string -> selected:(unit -> Value.t) -> string option) option;
   topic_tracking : topic_tracking option;
-  page : (Value.t -> unit) option;
   events : string list;
   reconcile : source:string -> existing:Value.t -> request:Value.t -> archived:bool -> Value.t -> Value.t;
 }
@@ -56,9 +52,9 @@ let run name args = ignore (call name args : Value.t)
 let s = Value.of_utf8_bytes
 let alist fields = Value.list (List.map fields ~f:(fun (k,v) -> call "cons" [Value.intern k;v]))
 let base ~name ~matches ~threaded ~read = {
-  name;start=(fun()->());on_refresh=(fun()->());inline_attachments=true;normalize=Fn.id;on_entry=(fun _->());matches;threaded;read;thread_contains_bodies=false;
+  name;start=(fun()->());on_refresh=(fun()->());inline_attachments=true;normalize=Fn.id;matches;threaded;read;thread_contains_bodies=false;
   available=(fun _ -> true);attachment=None;controls=[];list_controls=[];article_marks=(fun _->"");row_title=(fun row->Value.funcallN(Value.intern "alist-get")[Value.intern "title";row]);browser=None;entrances=(fun () -> []);followed=None;
-  subscription_target=None;topic_tracking=None;subscription_option=None;can_subscribe_group=(fun ~source:_ ~group:_ -> false);delete=None;page=None;events=[];
+  subscription_target=None;topic_tracking=None;subscription_option=None;can_subscribe_group=(fun ~source:_ ~group:_ -> false);delete=None;events=[];
   reconcile=(fun ~source:_ ~existing:_ ~request:_ ~archived:_ message -> message)
 }
 
@@ -124,17 +120,6 @@ let mode name parent title header=
 let data_path env fallback name=
  let root=call "getenv"[s env] in
  call "expand-file-name"[s("camulus/"^name);if truth root then root else call "expand-file-name"[s fallback]]
-let settings : (string * (Yojson.Safe.t -> (string * Value.t) list)) list ref=ref []
-let register_settings name f=settings:=(name,f)::List.Assoc.remove !settings name ~equal:String.equal
-let json_field key=function `Assoc xs->Option.value(List.Assoc.find xs key ~equal:String.equal)~default:`Null|_->`Null
-let string_settings fields value=
- match value with
- |`Null->[]
- |`Assoc xs->List.filter_map fields ~f:(fun(key,variable)->match List.Assoc.find xs key ~equal:String.equal with
-   |None->None|Some(`String v)when not(String.contains v '\000')->Some(variable,s v)
-   |_->failwith("Invalid backend setting: "^key))
- |_->failwith "Backend settings must be an object"
-
 let customization_group = lazy (Customization.Group.defgroup "camulus" [%here]
   ~docstring:"Read feeds and discussions." ~parents:[Customization.Group.emacs])
 let custom ?(kind=Customization.Type.Sexp) name default docstring =
@@ -154,15 +139,16 @@ let register_local_groups ~option ~source ~accepts backend =
       let group=Value.to_utf8_bytes_exn value in
       if String.is_empty group || String.contains group '\000' then invalid_arg("Invalid subscription in "^option);
       group) |> List.dedup_and_sort ~compare:String.compare in
-    Immediate(Value.list(List.map groups ~f:(fun group->
+    List.map groups ~f:(fun group->
       let source=source group in
       if not(accepts ~source ~group)then invalid_arg("Unsupported subscription in "^option);
-      alist["name",s(backend.name^" · "^group);"source",s source;"group",s group]))) in
+      alist["name",s(backend.name^" · "^group);"source",s source;"group",s group]) in
   register {backend with can_subscribe_group=accepts;subscription_option=Some option;followed=Some followed}
 
 (* Worker sessions contain only OCaml data and run on the Eio domain. *)
 type worker = {
   matches_source : string -> bool;
+  all_pages : bool;
   page : source:string -> string -> after:string option -> Reader.Content.page;
   archive : source:string -> refresh:bool -> Reader.Content_state.target -> string -> native_thread:(string -> string) -> add:(Reader.Content_state.archived -> unit) -> bool;
   execute : Reader.Protocol.work -> observe:(source:string -> Reader.Content.message list -> unit) -> emit:(Reader.Protocol.payload -> unit) -> bool;

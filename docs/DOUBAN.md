@@ -13,5 +13,3 @@
 - [评论脚本](https://asset.doubanio.com/cuphead/sns-static/comments/747.c.0a047.a.js)与页面 `_COMMENTS_CONFIG`：广播评论使用 `status/comment/ID/react`；帖子评论使用 `group/topic/TOPIC/comment/COMMENT/react`。
 
 帖子正文的富文本段落依赖网页 CSS 保留原始换行。后端把段落文本节点中的换行转成 `<br>`，保留空行、嵌套行内格式与预格式化代码，不把 HTML 源码缩进变成额外空段落。
-
-回归测试使用模拟 HTTP、临时 Cookie 数据和合成正文，覆盖各类目标、取消赞、CSRF、拒绝/重定向/超时、过期加载结果、按钮及段落。没有对真实账号内容执行测试点赞。

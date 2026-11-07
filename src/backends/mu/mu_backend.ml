@@ -5,11 +5,11 @@ module M = Reader.Content
 type account_settings = { prefix : string; address : string; smtp_account : string }
 type config = {
   root : string; muhome : string; mu : string;
-  sender : string; account : string; page_size : int; max_headers : int;
+  sender : string; account : string; page_size : int;
   accounts : account_settings list; smtp_profiles : (string * Smtp.config) list;
 }
 let config ~root ~muhome ~sender =
-  {root;muhome;sender;mu="mu";account="";page_size=50;max_headers=5000;accounts=[];smtp_profiles=[]}
+  {root;muhome;sender;mu="mu";account="";page_size=50;accounts=[];smtp_profiles=[]}
 exception Error of string
 let error s = raise (Error s)
 let () = Printexc.register_printer (function Error s -> Some ("Mail: "^s) | _ -> None)
@@ -20,8 +20,7 @@ let address s =
   s
 let validate_config c =
   if Filename.is_relative c.root || Filename.is_relative c.muhome then error "Mail paths must be absolute";
-  if c.page_size<1 || c.page_size>200 || c.max_headers<c.page_size || c.max_headers>20000 then
-    error "Invalid mail page bounds";
+  if c.page_size<1 then error "Mail page size must be positive";
   ignore(address c.sender);
   List.iter (fun a -> if a.prefix="" || not(Store.valid_group a.prefix) then error "Invalid account prefix"; ignore(address a.address)) c.accounts
 let get j key = match j with `Assoc xs -> Option.value (List.assoc_opt key xs) ~default:`Null | _ -> `Null
@@ -48,20 +47,20 @@ type operation = List of group * cursor option
   | Archive of string * string * bool
   | Trash of string * string * bool
   | Sync of string list
-type result = Page of M.page * bool | Thread_batch of M.thread_batch | Article of article
+type result = Page of M.page | Thread_batch of M.thread_batch | Article of article
   | Saved of string | Sent of receipt
   | Draft of saved_draft | Drafts of saved_draft list | Archived of move_result | Trashed of move_result
   | Draft_sent of string * bool | Synced
-type process_result = { status : int; stdout : string }
-type run = ?input:string -> ?timeout:float -> string list -> process_result
+type process_result = Process.response = { status : int; stdout : string }
+type run = ?timeout:float -> string list -> process_result
 type submit = profile:string -> sender:string -> recipients:string list -> string -> unit
-type snapshot = { group : string; rows : M.message list; truncated : bool }
+type snapshot = { group : string; rows : M.message list }
 type t = { config : config; run : run; submit : submit; headers : (string,header) Hashtbl.t;
-           snapshots : (string,snapshot) Hashtbl.t; mutable serial : int; mutable truncated : bool; mutations : Eio.Mutex.t }
+           snapshots : (string,snapshot) Hashtbl.t; mutable serial : int; mutations : Eio.Mutex.t }
 let source="mail"
 let create ~config ~run ~submit =
   validate_config config;
-  {config;run;submit;headers=Hashtbl.create 256;snapshots=Hashtbl.create 8;serial=0;truncated=false;mutations=Eio.Mutex.create ()}
+  {config;run;submit;headers=Hashtbl.create 256;snapshots=Hashtbl.create 8;serial=0;mutations=Eio.Mutex.create ()}
 
 let header j =
   let path=str(get j "path") and msgid=str(get j "message-id") in
@@ -77,7 +76,7 @@ let header j =
 
 let find t ?(related=false) query =
   let argv=[t.config.mu;"find";"--muhome";t.config.muhome;"--format=json2";
-    "--sortfield=date";"--reverse";"--maxnum";string_of_int (t.config.max_headers+1)] @
+    "--sortfield=date";"--reverse"] @
     (if related then ["--include-related"] else []) @ ["--";query] in
   let r=t.run argv in
   if r.status=2 then [] else begin
@@ -120,7 +119,6 @@ let list t group ~after =
       let scope="maildir:"^quote group in
       (* Defense in depth: enforce the group after mu query parsing as well. *)
       let found=find t scope in
-      let truncated=List.length found>t.config.max_headers in
       let found=List.filter(fun (h:header) -> h.maildir=group) found in
       List.iter (remember t) found;
       let rows=summaries found in
@@ -130,10 +128,9 @@ let list t group ~after =
         let oldest=Hashtbl.fold(fun k _ n -> min n (int_of_string k)) t.snapshots max_int in
         Hashtbl.remove t.snapshots (string_of_int oldest)
       end;
-      let snap={group;rows;truncated} in Hashtbl.add t.snapshots key snap;key,0,snap in
+      let snap={group;rows} in Hashtbl.add t.snapshots key snap;key,0,snap in
   let rows=List.filteri(fun i _ -> i>=offset && i<offset+t.config.page_size) snap.rows in
   let next=offset+List.length rows in
-  t.truncated<-snap.truncated;
   {M.messages=rows;after=(if next<List.length snap.rows then Some(key^":"^string_of_int next) else None)}
 
 let resolve t id =
@@ -155,9 +152,7 @@ let raw t (h:header) =
   let path=checked_path t h in
   let ch=open_in_bin path in
   Fun.protect ~finally:(fun () -> close_in_noerr ch) @@ fun () ->
-  let size=in_channel_length ch in
-  if size>32*1024*1024 then error "Mail exceeds the 32 MiB limit";
-  really_input_string ch size
+  really_input_string ch (in_channel_length ch)
 
 let read_header t (h:header) =
   let parsed=Mime.parse(raw t h) in
@@ -187,8 +182,6 @@ let thread_full t id ~article_emit ~emit =
       find t ~related:true ("msgid:"^quote(String.sub id 5 (String.length id-5))) else [seed] in
   let seen=Hashtbl.create 128 in
   let hs=List.filter(fun (h:header) -> if Hashtbl.mem seen h.message.id then false else (Hashtbl.add seen h.message.id ();true)) hs in
-  let complete=List.length hs<=t.config.max_headers in
-  let hs=List.filteri(fun i _ -> i<t.config.max_headers) hs in
   List.iter(remember t) hs;
   (* Metadata first, then one decoded article at a time. *)
   emit {M.thread=id;messages=List.map(fun (h:header) -> h.message) hs;gaps=[];complete=false};
@@ -197,7 +190,7 @@ let thread_full t id ~article_emit ~emit =
     let article=read_header t h in
     article_emit article;
     emit {M.thread=id;messages=[article.message];gaps=[];complete=false}) hs;
-  emit {M.thread=id;messages=[];gaps=(if complete then [] else [{M.parent=id;count=1}]);complete}
+  emit {M.thread=id;messages=[];gaps=[];complete=true}
 
 let thread t id ~emit = thread_full t id ~article_emit:(fun _ -> ()) ~emit
 
@@ -245,7 +238,6 @@ let draft_info t key indexed =
   {key;group;revision=Store.revision source_text;source_text;indexed}
 let open_draft t key = draft_info t key true
 let save_draft t key expected source_text = with_mutation t @@ fun () ->
-  if String.length source_text>1024*1024 then error "Draft exceeds 1 MiB";
   let group,dir,path=Store.draft_path ~root:t.config.root key in
   let revision=try Store.write_atomic ~dir ~path ~expected:(Some expected) source_text
     with Store.Conflict -> error "Draft changed in another editor; reopen before saving" in
@@ -295,7 +287,6 @@ let move_to t group id whole_thread folder = with_mutation t @@ fun () ->
     if not(String.starts_with ~prefix:"mail:" id) then error "Moving mail requires a Message-ID";
     let query="msgid:"^quote(String.sub id 5 (String.length id-5)) in
     let all=find t ~related:whole_thread query in
-    if List.length all>t.config.max_headers then error "Thread exceeds move limit; move individual messages";
     let hs=List.filter(fun (h:header) -> h.maildir=group) all in
     if hs=[] then error "Mail is no longer in this group; refresh";
     ignore(Store.folder ~root:t.config.root destination);
@@ -320,10 +311,9 @@ let trash t group id whole_thread =
   if Filename.basename group="Trash" then error "Already in Trash; d does not permanently delete mail";
   move_to t group id whole_thread "Trash"
 let prepare_internal ?message_id ?(references=[]) t d =
-  if d.to_=[] || List.length d.to_+List.length d.cc>100 then error "Supply 1..100 recipients";
+  if d.to_=[] then error "Supply at least one recipient";
   List.iter(fun s -> ignore(address s)) (d.to_@d.cc);
-  if not(clean d.subject) || String.length d.subject>900 then error "Invalid subject";
-  if String.length d.body>1024*1024 then error "Draft body exceeds 1 MiB";
+  if not(clean d.subject) then error "Invalid subject";
   let refs=match d.reply_to with None -> references | Some id ->
     let h=resolve t id in
     let p=Mime.parse(raw t h) in
@@ -394,18 +384,6 @@ let send_draft t key expected = with_mutation t @@ fun () ->
   Hashtbl.clear t.snapshots;
   id,cleaned
 
-module Readable : Reader.Backend.S with type t=t and type group=group and type cursor=cursor = struct
-  type nonrec t=t type nonrec group=group type nonrec cursor=cursor
-  let source=source let list=list
-end
-module Threading : Reader.Backend.Threading with type t=t = struct
-  type nonrec t = t
-  let thread = thread
-end
-module Writing : Reader.Backend.Writing with type t=t and type draft=draft and type receipt=receipt = struct
-  type nonrec t=t type nonrec draft=draft type nonrec receipt=receipt let send=send
-end
-
 let operation_of_json j =
   let required k=let s=str(get j k) in if s="" then error ("Missing "^k) else s in
   let after=match get j "after" with `String s -> Some s | _ -> None in
@@ -435,8 +413,8 @@ let draft_json ~include_source d =
            "subject",`String subject;"indexed",`Bool d.indexed] @
           if include_source then ["source",`String d.source_text] else [])
 let result_json = function
-  | Page(p,truncated) -> `Assoc["kind",`String "page";"messages",`List(List.map message_json p.messages);
-    "after",(match p.after with Some s -> `String s | None -> `Null);"truncated",`Bool truncated]
+  | Page p -> `Assoc["kind",`String "page";"messages",`List(List.map message_json p.messages);
+    "after",(match p.after with Some s -> `String s | None -> `Null)]
   | Thread_batch b -> `Assoc["kind",`String "thread";"thread",`String b.thread;"messages",`List(List.map message_json b.messages);"complete",`Bool b.complete]
   | Article a -> `Assoc["kind",`String "article";"message",message_json a.message;"attachments",`List(List.map attachment_json a.attachments)]
   | Saved path -> `Assoc["kind",`String "saved";"path",`String path]
@@ -448,7 +426,7 @@ let result_json = function
                         "moved",`List(List.map(fun s -> `String s) r.moved);"failed",`Int r.failed]
   | Sent r -> `Assoc["kind",`String "sent";"id",`String r.message_id]
 let execute t op ~emit = match op with
-  | List(g,a) -> let p=list t g ~after:a in emit(Page(p,t.truncated))
+  | List(g,a) -> emit(Page(list t g ~after:a))
   | Thread id -> thread_full t id ~article_emit:(fun a -> emit(Article a)) ~emit:(fun b -> emit(Thread_batch b))
   | Read id -> emit(Article(read t id))
   | Attachment(id,part,destination) -> save_attachment t id part destination;emit(Saved destination)

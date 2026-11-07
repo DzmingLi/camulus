@@ -10,7 +10,7 @@
 - `RET` 在右侧打开文章或完整回复树，并转移焦点。树默认展开，同级回复按时间正序排列，定位第一条已加载的未读内容；渐进加载保留阅读位置。
 - 已读只表示正文进入过可见区域，不会从列表移除。`d` 移除时间线里当前已处理的进展，保留订阅；后续新进展可以再次出现。
 - `m` 选择或创建收藏夹。收藏会持久保存正文、图片和邮件附件。支持嵌套文件夹、同一内容加入多个文件夹，以及分别收藏整条讨论和单独一楼。首页、组目录及阅读界面都可按 `f` 或点击顶部 `[收藏夹 · f]` 打开收藏夹目录，再点击文件夹浏览已保存内容。收藏可离线阅读。
-- 普通列表中的收藏条目显示为红色；收藏夹内部使用普通颜色。Nix 包自动引入 `emacs-webkit`，由 Camulus 的[公共 WebKit 接口](docs/WEBKIT.md)统一加载。图形界面提供 GStreamer 解码插件后，正文视频可原位播放；重绘正文保留播放器和播放进度。浏览器模块不可用时保留可点击的视频链接。
+- 普通列表中的收藏条目显示为红色；收藏夹内部使用普通颜色。Nix 包自动引入 `emacs-webkit`，由[内联视频](docs/WEBKIT.md)按需加载。图形界面提供 GStreamer 解码插件后，正文视频可原位播放；重绘正文保留播放器和播放进度。浏览器模块不可用时保留可点击的视频链接。
 - 阅读界面使用文本 / SHR，默认内嵌显示题图和正文图片；已安装并加载 Olivetti 时启用对应排版。
 
 | 按键 | 行为 |
@@ -34,8 +34,8 @@
 | Reddit | OAuth、subreddit、回复及提及、渐进回复树、投票；回复/发帖编辑界面未完成 |
 | Discourse | 最新讨论、分类、远端通知、会话追踪管理、渐进回复树、点赞与追踪设置；回复/发帖已有后端接口，编辑界面待接入 |
 | RSS / Atom | Syndic 格式解析、后端订阅列表、正文与 enclosure 附件归档 |
-| JSON Feed 1.1 | `next_url` 分页、后端订阅列表、正文与附件归档 |
-| Blogger | Atom 列表、打开时提取公开网页全文、图片归档 |
+| JSON Feed 1.1 | 自动跟随 `next_url` 加载全部列表、逐批显示、正文与附件归档 |
+| Blogger | 不指定每批数量，自动加载全部 Atom 列表、打开时提取公开网页全文、图片归档 |
 | The Atlantic / Jane Street | 作者 feed 或文章列表、网页正文与图片 |
 | 知乎 / 豆瓣 | 作者或个人入口、正文与图片；豆瓣支持渐进评论树及[广播、帖子和评论点赞](docs/DOUBAN.md)；两者均使用 Camulus 的[公共 Firefox Cookie 能力](docs/FIREFOX_COOKIES.md) |
 | 网易云 | 公开动态、图片与歌曲链接；不下载歌曲音源 |
@@ -91,7 +91,7 @@ emacsWithPackages (epkgs: [
 
 本地订阅由各后端的 `defcustom` 选项声明，例如 `camulus-rss-subscriptions`、`camulus-mu-subscriptions`、`camulus-reddit-subscriptions`。通过 `setopt` 或 Customize 配置，刷新主页生效，不维护 JSON 订阅文件。Discourse 会话追踪保存在远端，主页直接汇集远端会话通知。详见 [订阅配置](docs/ENTRIES.md)。
 
-后端各自定义可定制选项，Customize 保存到用户的 `custom-file`。旧 JSON 数据可用 `(camulus-import-json-config CONFIG-PATH GROUPS-PATH)` 一次性导入变量，再通过 Customize 保存。正常启动读取 Emacs 选项。
+后端各自定义可定制选项，Customize 保存到用户的 `custom-file`，也可直接通过 `setopt` 配置，见 [Emacs 配置示例](examples/config.el)。配置统一使用 Emacs 选项；旧 `config.json` / `groups.json` 的内容需手动迁移，不再提供 JSON 导入命令。
 
 密钥使用 auth-source 或独立凭据文件。完整说明见 [入口与订阅](docs/ENTRIES.md)、[邮件](docs/MAIL.md)、[Reddit](docs/REDDIT.md)、[Discourse](docs/DISCOURSE.md)、[RSS](docs/RSS.md) 和 [知乎](docs/ZHIHU.md)。
 
@@ -103,18 +103,16 @@ emacsWithPackages (epkgs: [
 
 ```sh
 nix develop -c make reader-demo
-nix develop -c make test
-# 在 Nix 构建沙箱中运行完整测试：
-nix build .#checks.x86_64-linux.reader .#checks.x86_64-linux.startup
+nix develop -c make build
 ```
 
-开发构建默认使用 `_build/`，可通过 `BUILD_DIR=/absolute/path` 覆盖。测试包括 OCaml 单元测试、Emacs 原生模块与界面集成，以及本机 HTTP/SMTP 模拟服务；普通测试不写入真实远端账户。
+开发构建默认使用 `_build/`，可通过 `BUILD_DIR=/absolute/path` 覆盖。
 
 ```text
 src/
   backend.ml          后端基本接口及可选能力
   content.ml          公共内容与分页类型
-  http.ml             共享 ocurl 传输、超时、取消和响应限制
+  http.ml             共享 ocurl 传输、超时和取消
   credentials.ml      公共凭据文件与 Firefox Cookie 能力
   credentials_emacs.ml  Emacs auth-source 查询
   runtime.ml          Eio worker、任务生命周期与取消
@@ -130,7 +128,7 @@ lisp/camulus.el       仅加载原生模块；无后端或交互逻辑
 patches/              Ecaml / Eio 的宿主适配补丁
 ```
 
-邮件撰写、草稿、Discourse 认证与点赞、Reddit 授权与投票、进程宿主和配置加载都在 OCaml 模块中实现。Emacs 主线程通过 Ecaml 操作窗口和 buffer，独立 OCaml domain 运行 Eio。跨 domain 消息传递使用 Saturn 的有界 SPSC 队列，命令／事件容量分别为 256／512，邮件进程请求队列容量为 64。后端基本接口不强制 thread、点赞、投票、写入或订阅；这些作为可选模块提供。`*_emacs.ml` 是各后端在 Emacs 中的命令和能力注册，同一目录中的其他模块处理协议与内容。详情参见源码接口及 [运行时验证说明](docs/VALIDATION.md)。
+邮件撰写、草稿、Discourse 认证与点赞、Reddit 授权与投票、进程宿主和配置加载都在 OCaml 模块中实现。Emacs 主线程通过 Ecaml 操作窗口和 buffer，独立 OCaml domain 运行 Eio。跨 domain 消息传递使用 Saturn 的有界 SPSC 队列，命令／事件容量分别为 256／512，邮件进程请求队列容量为 64。后端基本接口不强制 thread、点赞、投票、写入或订阅；这些作为可选模块提供。`*_emacs.ml` 是各后端在 Emacs 中的命令和能力注册，同一目录中的其他模块处理协议与内容。详情参见源码接口及 [总体设计](docs/ARCHITECTURE.md)。
 
 普通来源在打开首页和手动操作时刷新；Mu 邮件同步在进入首页或邮件组以及手动刷新时触发，默认不定时轮询。统一后台增量同步、完整回复/提及规则、持久离线写入重试、Reddit 完整撰写、邮件附件撰写和邮件 WebKit 整树阅读仍待完成。不要把已实现的会话任务调度视为持久同步队列。
 

@@ -1,6 +1,6 @@
 # 公共 Firefox Cookie 能力
 
-`Reader.Credentials.Firefox` 是 Camulus 提供给后端的只读凭据能力，和公共 WebKit 视图一样，不属于某一个网站后端。
+`Reader.Credentials.Firefox` 是 Camulus 提供给后端的只读凭据能力，不属于某一个网站后端。
 
 用户通过 Emacs 可定制选项 `camulus-firefox-profile` 指定 Firefox profile。Camulus 启动时创建 provider，并将它的读取函数交给需要浏览器凭据的后端：
 

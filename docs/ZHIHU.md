@@ -14,5 +14,3 @@
 注册的组支持 `answers.USER`、`articles.people.USER` 和 `articles.org.USER`。注册与订阅仍独立；收藏继续持久保存正文和图片。API 请求由 OCaml 签名，图片下载不携带 Cookie。
 
 缺少 `d_c0`、登录过期或遇到服务端验证时会报告错误。请在配置的 Firefox profile 中登录或完成验证，然后重新刷新，不会将认证失败当成空列表。
-
-测试覆盖签名、分页、正文与图片归档、凭据隔离，以及 Firefox Cookie 的域名、路径、有效期、容器和数据库锁处理。显式运行的 `test/publication_live.ml` 通过 `EF_FIREFOX_PROFILE` 选择 profile；常规测试使用临时数据库，不访问真实凭据或账号。

@@ -12,8 +12,5 @@ let prepare ~notify:_ =
       ~refresh:(fun group _ -> ignore(B.Live.list backend group ~after:None : Reader.Content.page)) ())}
 let install ~submit () =
   worker_factories := prepare :: !worker_factories;
-  let read,attachment=Rss_emacs.publication_commands ~submit "atlantic" in
-  register_local_groups ~option:"camulus-theatlantic-subscriptions" ~source:(fun _->"atlantic") ~accepts:all_groups { (base ~name:"atlantic" ~matches:(String.equal "atlantic") ~threaded:false
-    ~read:(fun ~source:_ ~id ~thread_id:_ ~group -> Value.of_int_exn (read id group))) with
-    attachment=Some (fun ~source:_ ~id ~group ~part ~destination -> Value.of_int_exn (attachment id group part destination));
-    events=["rss"] }
+  let backend=Rss_emacs.publication_backend ~submit ~source:"atlantic" ~threaded:false in
+  register_local_groups ~option:"camulus-theatlantic-subscriptions" ~source:(fun _->"atlantic") ~accepts:all_groups backend

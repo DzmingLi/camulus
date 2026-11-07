@@ -60,7 +60,6 @@ let attachments ~site cooked =
         add (get "src") (get "alt")
       else if (tag="audio" || tag="video" || tag="source") && get "src"<>"" then add (get "src") ""
     | _ -> ());
-  if List.length !found>1000 then failwith "Too many Discourse attachments";
   List.mapi(fun part (url,name) ->
     let name=if name<>"" then name else Uri.path(Uri.of_string url) |> Filename.basename |> Uri.pct_decode in
     {part;url;name=(if name="" || name="." || name="/" then "attachment" else name);size=0}) !found

@@ -17,7 +17,7 @@ nix develop -c make reader-demo
 - 从 `camulus-rss-subscriptions` 移除 URL 即取消订阅；浏览入口和既有收藏保留。
 - `f` 打开收藏，读取持久副本。
 
-也可以 `M-x camulus-reader-rss` 输入地址，先浏览而不订阅。`g` 刷新、`RET` 阅读、`m` 收藏、`h` 回首页。
+也可以 `M-x camulus-reader-rss` 输入地址，先浏览而不订阅。RSS 使用 Camulus 的公共列表界面：`g` 刷新、`RET` 阅读、`m` 收藏、`d` 移除当前进展、`h` 回首页。切换 RSS 源时复用 `*Reader*` 缓冲区，不再为每个 URL 创建独立列表。
 
 ## 内容与身份
 
@@ -40,17 +40,3 @@ RSS 优先使用 `content:encoded`，其次 `description`。Atom 支持 text、h
 `g` 同时更新已收藏文章，即使它们不再订阅。文章已从源中移除或服务器暂时不可用时保留旧归档，并报告刷新失败；不会删除已有副本。未收藏且已从源中消失的文章，重启后可能无法再读取正文。
 
 XML 直接交给 Syndic / Xmlm 解析，不额外预扫描或限制大小、深度与节点数量。HTTP 响应、附件下载及归档不设大小配额。连接超时 10 秒、单请求总超时 30 秒。暂不支持 OPML 导入、网页自动发现订阅源、历史分页、认证订阅源、WebSub 或自动轮询；仍由 `g` 手动同步。
-
-## 验证
-
-`make test` 包含 RSS/Atom 的 OCaml 测试和三个新的原生 Emacs 集成测试：
-
-- RSS/RDF/Atom、命名空间、CDATA、XHTML、相对链接、日期与时区、稳定身份和修订。
-- 重定向、条件请求、304 缓存、失败保留缓存、非法协议与无效 feed 拒绝。
-- 首页订阅、处理后去重、新修订重现、文件夹选择、正文和二进制附件归档、重启后的离线阅读。
-- Atom 无订阅浏览及下载；慢 HTTP 请求期间其他任务继续运行，取消正常结束。
-- 数据库 v1 → v2 保留既有 MIME，最后一个收藏归属移除时清理附件。
-
-测试使用合成内容与本地 HTTP 服务，无需真实订阅或远端账户。首次全量回归中，原有 32 项 Emacs 测试通过，新测试发现终端 SHR 将 HTML 正文换行过窄。修正后，3 项 RSS/Atom 测试与 3 项共享持久阅读界面测试全部通过；OCaml 测试也通过，包括 schema 迁移。原始回归与修复后的针对性验证分别记录在 rss-test-results.txt（本地验证输出） 和 rss-followup-test-results.txt（本地验证输出）。
-
-格式依据：[RSS 2.0 规范](https://www.rssboard.org/rss-specification)、[Atom RFC 4287](https://www.rfc-editor.org/rfc/rfc4287)。

@@ -52,7 +52,6 @@ nnreddit 原来的授权 scope 没有 `vote`。旧 grant 可继续用于已授�
 ```text
 Reader.Backend.S            通用阅读契约，group/cursor 由后端定义
 Reader.Backend.Threading    可选讨论树加载契约，不要求所有后端提供
-Reader.Backend.Writing      可选写入契约，draft/receipt 均为抽象类型
 Reader.Backend.Voting       可选投票契约
 Reader.Backend.Liking       独立的单向点赞契约，Reddit 不实现
           ▲
@@ -66,7 +65,9 @@ src/runtime_ui.ml             通用会话与结果交付
 Reader.Runtime                 与具体后端无关的调度和生命周期
 ```
 
-`Reddit_backend.Make` 的 session 类型 `t` 通过 `.mli` 隐藏；access token、刷新状态和 OAuth challenge 属于后端。注入 `Http.S` 可以完整测试协议行为。核心 runtime 只接收扩展处理器；之后增加 Discourse 等后端，不需要给核心调度器添加一个新的硬编码分支。
+`Reddit_backend.Make` 的 session 类型 `t` 通过 `.mli` 隐藏；access token、刷新状态和 OAuth challenge 属于后端。网络请求通过 `Http.S` 传入。核心 runtime 只接收扩展处理器；之后增加 Discourse 等后端，不需要给核心调度器添加一个新的硬编码分支。
+
+真实会话直接使用 `Reddit_backend.Live`。回复与发帖调用其 `reply`、`submit`，不再经过另一套 `Writing` 模块和仅供包装使用的草稿、回执变体。
 
 线程/消息关系使用普通不可变 OCaml 记录。`Content.message.thread_id` 是 option，未把 Reddit 的原生稳定 thread ID 假设强加给邮件后端。JSON 只用于 Emacs 边界，跨 domain 通信仍然是类型化 OCaml 值。
 
@@ -80,7 +81,6 @@ summary 列表和回复树都支持 `+` 赞成、`-` 反对、`0` 取消投票�
 
 状态协调在 `src/voting.ml` 中实现，由 Ecaml 主线程管理；演示 Lisp 只负责命令入口与渲染。当前是会话内的乐观更新，尚无持久离线队列、自动重试或跨重启恢复；退出不会将未完成投票转为可靠的待同步任务。点赞的 `Backend.Liking.set_like` 接口独立于投票，未来由有单向点赞语义的后端实现。
 
-此切片通过 OCaml 测试及完整的 29 个 Emacs 集成测试（运行时 9、Reddit 7、邮件阅读/发送 8、草稿/归档 5），记录见 voting-test-results.txt（本地验证输出）。投票测试使用注入传输和缺失凭据场景，未向真实账户投票。状态测试覆盖明确拒绝、结果不确定、重复结果、在途读取和跨视图协调。
 
 ## 调度与失败处理
 
@@ -104,17 +104,6 @@ summary 列表和回复树都支持 `+` 赞成、`-` 反对、`0` 取消投票�
 (camulus-reddit-request "{\"op\":\"notifications\"}")
 ```
 
-其他操作：`identity`、`post`、`vote`、`reply`、`submit`、`authorize`、`authorize-complete`。精确字段见 `operation_of_json`。写入和授权任务归属 `Service`，不会因切换阅读视图被取消。原生结果格式为 `(reddit REQUEST-ID VIEW-OR-NIL JSON)`，随后收到既有 `finished` 事件；错误也保留结构化的 `uncertain_write`、`retry_after`。
-
-## 本轮验证
-
-在本机 Emacs 31.1、OCaml 5.3.0、Ecaml 0.17.0、Eio 1.6、ocurl 0.9.2 上测试。
-
-- `make test`：10 组 Reddit 协议测试、4 项新增原生模块/界面 ERT，加上原有核心、9 项 Emacs 集成测试和退出测试。
-- `make reddit-live`：显式指定环境变量后进行只读联调，默认不包含在 `make test` 中。
-- 真实原生模块：读取 25 个帖子、3 条内容的回复树；期间 Emacs 心跳运行 515 次，并完成并发 GC 和 SIGPIPE/SIGCHLD 不变检查。
-- 没有进行真实发帖、回复、投票、token 文件替换或远端已读变更。写入功能通过注入传输的协议测试验证，尚未实际发布测试内容。
-
-原始测试输出见 `reddit-test-results.txt` 和 `reddit-live-results.txt`。图形显示的视觉效果、长期运行及实际编辑/发布流程还未验证。
+其他操作：`identity`、`post`、`vote`、`reply`、`submit`、`authorize`、`authorize-complete`。精确字段见 `operation_of_json`。切换阅读视图时，界面只取消对应的读取请求，写入和授权任务继续运行。原生结果格式为 `(reddit REQUEST-ID DATA)`，结束时收到 `(finished REQUEST-ID STATE MESSAGE)`；错误也保留结构化的 `uncertain_write`、`retry_after`。
 
 协议参考：[Reddit API](https://www.reddit.com/dev/api/)、[官方 OAuth2 说明](https://github.com/reddit-archive/reddit/wiki/OAuth2)。本实现保留 nnreddit 的 GPL-3.0-or-later 来源说明；应用 ID 是公开标识，不是 token。

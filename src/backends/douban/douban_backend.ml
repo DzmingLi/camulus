@@ -39,16 +39,15 @@ let message ~id ~title ~author ~created ~html =
  activity=Some(Digest.to_hex(Digest.string(title^html)))}
 let image j=let url=str "url" (field "large" j) in if url="" then "" else "<img src=\""^Html.escape url^"\">"
 let text s=String.split_on_char '\n' s|>List.map Html.escape|>String.concat "<br>"
-let rec status_html depth j=
- if depth>8 then "" else
+let rec status_html j=
  let card=field "card" j in
  "<p>"^text(str "text" j)^"</p>"^String.concat ""(List.map image(array "images" j))^
  (if card=`Null then "" else "<blockquote><a href=\""^Html.escape(str "url" card)^"\">"^Html.escape(str "title" card)^"</a><p>"^text(str "subtitle" card)^"</p>"^image(field "image" card)^"</blockquote>")^
  (let shared=match field "reshared_status" j with `Null->field "parent_status" j|v->v in
-  if shared=`Null then "" else "<blockquote>"^status_html(depth+1)shared^"</blockquote>")
+  if shared=`Null then "" else "<blockquote>"^status_html shared^"</blockquote>")
 let status j=
  let id="status:"^numeric(str "id" j) in
- let html=status_html 0 j in
+ let html=status_html j in
  R.Article.of_html (message ~id ~title:"" ~author:(str "name" (field "author" j)) ~created:(date(str "create_time" j)) ~html) html
 (* Douban's rich paragraphs use CSS pre-wrap; SHR otherwise collapses their
    literal newlines. Preserve text-node breaks only inside paragraphs. *)
@@ -139,7 +138,7 @@ module Make(H:R.Http.S)=struct
  let list t group ~after=
   let kind,n=parts group in
   let offset=match after with None->0|Some s->(match Yojson.Safe.from_string s with
-   | `List[`String g;`Int v] when g=group && v>0 && v<=100000->v|_->invalid_arg "Invalid Douban cursor") in
+   | `List[`String g;`Int v] when g=group && v>0->v|_->invalid_arg "Invalid Douban cursor") in
   let articles,more=match kind with
   | "timeline" ->
    let j=json t (Printf.sprintf "https://m.douban.com/rexxar/api/v2/status/user_timeline/%s?start=%d&count=20" n offset) in
@@ -187,9 +186,8 @@ module Make(H:R.Http.S)=struct
   let a=read_root t root in emit_article a;
   emit{C.thread=root;messages=[a.message];gaps=[];complete=false};
   let base="https://m.douban.com/rexxar/api/v2/"^(if kind="status" then "status/" else "group/topic/") in
-  let seen=Hashtbl.create 128 and scheduled=Hashtbl.create 128 and requests=ref 0 in
+  let seen=Hashtbl.create 128 and scheduled=Hashtbl.create 128 in
   let rec page path field_name start fallback=
-   incr requests;if !requests>1000 then failwith "Douban discussion page limit exceeded";
    let j=json t (Printf.sprintf "%s%s?start=%d&count=20&nested=1&order_by=time" base path start) in
    let items=match field field_name j with `List xs->xs|_->failwith "Douban comment page missing" in
    if field "total" j=`Null then failwith "Douban comment total missing";
@@ -198,8 +196,7 @@ module Make(H:R.Http.S)=struct
    let more=start+count<num "total" j in
    if more && items=[] then failwith "Empty Douban non-final page";
    let pending=ref [] in
-   let rec collect depth fallback partial c=
-    if depth>128 then failwith "Douban comment nesting limit exceeded";
+   let rec collect fallback partial c=
     let cid=numeric(str "id" c) in let id=root^"/comment:"^cid in
     if not(partial && Hashtbl.mem seen id) then begin
      let ref_comment=field "ref_comment" c in
@@ -213,15 +210,15 @@ module Make(H:R.Http.S)=struct
      if not partial then (Hashtbl.replace seen id ();remember_reaction t id (json_reaction c));
      ignore(remember t article);emit_article article;
      emit{C.thread=root;messages=[m];gaps=[];complete=false};
-     if ref_comment<>`Null then collect(depth+1)fallback true ref_comment;
+     if ref_comment<>`Null then collect fallback true ref_comment;
      if not partial then begin
-      let replies=array "replies" c in List.iter(collect(depth+1)id false)replies;
+      let replies=array "replies" c in List.iter(collect id false)replies;
       let next=if field "next_reply_start" c=`Null then List.length replies else num "next_reply_start" c in
       if next<num "total_replies" c && not(Hashtbl.mem scheduled cid) then begin
        Hashtbl.add scheduled cid ();pending:=(cid,next,id)::!pending end
      end
     end in
-   List.iter(collect 0 fallback false)items;
+   List.iter(collect fallback false)items;
    List.iter(fun(cid,next,id)->page("comment/"^cid^"/replies")"replies" next id)(List.rev !pending);
    if more then page path field_name(start+count)fallback
   in page(n^"/comments")"comments" 0 root;
@@ -272,12 +269,9 @@ module Make(H:R.Http.S)=struct
  let attachment t group id part destination=R.Article.attachment ~download (read t group id)part destination
 end
 module Live=Make(R.Transport)
-module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live
-module Threading : Reader.Backend.Threading with type t=Live.t = Live
 
 (* The host supplies its selected credential provider; the backend does not
    discover browser profiles or read browser databases. *)
 let create_live ~cookies () =
  Live.create ~cookies ~post:(fun request ~body->
   R.Transport.request {request with meth=Reader.Http.Post;body}) ()
-module Liking : Reader.Backend.Liking with type t=Live.t = Live

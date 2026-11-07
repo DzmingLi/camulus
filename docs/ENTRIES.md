@@ -2,6 +2,8 @@
 
 浏览入口与订阅分开配置。`camulus-groups` 为组声明名称和来源，供首页后端按钮与组目录浏览；它不会自动把组加入主页。
 
+打开分组时才检查其字段并规范化来源，原始配置不会被改写。启动不再全量校验分组或要求名称唯一；按名称选择同名分组时使用第一项，组目录中的按钮仍各自打开对应分组。
+
 ```elisp
 (setopt camulus-groups
         '(((name . "OCaml") (source . "reddit:alice") (group . "ocaml"))
@@ -34,7 +36,9 @@
 
 Discourse 使用服务器的会话通知和追踪机制。已注册且已认证的站点提供通知时间线，`T` 打开远端会话追踪面板；阅读讨论时的 `s` 修改远端通知级别。全站、分类等浏览组没有本地订阅开关。取消一个话题的追踪通过服务器接口完成。
 
-优先级由 `camulus-subscription-priorities`、`camulus-default-subscription-priority` 和 `camulus-home-priorities` 配置。它只决定主页展示哪些订阅来源，不修改订阅列表或远端追踪。
+Discourse 启动时从已注册分组发现有效站点并读取认证信息，不再将它们写回站点配置。无效的论坛 URL 在打开对应分组时报错。
+
+优先级由 `camulus-subscription-priorities`、`camulus-default-subscription-priority` 和 `camulus-home-priorities` 配置。级别可以是任意整数，包括负数，数值越小越优先。它只决定主页展示哪些订阅来源，不修改订阅列表或远端追踪。配置在筛选或显示优先级时读取；错误的优先级配置不会阻止浏览无关入口。
 
 阅读与写入状态仍独立持久保存：已读、移除、收藏文件夹、归档正文和附件属于内容状态；Mu 草稿属于邮件后端。更改订阅或移除浏览入口不会删除这些内容。
 

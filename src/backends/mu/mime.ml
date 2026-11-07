@@ -84,7 +84,6 @@ let disposition h =
 let mime_type h = let ct=R.Header.content_type h in
   String.lowercase_ascii (R.Content_type.Type.to_string ct.ty^"/"^R.Content_type.Subtype.to_string ct.subty)
 let normalize raw =
-  if String.length raw>32*1024*1024 then failwith "Mail exceeds 32 MiB MIME limit";
   (* Message-mode drafts use LF. RFC messages already using CRLF are untouched,
      including raw binary attachment octets. *)
   match String.index_opt raw '\n' with
@@ -102,40 +101,34 @@ let normalize raw =
 
 let parse_tree raw =
   let raw=normalize raw in
-  let count=ref 0 and size=ref 0 in
   let emitters _ =
-    incr count;if !count>4096 then failwith "Too many MIME parts";
     let b=Buffer.create 256 in
-    ((function None -> () | Some s -> size:= !size+String.length s;
-       if !size>32*1024*1024 then failwith "Decoded MIME exceeds limit";
-       Buffer.add_string b s),b) in
+    ((function None -> () | Some s -> Buffer.add_string b s),b) in
   get(Angstrom.parse_string ~consume:All (R.Mail.stream emitters) raw)
 let buffer_stream s = let once=ref false in fun () ->
   if !once then None else (once:=true;Some(s,0,String.length s))
 let render mail =
   let stream=R.Mt.to_stream mail in collect(fun () ->
     Option.map(fun(s,o,n)->String.sub s o n)(stream()))
-let rec part depth header tree =
-  if depth>64 then failwith "MIME nesting exceeds limit";
+let rec part header tree =
   match tree with
   | R.Mail.Leaf bytes -> R.Mt.part ~header (buffer_stream (Buffer.contents bytes))
   | R.Mail.Multipart children ->
-    let children=List.filter_map(fun (h,b) -> Option.map (part (depth+1) h) b) children in
+    let children=List.filter_map(fun (h,b) -> Option.map (part h) b) children in
     R.Mt.multipart ~rng:R.Mt.rng ~header ?boundary:(R.Content_type.boundary(R.Header.content_type header)) children
     |> R.Mt.multipart_as_part
   | R.Mail.Message(h,b) ->
-    let bytes=render (R.Mt.make R.Header.empty R.Mt.simple (part (depth+1) h b)) in
+    let bytes=render (R.Mt.make R.Header.empty R.Mt.simple (part h b)) in
     R.Mt.part ~header (buffer_stream bytes)
 let leaves header tree =
   let n=ref 0 in
-  let rec walk depth h tree =
-    if depth>64 then failwith "MIME nesting exceeds limit";
+  let rec walk h tree =
     match tree with
-    | R.Mail.Multipart parts -> List.concat_map (fun(h,b)->match b with None->[] | Some b->walk (depth+1) h b) parts
+    | R.Mail.Multipart parts -> List.concat_map (fun(h,b)->match b with None->[] | Some b->walk h b) parts
     | R.Mail.Leaf b -> incr n;[!n,h,Buffer.contents b,false]
     | R.Mail.Message(h',b) -> incr n;
-      let bytes=render(R.Mt.make R.Header.empty R.Mt.simple (part (depth+1) h' b)) in [!n,h,bytes,true] in
-  walk 0 header tree
+      let bytes=render(R.Mt.make R.Header.empty R.Mt.simple (part h' b)) in [!n,h,bytes,true] in
+  walk header tree
 let inspect raw =
   let header,tree=parse_tree raw in
   let texts=ref [] and attachments=ref [] and data=ref [] in

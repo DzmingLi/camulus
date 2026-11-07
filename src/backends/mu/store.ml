@@ -22,9 +22,7 @@ let fsync_dir path =
 let read path =
   let ch=open_in_bin path in
   Fun.protect ~finally:(fun () -> close_in_noerr ch) @@ fun () ->
-  let len=in_channel_length ch in
-  if len>2*1024*1024 then invalid_arg "Draft exceeds 2 MiB";
-  really_input_string ch len
+  really_input_string ch (in_channel_length ch)
 let revision source = Digest.to_hex(Digest.string source)
 let write_atomic ~dir ~path ~expected source =
   (* No effect suspension between checking the revision and replacing the file.

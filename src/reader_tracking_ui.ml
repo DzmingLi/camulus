@@ -74,7 +74,7 @@ let refresh more=
       set_local "after"(field "after" data);render ()))
    (fun event->if current_view buffer generation then in_buffer buffer(fun()->
       set_local "request" nil;
-      if not(Value.eq(call "nth"[i 3;event])(sym "completed"))then set_local "error"(call "nth"[i 4;event])
+      if not(Value.eq(call "nth"[i 2;event])(sym "completed"))then set_local "error"(call "nth"[i 3;event])
       else if not !received then set_local "error"(s "Backend returned no subscription page");
       header ()))
  with exn->set_local "request" nil;set_local "error"(s(Exn.to_string exn));header ();raise exn
@@ -113,17 +113,17 @@ let change ~on_changed ()=
         let write=manager.change ~source ~target ~setting:(Some(text choice))in
         watch write (fun result_data->if String.equal(text(field "kind"result_data))"subscription"then result:=Some result_data)
           (fun event->
-            if Value.eq(call "nth"[i 3;event])(sym "completed")then
+            if Value.eq(call "nth"[i 2;event])(sym "completed")then
               match !result with
               | Some data->
                 fail nil;
                 changed source;on_changed source;
                 message "Remote tracking policy: %s" [field "setting"data]
               | None->fail(s "Backend returned no confirmed tracking state")
-            else fail(call "nth"[i 4;event])))))
+            else fail(call "nth"[i 3;event])))))
     with exn->selected:=true;fail(s(Exn.to_string exn));raise exn)
-    (fun event->if not !selected then fail(if Value.eq(call "nth"[i 3;event])(sym "completed")
-      then s "No tracking policy selected"else call "nth"[i 4;event]))
+    (fun event->if not !selected then fail(if Value.eq(call "nth"[i 2;event])(sym "completed")
+      then s "No tracking policy selected"else call "nth"[i 3;event]))
  with exn->fail(s(Exn.to_string exn));raise exn
 let open_ requested=
  run "camulus-reader-start" [];
@@ -136,6 +136,8 @@ let open_ requested=
    if truth candidate && List.mem sources(text candidate)~equal:String.equal then text candidate
    else if List.is_empty sources then(user_error "Register a source with remote subscription management first";assert false)
    else text(call "completing-read"[s "Manage subscriptions for: ";Value.list(List.map sources~f:s);nil;sym "t"])in
+ let source=Option.value_map (find source) ~default:source ~f:(fun backend ->
+   text(field "source" (backend.normalize(alist["source",s source])))) in
  let manager=managed source in
  let filter=fst(List.hd_exn manager.filters)in
  let buffer=Buffer.find_or_create ~name:("*Camulus tracking: "^source^"*")in

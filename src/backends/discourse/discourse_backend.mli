@@ -21,7 +21,6 @@ type operation = Categories | List of group * cursor option
  | Thread of string | Read of string | Like of string * bool | Send of draft
  | Track of string * tracking | Topic_state of string | Attachment of string * int * string
  | Subscriptions of tracking * cursor option | Subscription_change of string * tracking option
-val service : operation -> bool
 type result = Page of Reader.Content.page | Thread_batch of Reader.Content.thread_batch | Article of Decode.article
  | Category_list of Yojson.Safe.t | Liked of Decode.article | Sent of Decode.article
  | Tracked of string * tracking | Topic_state_result of string * int | Saved of string
@@ -49,13 +48,5 @@ module Make (_:Http.S) : sig
  val execute : t -> operation -> emit:(result -> unit) -> unit
 end
 module Live : module type of Make(Transport)
-module Readable : Reader.Backend.S with type t = Live.t and type group = group and type cursor = cursor
-module Threading : Reader.Backend.Threading with type t = Live.t
-module Liking : Reader.Backend.Liking with type t = Live.t
-module Writing : Reader.Backend.Writing with type t = Live.t and type draft = draft and type receipt = receipt
 val operation_of_json : Yojson.Safe.t -> operation
 val result_json : result -> Yojson.Safe.t
-
-module Subscription : Reader.Backend.Subscription with type t = Live.t and type target = string and type settings = tracking
-module Topic_tracking : Reader.Backend.Topic_tracking with type t = Live.t and type target = string
-  and type settings = tracking and type filter = tracking and type cursor = cursor
