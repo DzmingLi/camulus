@@ -41,11 +41,11 @@ type result=Page of C.page | Thread_batch of C.thread_batch | Article of D.artic
 exception Uncertain_write
 let error_write ()=failwith "Discourse write outcome is uncertain; check the forum before retrying"
 module Make(H:Http.S)=struct
- type t={config:config;categories:(int,string) Hashtbl.t;notices:(string,D.article) Hashtbl.t;lock:Eio.Mutex.t}
+ type t={config:config;categories:(int,string) Hashtbl.t;lock:Eio.Mutex.t}
  type nonrec group=group
  type nonrec cursor=cursor
  let source=source
- let create config={config;categories=Hashtbl.create 16;notices=Hashtbl.create 64;lock=Eio.Mutex.create ()}
+ let create config={config;categories=Hashtbl.create 16;lock=Eio.Mutex.create ()}
  let headers t=["Accept","application/json"] @
    (if t.config.api_key="" then [] else ["User-Api-Key",t.config.api_key;"User-Api-Client-Id",t.config.client_id])
  let call t ?(meth=Http.Get) path params =
@@ -80,45 +80,25 @@ module Make(H:Http.S)=struct
    let n=D.num "page" j in
    if D.str "scope" j<>cursor_scope group query || n<1 || n>10000 then invalid_arg "Cursor belongs to another Discourse group or query";n
  let cursor group query n = Some(Yojson.Safe.to_string(`Assoc["scope",`String(cursor_scope group query);"page",`Int(n+1)]))
- let notification_article t n =
-   let id="notification:"^string_of_int(D.positive(D.num "id" n)) in
+ let notification_message t n =
+   let topic=D.num "topic_id" n in
+   if topic<=0 then None else
+   let floor=max 1 (D.num "post_number" n) in
    let data=match D.field "data" n with `String s -> Yojson.Safe.from_string s | x->x in
-   let first xs=Option.value(List.find_opt((<>) "") xs) ~default:"Discourse notification" in
-   let topic=D.num "topic_id" n and floor=max 1 (D.num "post_number" n) in
-   let title=first [D.str "topic_title" data;D.str "title" data;D.str "badge_name" data;
-     if topic>0 then "Topic "^string_of_int topic else "Discourse notification #"^string_of_int(D.num "id" n)] in
+   let first xs=Option.value(List.find_opt((<>) "") xs) ~default:"" in
+   let title=first [D.str "topic_title" data;D.str "title" data;"Topic "^string_of_int topic] in
    let author=first [D.str "display_username" data;D.str "username" data;D.str "acting_user_name" n] in
-   let created=D.date(D.str "created_at" n) in
-   let message=if topic>0 then
-     {(D.base_message ~site:t.config.site ~topic ~floor ~title ~author ~created) with activity=Some id}
-   else {C.id;thread_id=None;parent_id=None;references=[];title;author;created;
-     body=(first [D.str "message" data;D.str "description" data;title])^
-       "\n\nThis notification is not a forum topic. Open the site notifications page for details.";
-     html=None;url=t.config.site^"/my/notifications";link_url=None;
-     unavailable=false;score=0;my_vote=C.No_vote;activity=Some id} in
-   {D.message;post_id=0;floor=(if topic>0 then floor else 0);liked=false;attachments=[]}
+   Some{(D.base_message ~site:t.config.site ~topic ~floor ~title ~author ~created:(D.date(D.str "created_at" n))) with
+     activity=Some("notification:"^string_of_int(D.positive(D.num "id" n)))}
  let notification_list t ~after =
    if t.config.api_key="" then failwith "Discourse notifications require authorization";
    let page=page_number Notifications t.config.site after in
    let j=call t "/notifications.json" ["offset",string_of_int(page*60);"limit","60";"silent","true"] in
    (* Oldest first: repeated notifications for one post must leave the newest
       metadata and activity last. No notification-type allowlist. *)
-   let messages=List.rev(D.list "notifications" j) |> List.map(fun n ->
-     let a=notification_article t n in
-     if a.floor=0 then Hashtbl.replace t.notices a.message.id a;
-     a.message) in
+   let messages=List.rev(D.list "notifications" j) |> List.filter_map(notification_message t) in
    {C.messages;notifications=[];after=(if (page+1)*60 < D.num "total_rows_notifications" j
      then cursor Notifications t.config.site page else None)}
- let notice t id =
-   let rec find remaining after = match Hashtbl.find_opt t.notices id with
-     | Some article->article
-     | None when remaining=0->failwith "Notification is no longer in the recent history; open the site notifications page"
-     | None->let page=notification_list t ~after in
-       match Hashtbl.find_opt t.notices id,page.after with
-       | Some article,_->article | None,Some _->find (remaining-1) page.after
-       | None,None->failwith "Notification is no longer available on the server" in
-   find 100 None
- let is_notice=String.starts_with ~prefix:"notification:"
  let list t group ~after =
    match group with
    | Notifications -> notification_list t ~after
@@ -153,8 +133,6 @@ module Make(H:Http.S)=struct
      end) hits in
    {C.messages;notifications=[];after=(if D.field "more_full_page_results" (D.field "grouped_search_result" j)=`Bool true then cursor group query n else None)}
  let thread t id ~emit_article ~emit =
-   if is_notice id then (let a=notice t id in emit_article a;
-     emit {C.thread=id;messages=[a.message];gaps=[];complete=true}) else
    let topic,_=D.parse_id id in
    let j=call t (Printf.sprintf "/t/%d.json" topic) [] in
    if D.num "id" j<>topic then failwith "Unexpected Discourse topic";
@@ -192,7 +170,6 @@ module Make(H:Http.S)=struct
      load(ingest posts) in
    load(ingest(D.list "posts" stream))
  let read t id =
-   if is_notice id then notice t id else
    let topic,floor=D.parse_id id in let floor=Option.value floor ~default:1 in
    let j=call t (Printf.sprintf "/t/%d/%d.json" topic floor) [] in
    if D.num "id" j<>topic then failwith "Unexpected Discourse topic";
@@ -203,7 +180,6 @@ module Make(H:Http.S)=struct
    Eio.Mutex.lock t.lock;
    Fun.protect ~finally:(fun ()->Eio.Mutex.unlock t.lock) @@ fun () ->
    if t.config.api_key="" then failwith "Authorize this forum before liking";
-   if is_notice id then invalid_arg "This notification is not a post and cannot be liked";
    let a=read t id in if a.liked=liked then a else
    let meth,path,params=if liked then Http.Post,"/post_actions.json",["id",string_of_int a.post_id;"post_action_type_id","2"]
      else Http.Delete,Printf.sprintf "/post_actions/%d.json" a.post_id,["post_action_type_id","2"] in
@@ -325,11 +301,7 @@ let operation_of_json j =
  | "categories"->Categories
  | "list"->List(group_of_string(str "group"),after)
  | "search"->Search(group_of_string(str "group"),str "query",after)
- | "thread" | "read" as op ->
-   let target=str "id" in
-   if String.starts_with ~prefix:"notification:" target then ignore(D.number(String.sub target 13 (String.length target-13)))
-   else ignore(D.parse_id target);
-   if op="thread" then Thread target else Read target
+ | "thread"->Thread(id()) | "read"->Read(id())
  | "like"->let liked=match D.field "liked" j with `Bool b->b | _->invalid_arg "Missing liked boolean" in Like(id(),liked)
  | "reply"->Send(Reply{parent=id();text=str "text"})
  | "submit"->Send(New_topic{category=D.positive(D.num "category" j);title=str "title";text=str "text"})

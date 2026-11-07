@@ -101,22 +101,20 @@ let () =
     notification 15 5;notification 14 3;notification 13 1;notification 12 2;notification ~topic:0 ~floor:0 11 12] in
   queue:=[response(`Assoc["notifications",`List notices;"total_rows_notifications",`Int 70])];
   let page=M.list session B.Notifications ~after:None in
-  check(List.length page.messages=9 && page.after<>None) "all notification kinds and pagination";
+  check(List.length page.messages=8 && page.after<>None) "only topic notifications, regardless of kind, with pagination";
   check((List.hd(List.rev page.messages)).activity=Some "notification:19") "newest stable notification activity last";
   check(List.exists(fun (m:Reader.Content.message)->m.id="topic:7/post:1")page.messages) "topic notifications without a floor open the root";
   check((List.hd !requests).meth=B.Http.Get) "notifications fetched without mark-read writes";
   check(fails(fun()->ignore(M.list other B.Notifications ~after:page.after))) "notification cursor bound to site";
   check(fails(fun()->ignore(M.search session B.Notifications ~query:"x" ~after:None))) "no unscoped search substitute";
-  let count=List.length !requests in
-  let badge=M.read session "notification:11" in
-  check(badge.message.thread_id=None && badge.message.body<>"") "non-topic notification remains readable";
-  let batches=ref [] in M.thread session "notification:11" ~emit:(fun b->batches:=b::!batches);
-  check((List.hd !batches).complete) "non-topic notification opens as standalone article";
-  check(fails(fun()->M.set_like session ~id:"notification:11" ~liked:true)) "cannot like a non-post notification";
-  check(List.length !requests=count) "cached notification read never performs mutations";
-  let restarted=M.create(B.config ~api_key:"testkey" ~client_id:"testclient" base) in
-  queue:=[response(`Assoc["notifications",`List[notification ~topic:0 ~floor:0 11 12];"total_rows_notifications",`Int 1])];
-  check((M.read restarted "notification:11").message.id="notification:11") "notification can be reopened after restart";
+  check(List.for_all(fun (m:Reader.Content.message)->m.thread_id=Some "topic:7")page.messages) "no standalone notification articles";
+  queue:=[response(`Assoc["notifications",`List[notification ~topic:0 ~floor:0 11 12;`Assoc["data",`String "invalid JSON"]];"total_rows_notifications",`Int 70])];
+  let empty=M.list session B.Notifications ~after:None in
+  check(empty.messages=[] && empty.after<>None) "non-topic-only page retains server pagination";
+  queue:=[response(`Assoc["notifications",`List[notification 10 2];"total_rows_notifications",`Int 70])];
+  let next=M.list session B.Notifications ~after:empty.after in
+  check(List.length next.messages=1 && next.after=None) "topic notifications on subsequent pages remain reachable";
+  check(Uri.get_query_param(Uri.of_string(List.hd !requests).url) "offset"=Some "60") "pagination counts server notifications, not filtered messages";
   let anonymous=M.create(B.config base) in
   let count=List.length !requests in
   check(fails(fun()->ignore(M.send anonymous (B.Reply{parent="topic:7/post:1";text="test"})))) "anonymous write rejected";

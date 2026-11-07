@@ -19,7 +19,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
     manage = False
     topic_levels = {}
     reject_tracking = False
-    standalone = False
     def log_message(self, *args): pass
     def respond(self, status, data):
         self.send_response(status)
@@ -49,12 +48,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if mode=='delay-list': Handler.delay_list=True; Handler.list_started=False
             if mode=='reset':
                 Handler.revision=3; Handler.liked=False; Handler.level=1; Handler.writes=0; Handler.delay_list=False; Handler.list_started=False
-                Handler.manage=False; Handler.topic_levels={}; Handler.reject_tracking=False; Handler.standalone=False
+                Handler.manage=False; Handler.topic_levels={}; Handler.reject_tracking=False
             if mode=='manage': Handler.manage=True; Handler.topic_levels={7:3,8:2,9:3}
             if mode=='manage-external': Handler.topic_levels[7]=2
             if mode=='reject-tracking': Handler.reject_tracking=True
             if mode=='update': Handler.revision=4
-            if mode=='standalone': Handler.standalone=True
             return self.respond(200, dict(writes=Handler.writes, list_started=Handler.list_started))
         if Handler.offline: return self.respond(503, {})
         if path == '/uploads/file.bin': return self.respond(200, b'Discourse\x00attachment\xff')
@@ -65,9 +63,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 data=dict(topic_title='Discourse topic 7',display_username='alice')),
                 dict(id=999,notification_type=5,topic_id=7,post_number=1,
                 created_at='2026-10-16T00:01:00Z',data=dict(topic_title='Discourse topic 7',display_username='bob'))]
-            if Handler.standalone:
-                notifications=[dict(id=2000,notification_type=12,topic_id=None,post_number=None,
-                    created_at='2026-10-17T00:00:00Z',data=dict(badge_name='Helpful reader'))]
+            notifications.append(dict(id=2000,notification_type=12,topic_id=None,post_number=None,
+                created_at='2026-10-17T00:00:00Z',data=dict(badge_name='Helpful reader')))
             return self.respond(200,dict(notifications=notifications,total_rows_notifications=len(notifications)))
         if path == '/categories.json':
             return self.respond(200, dict(category_list=dict(categories=[dict(id=3, slug='help', name='Help')])))

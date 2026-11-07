@@ -292,28 +292,4 @@
      (camulus-reader-group-subscription) (camulus-discourse-test-idle)
      (should (eq major-mode 'camulus-tracking-mode)))))
 
-(ert-deftest discourse-standalone-notification-opens-and-archives ()
-  (camulus-discourse-test-session
-   (camulus-discourse-test-control "standalone")
-   (camulus) (camulus-discourse-test-idle)
-   (should (= 1 (length tabulated-list-entries)))
-   (goto-char (point-min)) (camulus-reader-open) (camulus-discourse-test-idle)
-   (with-current-buffer "*Reader thread*"
-     (should (string-match-p "Helpful reader" (buffer-string)))
-     (should-error (camulus-reader-discourse-like) :type 'user-error)
-     (goto-char (point-min))
-     (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "notices")))
-       (camulus-reader-save) (camulus-discourse-test-idle)))
-   (should-not (file-exists-p camulus-group-subscriptions-file))
-   (camulus-probe-session-stop) (camulus-reader-start)
-   (camulus-discourse-test-control "offline")
-   (with-current-buffer (get-buffer-create "*Saved notifications*")
-     (camulus-reader-folder-mode) (setq camulus-reader--folder "notices") (camulus-reader--load-list))
-   (camulus-discourse-test-idle)
-   (with-current-buffer "*Saved notifications*" (goto-char (point-min)) (camulus-reader-open))
-   (camulus-discourse-test-idle)
-   (with-current-buffer "*Reader thread*"
-     (should camulus-reader--archive)
-     (should (string-match-p "Helpful reader" (buffer-string))))))
-
 (ert-run-tests-batch-and-exit)

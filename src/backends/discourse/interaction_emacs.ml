@@ -46,9 +46,7 @@ let browse site group=
 let like unlike=
  let source=get "camulus-reader--source"in
  if not(truth(call "derived-mode-p"[sym "camulus-reader-article-mode"])) || not(String.is_prefix(text source)~prefix:"discourse:") || truth(get "camulus-reader--archive")then user_error "Open a live Discourse article";
- let id=field "id"(call "camulus-reader--selected"[])in
- if not(String.is_prefix(text id)~prefix:"topic:")then user_error "This notification is not a post and cannot be liked";
- let key=Value.list[source;id]in
+ let id=field "id"(call "camulus-reader--selected"[])in let key=Value.list[source;id]in
  let item=call "gethash"[id;get "camulus-reader--messages"]in let previous=field "liked"item and liked=not unlike in
  if truth(hget "camulus-discourse--likes"key)then user_error "A like request for this article is pending";
  if not(truth(call "gethash"[id;get "camulus-reader--loaded"]))then user_error "Wait for the article to load";
