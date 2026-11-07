@@ -93,7 +93,7 @@ let local name v=run "make-local-variable"[sym name];set name v
 let field name v=call "alist-get"[sym name;v]
 let text v=if truth v then Value.to_utf8_bytes_exn v else ""
 let firefox_cookie_provider () =
- let configured=get "ef-reader-firefox-profile" in
+ let configured=get "camulus-firefox-profile" in
  let profile=if truth configured then Some(text(call "expand-file-name" [configured])) else None in
  Reader.Firefox_cookies.create ?profile ()
 let integer v=Value.to_int_exn v

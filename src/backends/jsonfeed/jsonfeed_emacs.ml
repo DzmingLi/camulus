@@ -14,4 +14,4 @@ let install ~submit ~followed () =
     ~interactive:(Prompt "JSON Feed URL: ") (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open url=required "url" string in
       let source=Jsonfeed_backend.source_of_url url in
-      run "ef-reader-browse-entry" [alist ["name",s ("JSON Feed: "^url);"source",s source;"group",s url]])
+      run "camulus-reader-browse-entry" [alist ["name",s ("JSON Feed: "^url);"source",s source;"group",s url]])

@@ -60,7 +60,7 @@ let install_protocol ~ensure_ui ~idle ~submit =
   source_providers := source :: !source_providers;
   payload_renderers := (function Mail_result r -> Some ("mail",Maildir_backend.result_json r) | _ -> None) :: !payload_renderers;
   archive_extractors := (fun source -> if String.is_prefix source ~prefix:"maildir:" then Some Maildir_backend.Mime.extract else None) :: !archive_extractors;
-  defun (Symbol.intern "ef-host-process-complete") [%here]
+  defun (Symbol.intern "camulus-host-process-complete") [%here]
     ~docstring:"Complete an Emacs-owned subprocess for the OCaml worker."
     (Returns Value.Type.unit)
     (let open Defun.Let_syntax in
@@ -68,7 +68,7 @@ let install_protocol ~ensure_ui ~idle ~submit =
      and status = required "status" int
      and stdout = required "stdout" string in
      ensure_ui ();Option.iter !process_bridge ~f:(fun t -> Maildir_backend.Process.complete t id {status;stdout}));
-  defun (Symbol.intern "ef-mail-configure") [%here]
+  defun (Symbol.intern "camulus-mail-configure") [%here]
     ~docstring:"Configure the local Maildir/mu/Colombe backend before starting the runtime."
     (Returns Value.Type.unit)
     (let open Defun.Let_syntax in
@@ -81,7 +81,7 @@ let install_protocol ~ensure_ui ~idle ~submit =
      if not(idle ()) then failwith "Stop the runtime before reconfiguring mail";
      let config={ (Maildir_backend.config ~root ~muhome ~sender) with mu;account } in
      Maildir_backend.validate_config config;mail_config:=Some config);
-  defun (Symbol.intern "ef-mail-configure-account") [%here]
+  defun (Symbol.intern "camulus-mail-configure-account") [%here]
     ~docstring:"Add an account route (Maildir prefix, sender, SMTP profile) before startup."
     (Returns Value.Type.unit)
     (let open Defun.Let_syntax in
@@ -94,7 +94,7 @@ let install_protocol ~ensure_ui ~idle ~submit =
      let config={c with accounts={Maildir_backend.prefix;address;smtp_account} ::
        List.filter c.accounts ~f:(fun a -> not(String.equal a.prefix prefix))} in
      Maildir_backend.validate_config config;mail_config:=Some config);
-  defun (Symbol.intern "ef-mail-configure-smtp") [%here]
+  defun (Symbol.intern "camulus-mail-configure-smtp") [%here]
     ~docstring:"Configure implicit-TLS SMTP. Password file is read only on explicit sending."
     (Returns Value.Type.unit)
     (let open Defun.Let_syntax in
@@ -121,7 +121,7 @@ let sync_timer = ref nil
 let sync_request : int option ref = ref None
 let stop_sync () =
   if truth !sync_timer then run "cancel-timer" [!sync_timer];
-  Option.iter !sync_request ~f:(fun id -> run "remhash" [i id;get "ef-reader--completions"]);
+  Option.iter !sync_request ~f:(fun id -> run "remhash" [i id;get "camulus-reader--completions"]);
   sync_timer:=nil;sync_request:=None
 let sync ~submit ~manual () =
   let command=values(get "camulus-mail-sync-command") |> List.map ~f:text in
@@ -129,7 +129,7 @@ let sync ~submit ~manual () =
   | [],_ -> if manual then user_error "Configure maildir.sync_command first"
   | _,Some _ -> if manual then message "Mail synchronization is already running" []
   | _,None ->
-    let source=s ("maildir:"^text(get "ef-mail-root")) in
+    let source=s ("maildir:"^text(get "camulus-mail-root")) in
     let id=submit (Maildir_backend.Sync command) in
     sync_request:=Some id;
     let finish=Function.to_value(Defun.lambda [%here] (Returns Value.Type.value)
@@ -137,34 +137,34 @@ let sync ~submit ~manual () =
        if Option.equal Int.equal !sync_request (Some id) then (
          sync_request:=None;
          if Value.eq (call "nth" [i 3;event]) (sym "completed") then (
-           run "ef-reader--refresh-source" [source];
+           run "camulus-reader--refresh-source" [source];
            if manual then message "Mail synchronized and indexed" [])
          else message "Mail sync: %s" [call "nth" [i 4;event]]);
        nil)) in
-    run "puthash" [i id;finish;get "ef-reader--completions"]
+    run "puthash" [i id;finish;get "camulus-reader--completions"]
 let start_sync ~submit () =
   let interval=integer(get "camulus-mail-sync-interval") in
-  if interval>0 && truth(get "camulus-mail-sync-command") && truth(get "ef-mail-sender") then
+  if interval>0 && truth(get "camulus-mail-sync-command") && truth(get "camulus-mail-sender") then
     sync_timer:=call "run-at-time" [i 0;i interval;lambda0(fun () ->
-      if List.mem ["starting";"running"] (text(call "ef-probe-status" [])) ~equal:String.equal then
+      if List.mem ["starting";"running"] (text(call "camulus-probe-status" [])) ~equal:String.equal then
         (try sync ~submit ~manual:false () with ex -> message "Mail sync: %s" [s(Exn.to_string ex)]);
       nil)]
 let install ~submit ~configured () =
   Process_emacs.install ();
   Compose_emacs.install ();
-  custom ~kind:Customization.Type.Directory "ef-mail-root" (call "expand-file-name" [s "~/Maildir"]) "Backend configuration option.";
-  custom ~kind:Customization.Type.Directory "ef-mail-muhome" (call "expand-file-name" [s "~/.cache/mu"]) "Backend configuration option.";
-  custom ~kind:(Customization.Type.Option {doc_for_none="Unconfigured";t=String}) "ef-mail-sender" nil "Default sender address.";
-  custom ~kind:(Customization.Type.Repeat (List [String;String;Integer;String;File;String])) "ef-mail-smtp-profiles" nil "SMTP profiles as name, host, port, username, password file and CA file (empty for system trust).";
-  custom ~kind:(Customization.Type.Repeat (List [Directory;String;String])) "ef-mail-accounts" nil "Account routes as Maildir prefix, sender and SMTP profile name.";
-  custom ~kind:Customization.Type.String "ef-mail-account" (s "") "Backend configuration option.";
+  custom ~kind:Customization.Type.Directory "camulus-mail-root" (call "expand-file-name" [s "~/Maildir"]) "Backend configuration option.";
+  custom ~kind:Customization.Type.Directory "camulus-mail-muhome" (call "expand-file-name" [s "~/.cache/mu"]) "Backend configuration option.";
+  custom ~kind:(Customization.Type.Option {doc_for_none="Unconfigured";t=String}) "camulus-mail-sender" nil "Default sender address.";
+  custom ~kind:(Customization.Type.Repeat (List [String;String;Integer;String;File;String])) "camulus-mail-smtp-profiles" nil "SMTP profiles as name, host, port, username, password file and CA file (empty for system trust).";
+  custom ~kind:(Customization.Type.Repeat (List [Directory;String;String])) "camulus-mail-accounts" nil "Account routes as Maildir prefix, sender and SMTP profile name.";
+  custom ~kind:Customization.Type.String "camulus-mail-account" (s "") "Backend configuration option.";
   custom ~kind:Customization.Type.(Repeat String) "camulus-mail-sync-command" nil "Backend configuration option.";
   custom ~kind:Customization.Type.Integer "camulus-mail-sync-interval" (i 300) "Backend configuration option.";
   define0 ~interactive:true "camulus-mail-sync" (fun () ->
-    run "ef-reader-start" [];sync ~submit ~manual:true ());
+    run "camulus-reader-start" [];sync ~submit ~manual:true ());
   register_settings "maildir"(fun j->
-    let strings=string_settings ["root","ef-mail-root";"muhome","ef-mail-muhome";"sender","ef-mail-sender";"account","ef-mail-account"]j in
-    let lists=List.filter_map ["accounts","ef-mail-accounts",3;"smtp_profiles","ef-mail-smtp-profiles",6]~f:(fun(k,var,width)->match json_field k j with
+    let strings=string_settings ["root","camulus-mail-root";"muhome","camulus-mail-muhome";"sender","camulus-mail-sender";"account","camulus-mail-account"]j in
+    let lists=List.filter_map ["accounts","camulus-mail-accounts",3;"smtp_profiles","camulus-mail-smtp-profiles",6]~f:(fun(k,var,width)->match json_field k j with
      |`Null->None
      |`List rows when List.for_all rows~f:(function `List cells when List.length cells=width ->
        List.for_alli cells~f:(fun index->function `Int port when width=6 && index=2->port>0 && port<65536|`String _->not(width=6 && index=2)|_->false)|_->false)->Some(var,of_json(`List rows))
@@ -182,13 +182,13 @@ let install ~submit ~configured () =
     strings@lists@command@interval);
   register_local_groups { (base ~name:"Maildir" ~matches:(String.is_prefix ~prefix:"maildir:") ~threaded:true
     ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_ -> Value.of_int_exn (submit (Maildir_backend.Thread id)))) with
-    start=(fun()->if truth(get "ef-mail-sender")then(
-      run "ef-mail-configure"[get "ef-mail-root";get "ef-mail-muhome";get "ef-mail-sender";
-       (let mu=call "executable-find"[s "mu"]in if truth mu then mu else s "mu");get "ef-mail-account"];
-      List.iter(values(get "ef-mail-smtp-profiles"))~f:(fun row->run "apply"[sym "ef-mail-configure-smtp";row]);
-      List.iter(values(get "ef-mail-accounts"))~f:(fun row->run "apply"[sym "ef-mail-configure-account";row])));
+    start=(fun()->if truth(get "camulus-mail-sender")then(
+      run "camulus-mail-configure"[get "camulus-mail-root";get "camulus-mail-muhome";get "camulus-mail-sender";
+       (let mu=call "executable-find"[s "mu"]in if truth mu then mu else s "mu");get "camulus-mail-account"];
+      List.iter(values(get "camulus-mail-smtp-profiles"))~f:(fun row->run "apply"[sym "camulus-mail-configure-smtp";row]);
+      List.iter(values(get "camulus-mail-accounts"))~f:(fun row->run "apply"[sym "camulus-mail-configure-account";row])));
     attachment=Some (fun ~source:_ ~id ~group:_ ~part ~destination -> Value.of_int_exn (submit (Maildir_backend.Attachment(id,part,destination))));
     events=["mail"];available=configured;
     delete=Some Compose_emacs.trash;
-    controls=[{key="r";hint="r: reply";command="ef-mail-reply"};{key="c";hint="c: compose";command="ef-mail-compose"};{key="a";hint="a: archive";command="ef-mail-archive"}];
-    list_controls=[{key="r";hint="r: reply";command="ef-mail-reply"};{key="c";hint="c: compose";command="ef-mail-compose"};{key="a";hint="a: archive";command="ef-mail-archive"};{key="D";hint="D: drafts";command="ef-mail-drafts"}] }
+    controls=[{key="r";hint="r: reply";command="camulus-mail-reply"};{key="c";hint="c: compose";command="camulus-mail-compose"};{key="a";hint="a: archive";command="camulus-mail-archive"}];
+    list_controls=[{key="r";hint="r: reply";command="camulus-mail-reply"};{key="c";hint="c: compose";command="camulus-mail-compose"};{key="a";hint="a: archive";command="camulus-mail-archive"};{key="D";hint="D: drafts";command="camulus-mail-drafts"}] }

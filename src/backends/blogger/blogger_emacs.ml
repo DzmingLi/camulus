@@ -10,4 +10,4 @@ let install ~read ~attachment () =
     ~interactive:(Prompt "Blogger host: ") (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open target=required "target" string in
      let group="posts."^String.strip target in ignore(Blogger_backend.host group : string);
-     run "ef-reader-browse-entry" [alist["name",s ("Blogger: "^target);"source",s "blogger";"group",s group]])
+     run "camulus-reader-browse-entry" [alist["name",s ("Blogger: "^target);"source",s "blogger";"group",s group]])

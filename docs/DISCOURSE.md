@@ -19,7 +19,7 @@ nix develop -c make reader-demo
 
 按首页 `g` 拉取。`d` 移除当前活动，不改变订阅、已读或论坛上的追踪设置；新回复使该讨论重新出现。每个讨论合并为一个条目。
 
-`M-x ef-reader-discourse` 可以先浏览，不自动订阅。列表支持：
+`M-x camulus-reader-discourse` 可以先浏览，不自动订阅。列表支持：
 
 - `c` 选择分类，`/` 在当前组远端搜索，空查询恢复普通列表。
 - `n` 取下一页，`g` 从第一页刷新。
@@ -42,10 +42,10 @@ nix develop -c make reader-demo
 在启动 reader 之前设置需要加载身份的站点：
 
 ```elisp
-(setq ef-discourse-sites '("https://discourse.nixos.org"))
+(setq camulus-discourse-sites '("https://discourse.nixos.org"))
 ```
 
-授权继续使用已有的 `M-x discourse-auth-login`，本次没有另建授权协议或替换凭据存储。新站点可以直接匿名浏览；在运行时已经启动之后新增或变更授权，需要先 `M-x ef-probe-session-stop`，再启动 reader。`emacs -Q` 不会自动加载个人 auth-source 配置，私有论坛需要在该会话中提供原有认证配置。
+授权继续使用已有的 `M-x discourse-auth-login`，本次没有另建授权协议或替换凭据存储。新站点可以直接匿名浏览；在运行时已经启动之后新增或变更授权，需要先 `M-x camulus-probe-session-stop`，再启动 reader。`emacs -Q` 不会自动加载个人 auth-source 配置，私有论坛需要在该会话中提供原有认证配置。
 
 API 凭据只发往指定站点及其部署路径。API 请求不跟随重定向，避免凭据泄漏；分页只使用后端生成且绑定当前组/查询的游标，不直接访问响应中给出的任意 URL。附件支持 CDN 重定向，跨域时不发送 User API 凭据。远端使用 HTTPS，仅测试允许 loopback HTTP。
 

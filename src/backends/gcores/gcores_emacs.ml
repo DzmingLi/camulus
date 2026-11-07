@@ -10,4 +10,4 @@ let install ~read ~attachment () =
     ~interactive:(Prompt "Gcores user ID: ") (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open target=required "target" string in
      let group="talks."^String.strip target in ignore(Gcores_backend.user group : string);
-     run "ef-reader-browse-entry" [alist["name",s ("机核: "^target);"source",s "gcores";"group",s group]])
+     run "camulus-reader-browse-entry" [alist["name",s ("机核: "^target);"source",s "gcores";"group",s group]])

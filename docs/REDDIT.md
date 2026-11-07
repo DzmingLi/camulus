@@ -33,9 +33,9 @@ nix develop -c make reader-demo
 可在 Emacs 配置中设置下列变量，或通过 Camulus 的 Customize 页面管理。
 
 ```elisp
-(setq ef-reddit-username "YOUR_USERNAME"
-      ef-reddit-token-file "/path/to/private/refresh-token")
-(ef-reddit-browse "ocaml")
+(setq camulus-reddit-username "YOUR_USERNAME"
+      camulus-reddit-token-file "/path/to/private/refresh-token")
+(camulus-reddit-browse "ocaml")
 ```
 
 列表中 `RET` 在右侧打开整个回复树，默认展开；`s` 在当前 subreddit 搜索，空查询回到普通列表；`n` 加载下一页，`g` 刷新。关闭阅读 buffer 会取消其请求；同一阅读 buffer 切换帖子时，旧请求结果不会覆盖新帖子。
@@ -44,7 +44,7 @@ nix develop -c make reader-demo
 
 这是方便联调的薄 Elisp 界面，调用的后端、认证、解析、传输和调度都在 OCaml 中。它还不是最终阅读器：暂未实现已读状态、折叠、收藏、附件归档、draft group、写入编辑界面或 WebKit。Olivetti 已加载时，阅读 buffer 会启用它。现在只展示文本及原始链接，保留的 HTML 尚未接入正式渲染器。
 
-需要新授权时，运行 `M-x ef-reddit-authorize`。浏览器的 localhost 页面可以连接失败，复制完整地址回 Emacs 即可，与 nnreddit 相同。写入路径不能是 agenix 等提供的只读 symlink；已有 symlink token 可以继续用于读取。授权回调不会记录进 minibuffer history。
+需要新授权时，运行 `M-x camulus-reddit-authorize`。浏览器的 localhost 页面可以连接失败，复制完整地址回 Emacs 即可，与 nnreddit 相同。写入路径不能是 agenix 等提供的只读 symlink；已有 symlink token 可以继续用于读取。授权回调不会记录进 minibuffer history。
 
 nnreddit 原来的授权 scope 没有 `vote`。旧 grant 可继续用于已授权能力；投票若缺权限，会返回 `Missing_scope "vote"`，不能靠刷新 token 自动增加权限。新授权请求包含 `identity read privatemessages submit vote`。
 
@@ -96,13 +96,13 @@ summary 列表和回复树都支持 `+` 赞成、`-` 反对、`0` 取消投票�
 
 ## 原生调用入口
 
-`ef-reddit-configure` 在 runtime 启动前接收用户名、token 文件路径、Client ID 和 redirect URI。`camulus-reddit-submit` 接收操作 alist 并立即返回请求 ID；原生 UI 通过事件回调接收结果。
+`camulus-reddit-configure` 在 runtime 启动前接收用户名、token 文件路径、Client ID 和 redirect URI。`camulus-reddit-submit` 接收操作 alist 并立即返回请求 ID；原生 UI 通过事件回调接收结果。
 
 ```elisp
-(ef-reddit-request "{\"op\":\"subreddit\",\"name\":\"ocaml\"}")
-(ef-reddit-request "{\"op\":\"thread\",\"id\":\"t3_POST_ID\"}")
-(ef-reddit-request "{\"op\":\"search\",\"name\":\"ocaml\",\"query\":\"effects\"}")
-(ef-reddit-request "{\"op\":\"notifications\"}")
+(camulus-reddit-request "{\"op\":\"subreddit\",\"name\":\"ocaml\"}")
+(camulus-reddit-request "{\"op\":\"thread\",\"id\":\"t3_POST_ID\"}")
+(camulus-reddit-request "{\"op\":\"search\",\"name\":\"ocaml\",\"query\":\"effects\"}")
+(camulus-reddit-request "{\"op\":\"notifications\"}")
 ```
 
 其他操作：`identity`、`post`、`vote`、`reply`、`submit`、`authorize`、`authorize-complete`。精确字段见 `operation_of_json`。写入和授权任务归属 `Service`，不会因切换阅读视图被取消。原生结果格式为 `(reddit REQUEST-ID VIEW-OR-NIL JSON)`，随后收到既有 `finished` 事件；错误也保留结构化的 `uncertain_write`、`retry_after`。

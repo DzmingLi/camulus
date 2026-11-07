@@ -6,7 +6,7 @@
 
 ```elisp
 (with-eval-after-load 'camulus_native
-  (setopt ef-reader-firefox-profile "~/.config/mozilla/firefox/default/"))
+  (setopt camulus-firefox-profile "~/.config/mozilla/firefox/default/"))
 ```
 
 更改 profile 路径后重启 Camulus 运行时。同一 profile 中的 Cookie 更新无需重启：每次远端请求重新读取有效 Cookie。Camulus 只读 Firefox 数据库，不写回 Cookie，也不维护独立登录会话。原生扫码、密码、短信登录入口和会话文件选项已移除；旧版保存的会话文件不再读取。

@@ -63,16 +63,16 @@ let callback_unit f = callback (fun value -> f value;nil)
 let callback0 f = Function.to_value (Defun.lambda_nullary_nil [%here] f)
 let request_native fields receive finished =
   let id=i (Application.request_state (Reader.Content_state.operation_of_json (Reader_backend.to_json fields))) in
-  put (get "ef-reader--requests") id (or_ receive (sym "ignore"));
-  if truth finished then put (get "ef-reader--completions") id finished;id
+  put (get "camulus-reader--requests") id (or_ receive (sym "ignore"));
+  if truth finished then put (get "camulus-reader--completions") id finished;id
 let request ?(finished=nil) ?(receive=nil) fields = request_native (alist fields) receive finished
 let request_ignore ?receive fields = ignore (request ?receive fields : Value.t)
-let state source id = find (get "ef-reader--states") (list [source;id])
+let state source id = find (get "camulus-reader--states") (list [source;id])
 let capability source = Reader_backend.find (str source)
 let single source = Option.exists (capability source) ~f:(fun backend -> not backend.threaded)
 let entry_key entry = list [field "source" entry;field "group" entry]
 let home_entry row =
-  List.find (values (get "ef-reader-home--entries")) ~f:(fun e ->
+  List.find (values (get "camulus-reader-home--entries")) ~f:(fun e ->
     Value.equal (field "source" e) (field "source" row) && member (field "group" e) (values (field "groups" row)))
   |> Option.value ~default:nil
 let format_time format time = call "format-time-string" [s format;call "seconds-to-time" [or_ time (i 0)]]
@@ -92,19 +92,19 @@ let set_rows rows =
   let windows=List.map (values (call "get-buffer-window-list" [bv (buffer ());nil;b true])) ~f:(fun window ->
     window,anchor (number (call "window-point" [window])),anchor (number (call "window-start" [window]))) in
   let table = hash () in
-  set "ef-reader--rows" table;
+  set "camulus-reader--rows" table;
   let entries = List.map (values rows) ~f:(fun row ->
     let row = if single (field "source" row) && not (truth (field "target" row))
       then cons (cons (sym "target") (s "article")) row else row in
-    let favorite = derived "ef-reader-folder-mode" in
+    let favorite = derived "camulus-reader-folder-mode" in
     let key = list [field "source" row;(if favorite then field "id" row else or_ (field "conversation_id" row) (field "id" row));field "target" row] in
     put table key row;
-    let columns = if flag "ef-reader--home" then home_row row
+    let columns = if flag "camulus-reader--home" then home_row row
       else if favorite then vector [field "target" row;field "source" row;field "title" row]
       else vector [s (if truth (field "unread" row) then "*" else "");field "source" row;field "author" row;
         Option.value_map(capability(field "source"row))~default:(field "title"row)~f:(fun backend->backend.row_title row)] in
-    let face=if not favorite && truth(field "favorite" row) then Some "ef-reader-favorite"
-      else if truth (call "assq"[sym "unread";row]) && not(truth(field "unread"row)) then Some "ef-reader-read"
+    let face=if not favorite && truth(field "favorite" row) then Some "camulus-reader-favorite"
+      else if truth (call "assq"[sym "unread";row]) && not(truth(field "unread"row)) then Some "camulus-reader-read"
       else None in
     let columns=match face with Some face ->
       vector(List.map (values(call "append"[columns;nil])) ~f:(fun column ->
@@ -128,11 +128,11 @@ let set_rows rows =
   goto (number (restore saved));run "move-to-column" [column]
 
 let selected () =
-  if derived "ef-reader-article-mode" then (
-    let id = property (point ()) "ef-reader-id" in
+  if derived "camulus-reader-article-mode" then (
+    let id = property (point ()) "camulus-reader-id" in
     if not (truth id) then user_error "Select an article";
-    alist ["source",get "ef-reader--source";"id",id;"target",s "article"])
-  else let row = if flag "ef-reader--rows" then find (get "ef-reader--rows") (call "tabulated-list-get-id" []) else nil in
+    alist ["source",get "camulus-reader--source";"id",id;"target",s "article"])
+  else let row = if flag "camulus-reader--rows" then find (get "camulus-reader--rows") (call "tabulated-list-get-id" []) else nil in
     if not (truth row) then user_error "Select a row"; row
 
 let reading_layout () =
@@ -146,39 +146,39 @@ let header_text value =
 
 let heading m depth read =
   let start = point () in
-  let title = if String.is_empty (text "title" m) then get "ef-reader--title" else field "title" m in
+  let title = if String.is_empty (text "title" m) then get "camulus-reader--title" else field "title" m in
   let date = if Float.(timestamp (field "created" m) > 0.) then str (format_time "%Y-%m-%d %H:%M" (field "created" m)) else "" in
   let marks () =
     if truth (field "liked" m) then Point.insert "  ♥";
     if truth (field "like-uncertain" m) then Point.insert " (like unconfirmed)";
-    Option.iter(capability(get "ef-reader--source"))~f:(fun backend->Point.insert(backend.article_marks m)) in
+    Option.iter(capability(get "camulus-reader--source"))~f:(fun backend->Point.insert(backend.article_marks m)) in
   let author () =
     insert_value (styled (if truth (field "read" read) then "○ " else "● ") "shadow");
     insert_value (styled (header_text (field "author" m)) "font-lock-keyword-face") in
   if depth = 0 then (
     insert_value (styled "From: " "shadow");author ();marks ();Point.insert "\n";
     if not (String.is_empty (str title)) then (
-      insert_value (styled "Subject: " "shadow");insert_value (styled (header_text title) "ef-reader-heading");Point.insert "\n");
+      insert_value (styled "Subject: " "shadow");insert_value (styled (header_text title) "camulus-reader-heading");Point.insert "\n");
     if not (String.is_empty date) then (insert_value (styled "Date: " "shadow");Point.insert (date^"\n")))
   else (author ();if not (String.is_empty date) then Point.insert (" · "^date);marks ();Point.insert "\n";
-        run "add-face-text-property" [i start;i (point () - 1);sym "ef-reader-heading";b true]);
+        run "add-face-text-property" [i start;i (point () - 1);sym "camulus-reader-heading";b true]);
   insert_value (propertize (s " ") [sym "display";list [sym "space";sym ":align-to";list [sym "-";sym "right";i 1]];
-                                    sym "face";sym "ef-reader-separator";sym "rear-nonsticky";b true]);
+                                    sym "face";sym "camulus-reader-separator";sym "rear-nonsticky";b true]);
   Point.insert "\n"
 
 let anchor pos =
-  let id = property pos "ef-reader-id" in
+  let id = property pos "camulus-reader-id" in
   if not (truth id) then nil else
-    let start = call "previous-single-property-change" [i (pos+1);sym "ef-reader-id"] in
+    let start = call "previous-single-property-change" [i (pos+1);sym "camulus-reader-id"] in
     cons id (i (pos - if truth start then number start else min_point ()))
 let position anchor =
   if not (truth anchor) then nil else
     let id=call "car" [anchor] and offset=number (call "cdr" [anchor]) in
     let rec loop p =
       if p >= max_point () then nil
-      else if Value.equal id (property p "ef-reader-id") then
-        i (Int.min (p+offset) (next_property p "ef-reader-id" (max_point ()) - 1))
-      else loop (next_property p "ef-reader-id" (max_point ())) in
+      else if Value.equal id (property p "camulus-reader-id") then
+        i (Int.min (p+offset) (next_property p "camulus-reader-id" (max_point ()) - 1))
+      else loop (next_property p "camulus-reader-id" (max_point ())) in
     loop (min_point ())
 
 let shr_code dom =
@@ -206,7 +206,7 @@ let header_link label command =
   header_action label (fun () -> run "call-interactively" [sym command])
 
 let with_image_downloads f =
-  let target=buffer () and generation=get "ef-reader--render-token" in
+  let target=buffer () and generation=get "camulus-reader--render-token" in
   (* SHR's download markers collapse to the beginning when we redraw. Scope
      this adapter to our rendering, and let only the current render insert. *)
   let advice=Function.to_value (Defun.lambda [%here] (Returns Value.Type.value)
@@ -218,7 +218,7 @@ let with_image_downloads f =
            (let open Defun.Let_syntax in
             let%map_open status=required "status" value and args=rest "arguments" value in
             if alive target && in_buffer target (fun () ->
-              derived "ef-reader-article-mode" && Value.eq generation (get "ef-reader--render-token"))
+              derived "camulus-reader-article-mode" && Value.eq generation (get "camulus-reader--render-token"))
             then call "apply" [finished;list (status::args)]
             else (
               let response=buffer () in
@@ -236,13 +236,13 @@ let body m indent =
   if String.is_empty (text "body" m) && truth (field "html" m) then (
     let dom=Current_buffer.set_temporarily_to_temp_buffer Sync (fun () ->
       Point.insert (text "html" m);call "libxml-parse-html-region" [i (min_point ());i (max_point ())]) in
-    let renderers=list (List.map ["pre";"code";"tt"] ~f:(fun tag -> cons (sym tag) (sym "ef-reader--shr-code"))) in
+    let renderers=list (List.map ["pre";"code";"tt"] ~f:(fun tag -> cons (sym tag) (sym "camulus-reader--shr-code"))) in
     let index=ref 0 in
     let video=callback_unit(fun dom->
       Int.incr index;
       let window=call "get-buffer-window" [bv(buffer ());b true] in
       let width=Int.max 120 (number(call "window-body-width" [window;b true])-32-indent*8) in
-      Reader_media.render ~source:(str(get "ef-reader--source")) ~id:(text "id" m)
+      Reader_media.render ~source:(str(get "camulus-reader--source")) ~id:(text "id" m)
         ~base:(str(or_ (field "link_url" m) (field "url" m))) ~index:!index ~width dom) in
     with_bindings ["shr-inhibit-images",nil;"shr-use-fonts",nil;"shr-fill-text",nil;
       "shr-external-rendering-functions",cons (cons (sym "video") video) (call "append" [renderers;get "shr-external-rendering-functions"]);
@@ -255,13 +255,13 @@ let render () =
   let current_anchor = anchor (point ()) in
   let windows = values (call "get-buffer-window-list" [bv (buffer ());nil;b true])
     |> List.map ~f:(fun w -> w,anchor (number (call "window-start" [w]))) in
-  let messages = hash_values (get "ef-reader--messages") |> List.sort ~compare:(fun a c ->
+  let messages = hash_values (get "camulus-reader--messages") |> List.sort ~compare:(fun a c ->
     let order=Float.compare (timestamp (field "created" a)) (timestamp (field "created" c)) in
     if order=0 then String.compare (text "id" a) (text "id" c) else order) in
   let seen=Hash_set.create (module String) and children=Hashtbl.create (module String) in
   List.iter (List.rev messages) ~f:(fun m -> Hashtbl.add_multi children ~key:(text "parent_id" m) ~data:m);
   let first_unread=ref None in
-  local "ef-reader--render-token" (token ());
+  local "camulus-reader--render-token" (token ());
   Reader_media.begin_render ();
   writable (fun () ->
     Current_buffer.erase ();
@@ -273,102 +273,102 @@ let render () =
         let id=field "id" m and id_string=text "id" m in
         if not (Hash_set.mem seen id_string) then (
           Hash_set.add seen id_string;
-          let read=state (get "ef-reader--source") id in
-          let start=point () and indent=number (get "ef-reader-reply-indent") * Int.min depth 12 in
+          let read=state (get "camulus-reader--source") id in
+          let start=point () and indent=number (get "camulus-reader-reply-indent") * Int.min depth 12 in
           if truth read && not (truth (field "read" read)) && Option.is_none !first_unread then first_unread:=Some start;
           heading m depth read;
           let body_start=point () in
-          if truth (find (get "ef-reader--loaded") id) then body m indent else Point.insert "Loading article…";
-          if single (get "ef-reader--source") && (String.is_prefix (text "url" m) ~prefix:"https://" || String.is_prefix (text "url" m) ~prefix:"http://") then (
+          if truth (find (get "camulus-reader--loaded") id) then body m indent else Point.insert "Loading article…";
+          if single (get "camulus-reader--source") && (String.is_prefix (text "url" m) ~prefix:"https://" || String.is_prefix (text "url" m) ~prefix:"http://") then (
             Point.insert "\n";
             run "insert-text-button" [s "Open original article";sym "follow-link";b true;sym "url";field "url" m;
               sym "action";callback_unit (fun button -> run "browse-url" [call "button-get" [button;sym "url"]])]);
           Point.insert "\n";
-          List.iter (values (find (get "ef-reader--attachments") id)) ~f:(fun a ->
+          List.iter (values (find (get "camulus-reader--attachments") id)) ~f:(fun a ->
             run "insert-text-button" [s (Printf.sprintf "[Save %s · %d bytes]" (text "name" a) (number (field "size" a)));
-              sym "action";sym "ef-reader--attachment";sym "follow-link";b true;sym "source";get "ef-reader--source";
-              sym "message-id";id;sym "part";field "part" a;sym "filename";field "name" a;sym "archived";get "ef-reader--archive"];
+              sym "action";sym "camulus-reader--attachment";sym "follow-link";b true;sym "source";get "camulus-reader--source";
+              sym "message-id";id;sym "part";field "part" a;sym "filename";field "name" a;sym "archived";get "camulus-reader--archive"];
             Point.insert "\n");
           Point.insert "\n";
           let prefix n=styled (String.make n ' ') "fixed-pitch" in
-          properties start (point ()) [sym "ef-reader-id";id;sym "ef-reader-depth";i depth;
+          properties start (point ()) [sym "camulus-reader-id";id;sym "camulus-reader-depth";i depth;
             sym "line-prefix";prefix indent;sym "wrap-prefix";prefix indent];
           properties body_start (point ()) [sym "line-prefix";prefix (indent+2);sym "wrap-prefix";prefix (indent+2)];
           stack:=List.map (Hashtbl.find_multi children id_string) ~f:(fun m -> m,depth+1) @ !stack)
       done in
-    render_roots (List.filter messages ~f:(fun m -> not (truth (find (get "ef-reader--messages") (field "parent_id" m)))));
+    render_roots (List.filter messages ~f:(fun m -> not (truth (find (get "camulus-reader--messages") (field "parent_id" m)))));
     render_roots messages);
   Reader_media.finish_render ();
-  let controls=Option.value_map (capability(get "ef-reader--source")) ~default:[] ~f:(fun backend->
+  let controls=Option.value_map (capability(get "camulus-reader--source")) ~default:[] ~f:(fun backend->
     List.concat_map backend.controls ~f:(fun control->[s "  ";header_link ("["^control.hint^"]") control.command])) in
-  set "header-line-format" (list ([header_link "[收藏夹 · f]" "ef-reader-folders";s "  m: choose folder  n: next unread"] @ controls @
-    [s (Printf.sprintf " — %d articles — %s" (List.length messages) (if flag "ef-reader--complete" then "loaded" else "loading / partial"))]));
+  set "header-line-format" (list ([header_link "[收藏夹 · f]" "camulus-reader-folders";s "  m: choose folder  n: next unread"] @ controls @
+    [s (Printf.sprintf " — %d articles — %s" (List.length messages) (if flag "camulus-reader--complete" then "loaded" else "loading / partial"))]));
   (match !first_unread with
-   | Some p when not (flag "ef-reader--positioned") -> goto p;set "ef-reader--positioned" (b true);
+   | Some p when not (flag "camulus-reader--positioned") -> goto p;set "camulus-reader--positioned" (b true);
      List.iter windows ~f:(fun (w,_) -> run "set-window-start" [w;i p;b true])
    | _ -> let p=position current_anchor in goto (if truth p then number p else min_point ());
      List.iter windows ~f:(fun (w,a) -> let p=position a in if truth p then run "set-window-start" [w;p;b true]));
-  run "ef-reader--schedule-visible" [bv (buffer ())]
+  run "camulus-reader--schedule-visible" [bv (buffer ())]
 
 let next_unread () =
   let rec loop p = if p >= max_point () then message "No further loaded unread article"
-    else let read=state (get "ef-reader--source") (property p "ef-reader-id") in
+    else let read=state (get "camulus-reader--source") (property p "camulus-reader-id") in
       if truth read && not (truth (field "read" read)) then goto p
-      else loop (next_property p "ef-reader-id" (max_point ())) in
-  loop (next_property (point ()) "ef-reader-id" (max_point ()))
+      else loop (next_property p "camulus-reader-id" (max_point ())) in
+  loop (next_property (point ()) "camulus-reader-id" (max_point ()))
 
 let load_archive target source id kind =
-  let generation=get "ef-reader--view-token" in
+  let generation=get "camulus-reader--view-token" in
   request ["op",s "archive";"source",source;"id",id;"target",kind] ~receive:(callback_unit (fun data ->
     if String.equal (text "kind" data) "archive" && alive target then in_buffer target (fun () ->
-      if Value.eq generation (get "ef-reader--view-token") then (
+      if Value.eq generation (get "camulus-reader--view-token") then (
         List.iter (values (field "articles" data)) ~f:(fun article ->
           let m=field "message" article in let id=field "id" m in
-          put (get "ef-reader--messages") id m;put (get "ef-reader--loaded") id (b true);
-          put (get "ef-reader--attachments") id (field "attachments" article));
-        set "ef-reader--complete" (b true);
-        request_ignore ["op",s "states";"source",source;"ids",call "vconcat" [call "hash-table-keys" [get "ef-reader--messages"]]]
+          put (get "camulus-reader--messages") id m;put (get "camulus-reader--loaded") id (b true);
+          put (get "camulus-reader--attachments") id (field "attachments" article));
+        set "camulus-reader--complete" (b true);
+        request_ignore ["op",s "states";"source",source;"ids",call "vconcat" [call "hash-table-keys" [get "camulus-reader--messages"]]]
           ~receive:(callback_unit (fun _ -> if alive target then in_buffer target (fun () ->
-            if Value.eq generation (get "ef-reader--view-token") then render ())))))))
+            if Value.eq generation (get "camulus-reader--view-token") then render ())))))))
 
 let open_article () =
   let row=selected () in
   let source=field "source" row and id=field "id" row in
-  let saved=derived "ef-reader-folder-mode" in
-  let entry=if flag "ef-reader--home" then home_entry row else get "ef-reader--entry" in
+  let saved=derived "camulus-reader-folder-mode" in
+  let entry=if flag "camulus-reader--home" then home_entry row else get "camulus-reader--entry" in
   let backend=capability source in
   if not saved && not (Option.exists backend ~f:(fun backend -> backend.available (str source))) then
     user_error "Configure this source before opening live content";
   let target=Buffer.find_or_create ~name:"*Reader thread*" in
   in_buffer target (fun () ->
-    if flag "ef-reader--active" then run "ef-probe-cancel" [get "ef-reader--active"];
-    run "ef-reader-article-mode" [];
+    if flag "camulus-reader--active" then run "camulus-probe-cancel" [get "camulus-reader--active"];
+    run "camulus-reader-article-mode" [];
     Option.iter backend ~f:(fun backend ->
       let map=call "copy-keymap" [call "current-local-map" []] in
       List.iter backend.controls ~f:(fun control -> run "define-key" [map;call "kbd" [s control.key];sym control.command]);
       run "use-local-map" [map]);
-    set "ef-reader--source" source;set "ef-reader--title" (field "title" row);set "ef-reader--archive" (b saved);
-    set "ef-reader--view-token" (token ());set "ef-reader--entry" entry;
+    set "camulus-reader--source" source;set "camulus-reader--title" (field "title" row);set "camulus-reader--archive" (b saved);
+    set "camulus-reader--view-token" (token ());set "camulus-reader--entry" entry;
     writable (fun () -> Current_buffer.erase ();Point.insert "Loading…");
     let active=if saved then load_archive target source id (field "target" row)
       else let backend=Option.value_exn backend in
         backend.read ~source:(str source) ~id:(str id)
           ~thread_id:(if truth (field "thread_id" row) then Some (text "thread_id" row) else None)
           ~group:(if truth (field "group" entry) then Some (text "group" entry) else None) in
-    set "ef-reader--active" active;
-    if not saved then put (get "ef-reader--loads") active (bv target));
+    set "camulus-reader--active" active;
+    if not saved then put (get "camulus-reader--loads") active (bv target));
   let window=call "display-buffer-in-direction" [bv target;alist ["direction",sym "right";"window-width",call "string-to-number" [s "0.6"]]] in
   if truth window then Selected_window.set (Window.of_value_exn window)
 
-let browse_entry entry = run "camulus" [entry];run "ef-reader--load-list" [b true]
+let browse_entry entry = run "camulus" [entry];run "camulus-reader--load-list" [b true]
 let button label action = run "insert-text-button" [s label;sym "follow-link";b true;sym "action";callback_unit (fun _ -> action ())]
 let groups ?backend () =
-  run "ef-reader-load-config" [];
+  run "camulus-reader-load-config" [];
   let title=Option.value_map backend ~default:"Groups" ~f:(fun (b : Reader_backend.t) -> b.name) in
   let name=Option.value_map backend ~default:"*Reader groups*" ~f:(fun _ -> "*Camulus groups: "^title^"*") in
-  ignore (show_buffer name : Buffer.t);run "ef-reader-groups-mode" [];
-  local "ef-reader-groups--backend" (Option.value_map backend ~default:nil ~f:(fun b -> s b.name));
-  let entries=values (get "ef-reader-entries") |> List.filter ~f:(fun entry ->
+  ignore (show_buffer name : Buffer.t);run "camulus-reader-groups-mode" [];
+  local "camulus-reader-groups--backend" (Option.value_map backend ~default:nil ~f:(fun b -> s b.name));
+  let entries=values (get "camulus-groups") |> List.filter ~f:(fun entry ->
     Option.for_all backend ~f:(fun b -> b.matches (text "source" entry))) in
   let browse_unregistered label command =
     button label (fun () -> run "call-interactively" [sym command]) in
@@ -391,7 +391,7 @@ let groups ?backend () =
       List.iter entries ~f:(fun entry -> if Value.equal source (field "source" entry) then (
         let start=point () in Point.insert "  ";
         button (text "name" entry) (fun () -> browse_entry entry);Point.insert ("  · "^text "group" entry^"\n");
-        properties start (point ()) [sym "ef-reader-entry";entry])));
+        properties start (point ()) [sym "camulus-reader-entry";entry])));
     if List.is_empty entries then Point.insert "\nNo registered groups here. Press C to register groups.\n";
     Option.iter backend ~f:(fun b -> Option.iter b.browser ~f:(fun (_,command) ->
       Point.insert "\n";browse_unregistered "Browse an unregistered group…" command;Point.insert "\n"));
@@ -400,48 +400,48 @@ let groups ?backend () =
     if truth first then run "goto-char" [call "button-start" [first]]);
   Current_buffer.set_modified false
 let groups_reload () =
-  let name=str (get "ef-reader-groups--backend") in
+  let name=str (get "camulus-reader-groups--backend") in
   let backend=List.find (Reader_backend.all ()) ~f:(fun b -> String.equal b.name name) in
   groups ?backend ()
 
 let home_header () =
-  let errors=List.length (values (get "ef-reader-home--errors")) in
+  let errors=List.length (values (get "camulus-reader-home--errors")) in
   let links=List.concat_map (Reader_backend.all ()) ~f:(fun backend ->
     match backend.browser with None -> [] | Some (label,_) -> [s "  ";header_action ("["^label^"]") (groups ~backend)]) in
-  set "header-line-format" (list ([s "Home  ";header_link "[收藏夹 · f]" "ef-reader-folders";s "  ";header_link "[Groups · B]" "ef-reader-browse-groups"] @ links @
+  set "header-line-format" (list ([s "Home  ";header_link "[收藏夹 · f]" "camulus-reader-folders";s "  ";header_link "[Groups · B]" "camulus-reader-browse-groups"] @ links @
     [s "  ";header_link "[Subscriptions · U]" "camulus-subscriptions";
     s (Printf.sprintf "   %d feeds · %d/%d refreshed%s   RET: read  d: delete  m: choose folder  g: refresh  e: errors"
-      (List.length (values (get "ef-reader-home--entries"))) (number (get "ef-reader-home--done"))
-      (number (get "ef-reader-home--total")) (if errors=0 then "" else Printf.sprintf " · %d failed" errors))]));
+      (List.length (values (get "camulus-reader-home--entries"))) (number (get "camulus-reader-home--done"))
+      (number (get "camulus-reader-home--total")) (if errors=0 then "" else Printf.sprintf " · %d failed" errors))]));
   run "force-mode-line-update" []
-let home_current buffer token = alive buffer && in_buffer buffer (fun () -> flag "ef-reader--home" && Value.eq token (get "ef-reader-home--token"))
+let home_current buffer token = alive buffer && in_buffer buffer (fun () -> flag "camulus-reader--home" && Value.eq token (get "camulus-reader-home--token"))
 let home_cancel () =
-  if not (String.equal (str (call "ef-probe-status" [])) "idle") then
-    List.iter (values (get "ef-reader-home--jobs")) ~f:(fun id -> run "ef-probe-cancel" [id]);
-  set "ef-reader-home--jobs" nil;set "ef-reader-home--queue" nil;set "ef-reader-home--token" (token ())
+  if not (String.equal (str (call "camulus-probe-status" [])) "idle") then
+    List.iter (values (get "camulus-reader-home--jobs")) ~f:(fun id -> run "camulus-probe-cancel" [id]);
+  set "camulus-reader-home--jobs" nil;set "camulus-reader-home--queue" nil;set "camulus-reader-home--token" (token ())
 let home_cache () =
   let target=buffer () and generation=token () in
-  set "ef-reader--list-token" generation;
+  set "camulus-reader--list-token" generation;
   let receive=callback_unit (fun data ->
     if alive target && String.equal (text "kind" data) "feed" then in_buffer target (fun () ->
-      if flag "ef-reader--home" && Value.eq generation (get "ef-reader--list-token") then (
+      if flag "camulus-reader--home" && Value.eq generation (get "camulus-reader--list-token") then (
         set_rows (field "rows" data);home_header ()))) in
-  let id=request ~receive ["op",s "timeline";"entries",call "vconcat" [get "ef-reader-home--entries"]] in
-  set "ef-reader--list-request" id
+  let id=request ~receive ["op",s "timeline";"entries",call "vconcat" [get "camulus-reader-home--entries"]] in
+  set "camulus-reader--list-request" id
 let push_var name value = set name (cons value (get name))
-let remove_job id = set "ef-reader-home--jobs" (call "delq" [id;get "ef-reader-home--jobs"])
-let home_error name error = push_var "ef-reader-home--errors" (cons name error)
-let home_done () = set "ef-reader-home--done" (i (number (get "ef-reader-home--done")+1))
+let remove_job id = set "camulus-reader-home--jobs" (call "delq" [id;get "camulus-reader-home--jobs"])
+let home_error name error = push_var "camulus-reader-home--errors" (cons name error)
+let home_done () = set "camulus-reader-home--done" (i (number (get "camulus-reader-home--done")+1))
 let rec home_pump more =
-  let target=buffer () and generation=get "ef-reader-home--token" in
-  while flag "ef-reader-home--queue" && List.length (values (get "ef-reader-home--jobs")) < 4 do
-    let entry=call "car" [get "ef-reader-home--queue"] in
-    set "ef-reader-home--queue" (call "cdr" [get "ef-reader-home--queue"]);
+  let target=buffer () and generation=get "camulus-reader-home--token" in
+  while flag "camulus-reader-home--queue" && List.length (values (get "camulus-reader-home--jobs")) < 4 do
+    let entry=call "car" [get "camulus-reader-home--queue"] in
+    set "camulus-reader-home--queue" (call "cdr" [get "camulus-reader-home--queue"]);
     let key=entry_key entry in
     try
       let receive=callback_unit (fun data ->
         if home_current target generation && String.equal (text "kind" data) "feed" then in_buffer target (fun () ->
-          put (get "ef-reader-home--cursors") key (field "after" data);run "ef-reader-home-load-cache" [])) in
+          put (get "camulus-reader-home--cursors") key (field "after" data);run "camulus-reader-home-load-cache" [])) in
       let finished=callback_unit (fun event ->
         if home_current target generation then in_buffer target (fun () ->
           remove_job (call "nth" [i 1;event]);home_done ();
@@ -449,13 +449,13 @@ let rec home_pump more =
             home_error (field "name" entry) (or_ (call "nth" [i 4;event]) (s "Refresh failed"));
           home_pump more;home_header ())) in
       let id=request ~receive ~finished ["op",s "refresh";"source",field "source" entry;"group",field "group" entry;
-        "after",(if more then find (get "ef-reader-home--cursors") key else nil)] in
-      push_var "ef-reader-home--jobs" id
+        "after",(if more then find (get "camulus-reader-home--cursors") key else nil)] in
+      push_var "camulus-reader-home--jobs" id
     with exn -> home_done ();home_error (field "name" entry) (s (Exn.to_string exn))
   done;
   home_header ()
 let home_merge followed =
-  let configured=values (get "ef-reader-entries") in
+  let configured=values (get "camulus-groups") in
   let entries=List.map (values followed) ~f:(fun entry ->
     Option.value (List.find configured ~f:(fun e -> Value.equal (entry_key e) (entry_key entry))) ~default:entry) in
   let seen=Hash_set.create (module String) in
@@ -463,17 +463,17 @@ let home_merge followed =
     let key=text "source" entry ^ "\000" ^ text "group" entry in
     if Hash_set.mem seen key then false else (Hash_set.add seen key;true)) |> list
 let home_begin entries more =
-  set "ef-reader-home--entries" entries;
-  let queue=if more then List.filter (values entries) ~f:(fun entry -> truth (find (get "ef-reader-home--cursors") (entry_key entry))) else values entries in
-  set "ef-reader-home--queue" (list queue);set "ef-reader-home--total" (i (List.length queue));
-  run "ef-reader-home-load-cache" [];home_pump more;
+  set "camulus-reader-home--entries" entries;
+  let queue=if more then List.filter (values entries) ~f:(fun entry -> truth (find (get "camulus-reader-home--cursors") (entry_key entry))) else values entries in
+  set "camulus-reader-home--queue" (list queue);set "camulus-reader-home--total" (i (List.length queue));
+  run "camulus-reader-home-load-cache" [];home_pump more;
   if more && List.is_empty queue then message "No further pages in these feeds"
 let home_refresh more =
-  if more && flag "ef-reader-home--jobs" then user_error "Wait for the current feed refresh before loading more";
-  home_cancel ();set "ef-reader-home--done" (i 0);set "ef-reader-home--errors" nil;
-  if more then home_begin (get "ef-reader-home--entries") true else (
-    run "ef-reader-load-config" [];
-    let target=buffer () and generation=get "ef-reader-home--token" in
+  if more && flag "camulus-reader-home--jobs" then user_error "Wait for the current feed refresh before loading more";
+  home_cancel ();set "camulus-reader-home--done" (i 0);set "camulus-reader-home--errors" nil;
+  if more then home_begin (get "camulus-reader-home--entries") true else (
+    run "camulus-reader-load-config" [];
+    let target=buffer () and generation=get "camulus-reader-home--token" in
     let providers=List.filter_map (Reader_backend.all ()) ~f:(fun backend ->
       Option.map backend.followed ~f:(fun followed -> backend,followed)) in
     let remaining=ref (List.length providers) and entries=ref [] in
@@ -484,14 +484,14 @@ let home_refresh more =
     List.iter providers ~f:(fun (backend,followed) ->
       let failed reason =
         home_error (s (backend.name^" subscriptions")) reason;
-        entries:=List.filter (values (get "ef-reader-home--entries")) ~f:(fun entry -> backend.matches (text "source" entry)) @ !entries in
+        entries:=List.filter (values (get "camulus-reader-home--entries")) ~f:(fun entry -> backend.matches (text "source" entry)) @ !entries in
       try
         let id=followed () in
-        push_var "ef-reader-home--jobs" id;
-        put (get "ef-reader--requests") id (callback_unit (fun data ->
+        push_var "camulus-reader-home--jobs" id;
+        put (get "camulus-reader--requests") id (callback_unit (fun data ->
           if home_current target generation && String.equal (text "kind" data) "entries" then
             entries:=values (field "rows" data) @ !entries));
-        put (get "ef-reader--completions") id (callback_unit (fun event ->
+        put (get "camulus-reader--completions") id (callback_unit (fun event ->
           if home_current target generation then in_buffer target (fun () ->
             remove_job id;
             if not (Value.eq (call "nth" [i 3;event]) (sym "completed")) then failed (call "nth" [i 4;event]);
@@ -500,19 +500,19 @@ let home_refresh more =
 let columns fields = vector (List.map fields ~f:(fun (name,width,sort) -> list [s name;i width;b sort]))
 let home_open () =
   ignore (show_buffer "*Reader*" : Buffer.t);
-  if flag "ef-reader--home" then home_cancel ();
-  run "ef-reader-feed-mode" [];
-  set "ef-reader--home" (b true);set "ef-reader-home--cursors" (hash ());
+  if flag "camulus-reader--home" then home_cancel ();
+  run "camulus-reader-feed-mode" [];
+  set "camulus-reader--home" (b true);set "camulus-reader-home--cursors" (hash ());
   set "tabulated-list-format" (columns ["New",3,false;"Time",12,false;"Feed",28,true;"Author",18,true;"Thread",70,true]);
   run "tabulated-list-init-header" [];home_header ();
-  run "add-hook" [sym "kill-buffer-hook";sym "ef-reader-home--cancel";nil;b true];home_refresh false
+  run "add-hook" [sym "kill-buffer-hook";sym "camulus-reader-home--cancel";nil;b true];home_refresh false
 let reader entry =
-  run "ef-reader-start" [];run "ef-reader-load-config" [];
+  run "camulus-reader-start" [];run "camulus-reader-load-config" [];
   if not (truth entry) then home_open () else (
     ignore (show_buffer "*Reader*" : Buffer.t);
-    if flag "ef-reader--home" then home_cancel ();
-    run "ef-reader-feed-mode" [];
-    set "ef-reader--entry" entry;set "ef-reader--source" (field "source" entry);
+    if flag "camulus-reader--home" then home_cancel ();
+    run "camulus-reader-feed-mode" [];
+    set "camulus-reader--entry" entry;set "camulus-reader--source" (field "source" entry);
     Option.iter (capability (field "source" entry)) ~f:(fun backend ->
       let map=call "copy-keymap" [call "current-local-map" []] in
       List.iter backend.list_controls ~f:(fun control ->
@@ -520,24 +520,24 @@ let reader entry =
       run "use-local-map" [map];
       let hints=String.concat(List.map backend.list_controls ~f:(fun c->"  "^c.hint))in
       if not(String.is_empty hints)then set "header-line-format" (list[get "header-line-format";s hints]));
-    run "ef-reader--load-list" [])
+    run "camulus-reader--load-list" [])
 let subscriptions_render () =
-  let selected=property (point ()) "ef-reader-entry" and old_line=call "line-number-at-pos" [] in
+  let selected=property (point ()) "camulus-reader-entry" and old_line=call "line-number-at-pos" [] in
   let restored=ref None in
   writable (fun () ->
     Current_buffer.erase ();
     Point.insert "Current subscriptions\n\n";
     Point.insert "Personal timeline sources returned by each backend.\nUse B to browse all registered groups.\n\n";
-    let entries=values (home_merge (get "ef-reader-subscriptions--entries"))
+    let entries=values (home_merge (get "camulus-reader-subscriptions--entries"))
       |> List.sort ~compare:(fun a b -> String.compare (text "name" a) (text "name" b)) in
     List.iter entries ~f:(fun entry ->
       let start=point () in
       Point.insert "  ";button (text "name" entry) (fun () -> browse_entry entry);
       Point.insert ("  · "^text "source" entry^"  · "^text "group" entry^"\n");
-      properties start (point ()) [sym "ef-reader-entry";entry];
+      properties start (point ()) [sym "camulus-reader-entry";entry];
       if truth selected && Value.equal (entry_key selected) (entry_key entry) then restored:=Some start);
-    let pending=number (get "ef-reader-subscriptions--pending") in
-    let errors=values (get "ef-reader-subscriptions--errors") in
+    let pending=number (get "camulus-reader-subscriptions--pending") in
+    let errors=values (get "camulus-reader-subscriptions--errors") in
     if pending>0 then Point.insert (Printf.sprintf "\nReading subscriptions from %d backends…\n" pending)
     else if List.is_empty entries && List.is_empty errors then Point.insert "No subscriptions. Use B to browse and s to follow a group.\n";
     if not(List.is_empty errors) then (
@@ -547,40 +547,40 @@ let subscriptions_render () =
     (match !restored with Some p->goto p|None->run "forward-line"[i(Int.max 0 (number old_line-1))]));
   Current_buffer.set_modified false
 let subscriptions_refresh () =
-  run "ef-reader-start" [];run "ef-reader-load-config" [];
+  run "camulus-reader-start" [];run "camulus-reader-load-config" [];
   let target=buffer () and generation=token () in
-  set "ef-reader--list-token" generation;
+  set "camulus-reader--list-token" generation;
   let providers=List.filter_map (Reader_backend.all ()) ~f:(fun backend ->
     Option.map backend.followed ~f:(fun followed -> backend.name,followed)) in
-  set "ef-reader-subscriptions--entries" nil;set "ef-reader-subscriptions--errors" nil;
-  set "ef-reader-subscriptions--pending" (i(List.length providers));subscriptions_render ();
+  set "camulus-reader-subscriptions--entries" nil;set "camulus-reader-subscriptions--errors" nil;
+  set "camulus-reader-subscriptions--pending" (i(List.length providers));subscriptions_render ();
   let current ()=alive target && in_buffer target (fun () ->
-    derived "camulus-subscriptions-mode" && Value.eq generation (get "ef-reader--list-token")) in
+    derived "camulus-subscriptions-mode" && Value.eq generation (get "camulus-reader--list-token")) in
   List.iter providers ~f:(fun (name,followed) ->
     let rows=ref nil in
     let finish error = if current () then in_buffer target (fun () ->
-      (match error with Some error -> push_var "ef-reader-subscriptions--errors" (cons(s name)error)
-       | None -> set "ef-reader-subscriptions--entries" (call "append"[get "ef-reader-subscriptions--entries";!rows]));
-      set "ef-reader-subscriptions--pending" (i(number(get "ef-reader-subscriptions--pending")-1));
-      if number(get "ef-reader-subscriptions--pending")=0 then subscriptions_render ()) in
+      (match error with Some error -> push_var "camulus-reader-subscriptions--errors" (cons(s name)error)
+       | None -> set "camulus-reader-subscriptions--entries" (call "append"[get "camulus-reader-subscriptions--entries";!rows]));
+      set "camulus-reader-subscriptions--pending" (i(number(get "camulus-reader-subscriptions--pending")-1));
+      if number(get "camulus-reader-subscriptions--pending")=0 then subscriptions_render ()) in
     try
       let id=followed () in
-      put (get "ef-reader--requests") id (callback_unit (fun data ->
+      put (get "camulus-reader--requests") id (callback_unit (fun data ->
         if current () && String.equal(text "kind" data)"entries" then rows:=field "rows" data));
-      put (get "ef-reader--completions") id (callback_unit (fun event ->
+      put (get "camulus-reader--completions") id (callback_unit (fun event ->
         finish(if Value.eq(call "nth"[i 3;event])(sym "completed")then None else Some(call "nth"[i 4;event]))))
     with exn->finish(Some(s(Exn.to_string exn))))
 let subscriptions () =
   ignore(show_buffer "*Camulus subscriptions*" : Buffer.t);
   run "camulus-subscriptions-mode" [];subscriptions_refresh ()
 let browse_source () =
-  if not (flag "ef-reader--home") then user_error "Already browsing an entry";
+  if not (flag "camulus-reader--home") then user_error "Already browsing an entry";
   let entry=home_entry (selected ()) in
   if not (truth entry) then user_error "No source entry available";
   reader entry
 let home_errors () =
-  if not (flag "ef-reader--home") then user_error "Open the home timeline first";
-  let errors=values (get "ef-reader-home--errors") in
+  if not (flag "camulus-reader--home") then user_error "Open the home timeline first";
+  let errors=values (get "camulus-reader-home--errors") in
   if List.is_empty errors then message "No home refresh errors" else (
     let target=Buffer.find_or_create ~name:"*Reader refresh errors*" in
     in_buffer target (fun () -> writable (fun () ->
@@ -595,67 +595,67 @@ let unique_rows rows =
   List.rev rows |> List.filter ~f:(fun row -> let id=text "id" row in
     if Hash_set.mem seen id then false else (Hash_set.add seen id;true)) |> List.rev
 let load_list synchronize more =
-  if flag "ef-reader--home" then (if synchronize then home_refresh more else home_cache ()) else (
-    let target=buffer () and folder=get "ef-reader--folder" and entry=get "ef-reader--entry" and generation=token () in
+  if flag "camulus-reader--home" then (if synchronize then home_refresh more else home_cache ()) else (
+    let target=buffer () and folder=get "camulus-reader--folder" and entry=get "camulus-reader--entry" and generation=token () in
     let fields=if truth folder then ["op",s "favorites";"folder",folder]
       else if truth entry then ["op",s (if synchronize then "refresh" else "feed");"source",field "source" entry;
-        "group",field "group" entry;"query",get "ef-reader--query";"after",(if more then get "ef-reader--cursor" else nil)] else [] in
+        "group",field "group" entry;"query",get "camulus-reader--query";"after",(if more then get "camulus-reader--cursor" else nil)] else [] in
     if not (List.is_empty fields) then (
-      set "ef-reader--list-token" generation;
+      set "camulus-reader--list-token" generation;
       let receive=callback_unit (fun data ->
         if alive target && List.mem ["feed";"favorites"] (text "kind" data) ~equal:String.equal then in_buffer target (fun () ->
-          if Value.eq generation (get "ef-reader--list-token") then (
-            if synchronize then set "ef-reader--cursor" (field "after" data);
+          if Value.eq generation (get "camulus-reader--list-token") then (
+            if synchronize then set "camulus-reader--cursor" (field "after" data);
             let rows=field "rows" data in
-            let rows=if flag "ef-reader--query" then (
-              let rows=if more then list (unique_rows (values (get "ef-reader--search-rows") @ values rows)) else rows in
-              set "ef-reader--search-rows" rows;rows) else rows in
+            let rows=if flag "camulus-reader--query" then (
+              let rows=if more then list (unique_rows (values (get "camulus-reader--search-rows") @ values rows)) else rows in
+              set "camulus-reader--search-rows" rows;rows) else rows in
             set_rows rows))) in
-      set "ef-reader--list-request" (request ~receive fields)))
+      set "camulus-reader--list-request" (request ~receive fields)))
 let refresh_source source =
   List.iter (Buffer.all_live ()) ~f:(fun target -> in_buffer target (fun () ->
-    if derived "ef-reader-feed-mode" then
-      if flag "ef-reader--home" then (
-        let generation=get "ef-reader-home--token" in
-        List.iter (values(get "ef-reader-home--entries")) ~f:(fun entry ->
+    if derived "camulus-reader-feed-mode" then
+      if flag "camulus-reader--home" then (
+        let generation=get "camulus-reader-home--token" in
+        List.iter (values(get "camulus-reader-home--entries")) ~f:(fun entry ->
           if Value.equal source (field "source" entry) then
             request_ignore ["op",s "refresh";"source",source;"group",field "group" entry]
               ~receive:(callback_unit(fun data ->
                 if String.equal (text "kind" data) "feed" && home_current target generation then in_buffer target(fun () ->
-                  put (get "ef-reader-home--cursors") (entry_key entry) (field "after" data);home_cache ())))))
-      else if not(flag "ef-reader--query") && Value.equal source (field "source" (get "ef-reader--entry")) then
+                  put (get "camulus-reader-home--cursors") (entry_key entry) (field "after" data);home_cache ())))))
+      else if not(flag "camulus-reader--query") && Value.equal source (field "source" (get "camulus-reader--entry")) then
         load_list true false))
 let reload_lists () =
   List.iter (Buffer.all_live ()) ~f:(fun target -> in_buffer target (fun () ->
-    if (derived "ef-reader-feed-mode" || derived "ef-reader-folder-mode")
-      && not (flag "ef-reader--list-request" && truth (find (get "ef-reader--requests") (get "ef-reader--list-request"))) then (
-      if not(flag "ef-reader--query") then load_list false false else (
-        let generation=get "ef-reader--list-token" and rows=values(get "ef-reader--search-rows") in
-        let source=field "source" (get "ef-reader--entry") in
+    if (derived "camulus-reader-feed-mode" || derived "camulus-reader-folder-mode")
+      && not (flag "camulus-reader--list-request" && truth (find (get "camulus-reader--requests") (get "camulus-reader--list-request"))) then (
+      if not(flag "camulus-reader--query") then load_list false false else (
+        let generation=get "camulus-reader--list-token" and rows=values(get "camulus-reader--search-rows") in
+        let source=field "source" (get "camulus-reader--entry") in
         request_ignore ["op",s "states";"source",source;"ids",vector(List.map rows ~f:(field "id"))]
           ~receive:(callback_unit(fun data ->
             if alive target && String.equal(text "kind" data)"states" then in_buffer target(fun () ->
-              if Value.eq generation (get "ef-reader--list-token") then (
+              if Value.eq generation (get "camulus-reader--list-token") then (
                 let rows=list(List.map rows ~f:(fun row ->
                   cons (cons (sym "favorite") (field "favorite" (state source (field "id" row))))
                     (call "assq-delete-all" [sym "favorite";call "copy-alist" [row]]))) in
-                set "ef-reader--search-rows" rows;set_rows rows))))))))
+                set "camulus-reader--search-rows" rows;set_rows rows))))))))
 let refresh () =
   load_list true false;
   request_ignore ["op",s "refresh-archives"] ~receive:(callback_unit (fun data ->
     if truth (field "errors" data) then message ("Archive refresh: "^String.concat ~sep:"; " (List.map (values (field "errors" data)) ~f:str))))
 let more () =
-  if not (flag "ef-reader--home" || flag "ef-reader--cursor") then user_error "No further page";
+  if not (flag "camulus-reader--home" || flag "camulus-reader--cursor") then user_error "No further page";
   load_list true true
 let search query =
-  if flag "ef-reader--home" then user_error "Search is entry scoped: use G or b to open an entry first";
-  set "ef-reader--query" (if String.is_empty query then nil else s query);load_list true false
+  if flag "camulus-reader--home" then user_error "Search is entry scoped: use G or b to open an entry first";
+  set "camulus-reader--query" (if String.is_empty query then nil else s query);load_list true false
 let entries () =
-  run "ef-reader-start" [];run "ef-reader-load-config" [];
+  run "camulus-reader-start" [];run "camulus-reader-load-config" [];
   let providers=List.filter_map (Reader_backend.all ()) ~f:(fun backend -> backend.followed) in
   let left=ref (List.length providers) and discovered=ref [] in
   let choose () =
-    let configured=values (get "ef-reader-entries") in
+    let configured=values (get "camulus-groups") in
     let choices=configured @ List.filter !discovered ~f:(fun r -> not (List.exists configured ~f:(fun e ->
       Value.equal (field "name" e) (field "name" r) || Value.equal (entry_key e) (entry_key r)))) in
     if List.is_empty choices then user_error "No entries; use C to configure one";
@@ -664,16 +664,16 @@ let entries () =
   if List.is_empty providers then choose ();
   List.iter providers ~f:(fun provider ->
     let id=provider () in
-    put (get "ef-reader--requests") id (callback_unit (fun data ->
+    put (get "camulus-reader--requests") id (callback_unit (fun data ->
       if String.equal (text "kind" data) "entries" then discovered:=values (field "rows" data) @ !discovered));
-    put (get "ef-reader--completions") id (callback_unit (fun _ -> Int.decr left;if !left=0 then choose ())))
+    put (get "camulus-reader--completions") id (callback_unit (fun _ -> Int.decr left;if !left=0 then choose ())))
 let delete () =
   let row=selected () in
-  if derived "ef-reader-feed-mode" then (
-    if flag "ef-reader--query" then user_error "Delete from the entry timeline, not search results";
+  if derived "camulus-reader-feed-mode" then (
+    if flag "camulus-reader--query" then user_error "Delete from the entry timeline, not search results";
     match Option.bind (capability (field "source" row)) ~f:(fun backend -> backend.delete) with
     | Some delete ->
-      let entry=if flag "ef-reader--home" then home_entry row else get "ef-reader--entry" in
+      let entry=if flag "camulus-reader--home" then home_entry row else get "camulus-reader--entry" in
       let refresh () =
         let finished=callback_unit(fun event ->
           if Value.eq (call "nth"[i 3;event]) (sym "completed") then reload_lists ()
@@ -681,10 +681,10 @@ let delete () =
         ignore(request ~finished ["op",s "refresh";"source",field "source" row;"group",field "group" entry] : Value.t) in
       delete ~entry ~row ~refresh
     | None ->
-      request_ignore ["op",s (if flag "ef-reader--home" then "dismiss-timeline" else "dismiss");"group",field "group" (get "ef-reader--entry");
+      request_ignore ["op",s (if flag "camulus-reader--home" then "dismiss-timeline" else "dismiss");"group",field "group" (get "camulus-reader--entry");
         "source",field "source" row;"id",field "id" row;"revision",field "revision" row])
-  else if derived "ef-reader-folder-mode" then
-    request_ignore ["op",s "unfavorite";"source",field "source" row;"id",field "id" row;"target",field "target" row;"folder",get "ef-reader--folder"]
+  else if derived "camulus-reader-folder-mode" then
+    request_ignore ["op",s "unfavorite";"source",field "source" row;"id",field "id" row;"target",field "target" row;"folder",get "camulus-reader--folder"]
   else user_error "Use d in the feed or a favorites folder"
 let save_to row folder =
   request_ignore ["op",s "favorite";"source",field "source" row;"id",field "id" row;
@@ -698,14 +698,14 @@ let save () =
       if not (String.is_empty (str folder)) then save_to row folder)))
 let open_folder folder =
   ignore(show_buffer ("*Reader folder: "^str folder^"*") : Buffer.t);
-  run "ef-reader-folder-mode" [];set "ef-reader--folder" folder;load_list false false
+  run "camulus-reader-folder-mode" [];set "camulus-reader--folder" folder;load_list false false
 let folders_load () =
   let target=buffer () and generation=token () in
-  set "ef-reader--list-token" generation;
+  set "camulus-reader--list-token" generation;
   writable(fun () -> Current_buffer.erase ();Point.insert "Loading favorite folders…\n");
   request_ignore ["op",s "folders"] ~receive:(callback_unit (fun data ->
     if String.equal(text "kind" data)"folders" && alive target then in_buffer target (fun () ->
-      if derived "ef-reader-folders-mode" && Value.eq generation(get "ef-reader--list-token") then (
+      if derived "camulus-reader-folders-mode" && Value.eq generation(get "camulus-reader--list-token") then (
         writable(fun () ->
           Current_buffer.erase ();Point.insert "收藏夹\n\n";
           let folders=values(field "rows" data) in
@@ -717,38 +717,38 @@ let folders_load () =
           Point.goto_min ();run "forward-line"[i 2]);
         Current_buffer.set_modified false))))
 let folders () =
-  run "ef-reader-start" [];
-  if derived "ef-reader-article-mode" then (
+  run "camulus-reader-start" [];
+  if derived "camulus-reader-article-mode" then (
     let windows=values(call "window-list"[]) in
     Option.iter (List.find windows ~f:(fun window ->
       let target=Buffer.of_value_exn(call "window-buffer"[window]) in
-      in_buffer target(fun () -> derived "ef-reader-feed-mode" || derived "ef-reader-folder-mode" ||
-        derived "ef-reader-groups-mode" || derived "ef-reader-folders-mode")))
+      in_buffer target(fun () -> derived "camulus-reader-feed-mode" || derived "camulus-reader-folder-mode" ||
+        derived "camulus-reader-groups-mode" || derived "camulus-reader-folders-mode")))
       ~f:(fun window->Selected_window.set(Window.of_value_exn window)));
   ignore(show_buffer "*Camulus folders*" : Buffer.t);
-  run "ef-reader-folders-mode" [];folders_load ()
+  run "camulus-reader-folders-mode" [];folders_load ()
 let delete_folder () =
-  if not (flag "ef-reader--folder") then user_error "Open a favorites folder first";
-  request_ignore ["op",s "remove-folder";"folder",get "ef-reader--folder"]
+  if not (flag "camulus-reader--folder") then user_error "Open a favorites folder first";
+  request_ignore ["op",s "remove-folder";"folder",get "camulus-reader--folder"]
     ~receive:(callback_unit (fun data -> if String.equal (text "kind" data) "changed" then reader nil))
 let choose_subscription ?(label="Following policy") submit =
   let id=submit None in
-  put (get "ef-reader--requests") id (callback_unit (fun data ->
+  put (get "camulus-reader--requests") id (callback_unit (fun data ->
     if String.equal (text "kind" data) "subscription" then (
       let current=field "setting" data in
       let choice=call "completing-read" [s (label^" (currently "^str current^"): ");field "choices" data;nil;b true;nil;nil;current] in
       if not (Value.equal choice current) then (
         let id=submit (Some(str choice)) in
-        put (get "ef-reader--requests") id (callback_unit (fun result ->
+        put (get "camulus-reader--requests") id (callback_unit (fun result ->
           if String.equal (text "kind" result) "subscription" then (
             List.iter (Buffer.all_live ()) ~f:(fun target -> in_buffer target (fun () ->
-              if flag "ef-reader--home" then home_refresh false
+              if flag "camulus-reader--home" then home_refresh false
               else if derived "camulus-subscriptions-mode" then subscriptions_refresh ()));
             message ("Following policy: "^text "setting" result))))))))
 let group_subscription () =
-  run "ef-reader-start" [];
-  let entry=if derived "ef-reader-groups-mode" then property (point ()) "ef-reader-entry"
-    else if flag "ef-reader--home" then home_entry (selected ()) else get "ef-reader--entry" in
+  run "camulus-reader-start" [];
+  let entry=if derived "camulus-reader-groups-mode" then property (point ()) "camulus-reader-entry"
+    else if flag "camulus-reader--home" then home_entry (selected ()) else get "camulus-reader--entry" in
   if not(truth entry) then user_error "Select or open a registered group";
   let source=field "source" entry and group=field "group" entry in
   match capability source with
@@ -762,8 +762,8 @@ let group_subscription () =
        | None -> user_error "This backend does not offer group subscription settings"))
   | None -> user_error "This backend does not offer group subscription settings"
 let subscription () =
-  if derived "ef-reader-groups-mode" then group_subscription () else (
-    let source=if flag "ef-reader--home" then field "source" (selected ()) else get "ef-reader--source" in
+  if derived "camulus-reader-groups-mode" then group_subscription () else (
+    let source=if flag "camulus-reader--home" then field "source" (selected ()) else get "camulus-reader--source" in
     let target=Option.bind (capability source) ~f:(fun backend ->
       Option.bind backend.subscription_target ~f:(fun target -> target ~source:(str source) ~selected:(fun () -> selected ()))) in
     match target with
@@ -778,37 +778,37 @@ let attachment button =
   else match Option.bind (capability source) ~f:(fun backend -> backend.attachment) with
     | None -> user_error "This backend does not offer attachment downloads"
     | Some download ->
-      let group=field "group" (get "ef-reader--entry") in
+      let group=field "group" (get "camulus-reader--entry") in
       let id=download ~source:(str source) ~id:(str id) ~part:(number part) ~destination:(str destination)
         ~group:(if truth group then Some (str group) else None) in
-      put (get "ef-reader--requests") id (sym "ignore")
+      put (get "camulus-reader--requests") id (sym "ignore")
 let mark_visible target =
-  if alive target && not (String.equal (str (call "ef-probe-status" [])) "idle") then in_buffer target (fun () ->
-    set "ef-reader--visibility-timer" nil;
+  if alive target && not (String.equal (str (call "camulus-probe-status" [])) "idle") then in_buffer target (fun () ->
+    set "camulus-reader--visibility-timer" nil;
     let ids=ref [] in
     List.iter (values (call "get-buffer-window-list" [bv target;nil;b true])) ~f:(fun window ->
       let p=ref (number (call "window-start" [window])) and finish=call "window-end" [window;b true] in
       if truth finish then while !p < number finish do
-        let id=property !p "ef-reader-id" in
-        let key=list [get "ef-reader--source";id] and read=state (get "ef-reader--source") id in
-        if truth id && truth read && truth (find (get "ef-reader--loaded") id) && not (truth (field "read" read))
-           && not (truth (find (get "ef-reader--reading") key)) && truth (call "pos-visible-in-window-p" [i !p;window])
+        let id=property !p "camulus-reader-id" in
+        let key=list [get "camulus-reader--source";id] and read=state (get "camulus-reader--source") id in
+        if truth id && truth read && truth (find (get "camulus-reader--loaded") id) && not (truth (field "read" read))
+           && not (truth (find (get "camulus-reader--reading") key)) && truth (call "pos-visible-in-window-p" [i !p;window])
            && not (member id !ids) then ids:=id :: !ids;
-        p:=next_property !p "ef-reader-id" (number finish)
+        p:=next_property !p "camulus-reader-id" (number finish)
       done);
     if not (List.is_empty !ids) then (
-      let id=request ["op",s "read";"source",get "ef-reader--source";"ids",vector !ids;"value",b true] in
-      List.iter !ids ~f:(fun content -> put (get "ef-reader--reading") (list [get "ef-reader--source";content]) id)))
+      let id=request ["op",s "read";"source",get "camulus-reader--source";"ids",vector !ids;"value",b true] in
+      List.iter !ids ~f:(fun content -> put (get "camulus-reader--reading") (list [get "camulus-reader--source";content]) id)))
 let schedule_visible target =
   if alive target then in_buffer target (fun () ->
-    if derived "ef-reader-article-mode" && not (truth (call "timerp" [get "ef-reader--visibility-timer"])) then
-      set "ef-reader--visibility-timer" (call "run-at-time" [call "string-to-number" [s "0.1"];nil;sym "ef-reader--mark-visible";bv target]))
+    if derived "camulus-reader-article-mode" && not (truth (call "timerp" [get "camulus-reader--visibility-timer"])) then
+      set "camulus-reader--visibility-timer" (call "run-at-time" [call "string-to-number" [s "0.1"];nil;sym "camulus-reader--mark-visible";bv target]))
 
 let receive data =
-  let source=get "ef-reader--source" in
+  let source=get "camulus-reader--source" in
   let backend=capability source in
   let reconcile ~existing m = Option.value_map backend ~default:m ~f:(fun backend ->
-    backend.reconcile ~source:(str source) ~existing ~request:(get "ef-reader--active") ~archived:(flag "ef-reader--archive") m) in
+    backend.reconcile ~source:(str source) ~existing ~request:(get "camulus-reader--active") ~archived:(flag "camulus-reader--archive") m) in
   match text "kind" data with
   | "page" ->
     (match Option.bind backend ~f:(fun backend -> backend.page) with
@@ -819,17 +819,17 @@ let receive data =
   | "thread" ->
     List.iter (values (field "messages" data)) ~f:(fun m ->
       let id=field "id" m in
-      let existing=find (get "ef-reader--messages") id in
+      let existing=find (get "camulus-reader--messages") id in
       let m=if truth existing then reconcile ~existing m else m in
-      put (get "ef-reader--messages") id m;
-      if Option.exists backend ~f:(fun backend -> backend.thread_contains_bodies) then put (get "ef-reader--loaded") id (b true));
-    set "ef-reader--complete" (field "complete" data);render ()
+      put (get "camulus-reader--messages") id m;
+      if Option.exists backend ~f:(fun backend -> backend.thread_contains_bodies) then put (get "camulus-reader--loaded") id (b true));
+    set "camulus-reader--complete" (field "complete" data);render ()
   | "article" ->
-    if single source then set "ef-reader--complete" (b true);
+    if single source then set "camulus-reader--complete" (b true);
     let m=reconcile ~existing:nil (field "message" data) in
     let id=field "id" m in
-    put (get "ef-reader--messages") id m;put (get "ef-reader--loaded") id (b true);
-    put (get "ef-reader--attachments") id (field "attachments" data);render ()
+    put (get "camulus-reader--messages") id m;put (get "camulus-reader--loaded") id (b true);
+    put (get "camulus-reader--attachments") id (field "attachments" data);render ()
   | "error" -> message (text "message" data)
   | _ -> ()
 let event event =
@@ -843,29 +843,29 @@ let event event =
      | "states" ->
        let states=field "data" data in
        let source=field "source" states in
-       List.iter (values (field "items" states)) ~f:(fun read -> put (get "ef-reader--states") (list [source;field "id" read]) read);
+       List.iter (values (field "items" states)) ~f:(fun read -> put (get "camulus-reader--states") (list [source;field "id" read]) read);
        List.iter (Buffer.all_live ()) ~f:(fun target -> in_buffer target (fun () ->
-         if derived "ef-reader-article-mode" && Value.equal source (get "ef-reader--source") && count (get "ef-reader--messages") > 0 then render ()))
+         if derived "camulus-reader-article-mode" && Value.equal source (get "camulus-reader--source") && count (get "camulus-reader--messages") > 0 then render ()))
      | "changed" -> reload_lists ()
      | "saved" -> message ("Saved: "^str (or_ (field "folder" data) (field "path" data)))
      | _ -> ());
-    let callback=find (get "ef-reader--requests") id in
+    let callback=find (get "camulus-reader--requests") id in
     if truth callback then ignore (Value.funcallN callback [data] : Value.t)
   | "finished" ->
-    if (truth (find (get "ef-reader--requests") id) || truth (find (get "ef-reader--loads") id)) && not (Value.eq (nth 3) (sym "completed")) then
+    if (truth (find (get "camulus-reader--requests") id) || truth (find (get "camulus-reader--loads") id)) && not (Value.eq (nth 3) (sym "completed")) then
       message ("Reader: "^str (nth 4));
-    remove (get "ef-reader--requests") id;remove (get "ef-reader--loads") id;
-    let callback=find (get "ef-reader--completions") id in
-    if truth callback then (remove (get "ef-reader--completions") id;ignore (Value.funcallN callback [event] : Value.t));
-    List.iter (values (call "hash-table-keys" [get "ef-reader--reading"])) ~f:(fun key ->
-      if Value.eq (find (get "ef-reader--reading") key) id then remove (get "ef-reader--reading") key)
+    remove (get "camulus-reader--requests") id;remove (get "camulus-reader--loads") id;
+    let callback=find (get "camulus-reader--completions") id in
+    if truth callback then (remove (get "camulus-reader--completions") id;ignore (Value.funcallN callback [event] : Value.t));
+    List.iter (values (call "hash-table-keys" [get "camulus-reader--reading"])) ~f:(fun key ->
+      if Value.eq (find (get "camulus-reader--reading") key) id then remove (get "camulus-reader--reading") key)
   | tag when List.exists (Reader_backend.all ()) ~f:(fun backend -> List.mem backend.events tag ~equal:String.equal) ->
     let data=nth 3 in
-    if truth (find (get "ef-reader--requests") id) && String.equal (text "kind" data) "saved" then
+    if truth (find (get "camulus-reader--requests") id) && String.equal (text "kind" data) "saved" then
       message ("Saved: "^text "path" data);
-    let value=find (get "ef-reader--loads") id in
+    let value=find (get "camulus-reader--loads") id in
     if truth value then let target=Buffer.of_value_exn value in
-      if alive target then in_buffer target (fun () -> if Value.eq id (get "ef-reader--active") then receive data)
+      if alive target then in_buffer target (fun () -> if Value.eq id (get "camulus-reader--active") then receive data)
   | _ -> ()
 (* Registration is explicit, after backend adapters/configuration have loaded. *)
 let define0 ?(interactive=false) name f =
@@ -889,7 +889,7 @@ let mode name parent title columns_ header init =
   let initialize () =
     Option.iter columns_ ~f:(fun cols -> set "tabulated-list-format" (columns cols));
     if Option.is_some columns_ then run "tabulated-list-init-header" [];
-    local "header-line-format" (list [header_link "[收藏夹 · f]" "ef-reader-folders";s ("  "^header)]);
+    local "header-line-format" (list [header_link "[收藏夹 · f]" "camulus-reader-folders";s ("  "^header)]);
     init () in
   ignore (Major_mode.define_derived_mode (Symbol.intern name) [%here] ~docstring:"Native Ecaml reader view."
     ~parent:(Major_mode.find_or_wrap_existing [%here] (Symbol.intern parent)) ~mode_line:title
@@ -899,54 +899,54 @@ let bind mode_name bindings =
   List.iter bindings ~f:(fun (key,command) -> run "define-key" [Keymap.to_value map;call "kbd" [s key];sym command])
 let install_modes () =
   run "require" [sym "tabulated-list"];
-  List.iter ["entries";"errors";"pending"] ~f:(fun name -> local_default ("ef-reader-subscriptions--"^name) nil);
-  local_default "ef-reader-groups--backend" nil;
-  List.iter ["entries";"cursors";"token";"jobs";"queue";"errors"] ~f:(fun name -> local_default ("ef-reader-home--"^name) nil);
-  List.iter ["done";"total"] ~f:(fun name -> local_default ("ef-reader-home--"^name) (i 0));
-  mode "ef-reader-feed-mode" "tabulated-list-mode" "Feed"
+  List.iter ["entries";"errors";"pending"] ~f:(fun name -> local_default ("camulus-reader-subscriptions--"^name) nil);
+  local_default "camulus-reader-groups--backend" nil;
+  List.iter ["entries";"cursors";"token";"jobs";"queue";"errors"] ~f:(fun name -> local_default ("camulus-reader-home--"^name) nil);
+  List.iter ["done";"total"] ~f:(fun name -> local_default ("camulus-reader-home--"^name) (i 0));
+  mode "camulus-reader-feed-mode" "tabulated-list-mode" "Feed"
     (Some ["New",3,false;"Source",24,true;"Author",20,true;"Thread",70,true])
     "RET: read  d: delete  m: choose folder  g: refresh  n: more  /: search  s: follow settings  S: follow group  G: entries  C: config  f: folders" ignore;
-  mode "ef-reader-folder-mode" "tabulated-list-mode" "Favorites"
+  mode "camulus-reader-folder-mode" "tabulated-list-mode" "Favorites"
     (Some ["Kind",8,false;"Source",24,true;"Title",80,true])
     "RET: read saved copy  m: add folder  d: remove entry  D: remove folder  f: folders  g: reload  h: home" ignore;
-  mode "ef-reader-folders-mode" "special-mode" "Favorite folders" None
+  mode "camulus-reader-folders-mode" "special-mode" "Favorite folders" None
     "RET / click: open folder  TAB: next folder  g: refresh  h: home" ignore;
-  mode "ef-reader-groups-mode" "special-mode" "Reader groups" None
+  mode "camulus-reader-groups-mode" "special-mode" "Reader groups" None
     "Groups · RET / click: browse  TAB: next entry  h: home  g: reload  U: subscriptions  s: follow group  B: all groups  C: edit groups" ignore;
-  mode "camulus-subscriptions-mode" "ef-reader-groups-mode" "Subscriptions" None
+  mode "camulus-subscriptions-mode" "camulus-reader-groups-mode" "Subscriptions" None
     "Subscriptions · RET / click: browse  s: change subscription  g: refresh  B: all groups  h: home" ignore;
-  mode "ef-reader-article-mode" "special-mode" "Reader thread" None "Loading…" (fun () ->
-    local "ef-reader--render-token" nil;
+  mode "camulus-reader-article-mode" "special-mode" "Reader thread" None "Loading…" (fun () ->
+    local "camulus-reader--render-token" nil;
     reading_layout ();
-    List.iter ["messages";"attachments";"loaded"] ~f:(fun name -> set ("ef-reader--"^name) (hash ()));
+    List.iter ["messages";"attachments";"loaded"] ~f:(fun name -> set ("camulus-reader--"^name) (hash ()));
     List.iter ["kill-buffer-hook";"change-major-mode-hook"] ~f:(fun hook->
       run "add-hook" [sym hook;callback0 Reader_media.cleanup;nil;b true]);
     run "add-hook" [sym "kill-buffer-hook";callback0 (fun () ->
-      if truth (call "timerp" [get "ef-reader--visibility-timer"]) then run "cancel-timer" [get "ef-reader--visibility-timer"];
-      if flag "ef-reader--active" && not (String.equal (str (call "ef-probe-status" [])) "idle") then run "ef-probe-cancel" [get "ef-reader--active"]);nil;b true]);
-  List.iter ["ef-reader-feed-mode";"ef-reader-folder-mode"] ~f:(fun mode ->
-    bind mode ["RET","ef-reader-open";"d","ef-reader-delete";"m","ef-reader-save";"g","ef-reader-refresh";"f","ef-reader-folders";"h","camulus"]);
-  bind "ef-reader-feed-mode" ["s","ef-reader-subscription";"S","ef-reader-group-subscription";"G","ef-reader-entries";"C","ef-reader-edit-config";"n","ef-reader-more";"/","ef-reader-search";
-    "U","camulus-subscriptions";"B","ef-reader-browse-groups";"b","ef-reader-home-browse-source";"e","ef-reader-home-errors"];
-  bind "ef-reader-folder-mode" ["D","ef-reader-delete-folder"];
-  bind "ef-reader-folders-mode" ["RET","push-button";"TAB","forward-button";"<backtab>","backward-button";"f","ef-reader-folders";"g","ef-reader-folders-refresh";"h","camulus"];
-  bind "ef-reader-article-mode" ["f","ef-reader-folders";"s","ef-reader-subscription";"m","ef-reader-save";"n","ef-reader-next-unread";"h","camulus"];
-  bind "camulus-subscriptions-mode" ["g","camulus-subscriptions-refresh";"B","ef-reader-browse-groups";"U","camulus-subscriptions"];
-  bind "ef-reader-groups-mode" ["RET","push-button";"TAB","forward-button";"<backtab>","backward-button";"f","ef-reader-folders";"U","camulus-subscriptions";"s","ef-reader-group-subscription";"S","ef-reader-group-subscription";"h","camulus";"g","ef-reader-groups-refresh";"B","ef-reader-browse-groups";"C","ef-reader-edit-groups"]
+      if truth (call "timerp" [get "camulus-reader--visibility-timer"]) then run "cancel-timer" [get "camulus-reader--visibility-timer"];
+      if flag "camulus-reader--active" && not (String.equal (str (call "camulus-probe-status" [])) "idle") then run "camulus-probe-cancel" [get "camulus-reader--active"]);nil;b true]);
+  List.iter ["camulus-reader-feed-mode";"camulus-reader-folder-mode"] ~f:(fun mode ->
+    bind mode ["RET","camulus-reader-open";"d","camulus-reader-delete";"m","camulus-reader-save";"g","camulus-reader-refresh";"f","camulus-reader-folders";"h","camulus"]);
+  bind "camulus-reader-feed-mode" ["s","camulus-reader-subscription";"S","camulus-reader-group-subscription";"G","camulus-groups";"C","camulus-reader-edit-config";"n","camulus-reader-more";"/","camulus-reader-search";
+    "U","camulus-subscriptions";"B","camulus-reader-browse-groups";"b","camulus-reader-home-browse-source";"e","camulus-reader-home-errors"];
+  bind "camulus-reader-folder-mode" ["D","camulus-reader-delete-folder"];
+  bind "camulus-reader-folders-mode" ["RET","push-button";"TAB","forward-button";"<backtab>","backward-button";"f","camulus-reader-folders";"g","camulus-reader-folders-refresh";"h","camulus"];
+  bind "camulus-reader-article-mode" ["f","camulus-reader-folders";"s","camulus-reader-subscription";"m","camulus-reader-save";"n","camulus-reader-next-unread";"h","camulus"];
+  bind "camulus-subscriptions-mode" ["g","camulus-subscriptions-refresh";"B","camulus-reader-browse-groups";"U","camulus-subscriptions"];
+  bind "camulus-reader-groups-mode" ["RET","push-button";"TAB","forward-button";"<backtab>","backward-button";"f","camulus-reader-folders";"U","camulus-subscriptions";"s","camulus-reader-group-subscription";"S","camulus-reader-group-subscription";"h","camulus";"g","camulus-reader-groups-refresh";"B","camulus-reader-browse-groups";"C","camulus-reader-edit-groups"]
 
 
 let setup_variables () =
- List.iter["ef-reader--requests";"ef-reader--completions";"ef-reader--loads";"ef-reader--states";"ef-reader--reading"]~f:(fun n->Reader_backend.variable n(call "make-hash-table"[sym ":test";sym "equal"]));
- List.iter["entry";"home";"cursor";"query";"search-rows";"list-token";"list-request";"rows";"folder";"source";"title";"messages";"attachments";"loaded";"complete";"archive";"active";"positioned";"view-token";"visibility-timer";"rss-query"]~f:(fun n->let name="ef-reader--"^n in Reader_backend.variable name nil;run "make-variable-buffer-local"[sym name]);
- Reader_backend.variable "ef-reader-reply-indent"(i 4);
+ List.iter["camulus-reader--requests";"camulus-reader--completions";"camulus-reader--loads";"camulus-reader--states";"camulus-reader--reading"]~f:(fun n->Reader_backend.variable n(call "make-hash-table"[sym ":test";sym "equal"]));
+ List.iter["entry";"home";"cursor";"query";"search-rows";"list-token";"list-request";"rows";"folder";"source";"title";"messages";"attachments";"loaded";"complete";"archive";"active";"positioned";"view-token";"visibility-timer";"rss-query"]~f:(fun n->let name="camulus-reader--"^n in Reader_backend.variable name nil;run "make-variable-buffer-local"[sym name]);
+ Reader_backend.variable "camulus-reader-reply-indent"(i 4);
  run "custom-declare-group"[sym "camulus";nil;s "Read feeds and discussions.";sym ":group";sym "applications"];
  let read_attributes color=Value.list[sym ":inherit";sym "shadow";sym ":foreground";s color;sym ":weight";sym "normal"]in
  let background name color=Value.list[Value.list[Value.list[sym "background";sym name]];read_attributes color]in
- List.iter["ef-reader-heading",Value.list[Value.list[sym "t";Value.list[sym ":weight";sym "bold"]]];
-  "ef-reader-separator",Value.list[Value.list[sym "t";Value.list[sym ":inherit";sym "shadow";sym ":underline";sym "t"]]];
-  "ef-reader-read",Value.list[background "light" "gray55";background "dark" "gray65";
+ List.iter["camulus-reader-heading",Value.list[Value.list[sym "t";Value.list[sym ":weight";sym "bold"]]];
+  "camulus-reader-separator",Value.list[Value.list[sym "t";Value.list[sym ":inherit";sym "shadow";sym ":underline";sym "t"]]];
+  "camulus-reader-read",Value.list[background "light" "gray55";background "dark" "gray65";
     Value.list[sym "t";Value.list[sym ":inherit";sym "shadow"]]];
-  "ef-reader-favorite",Value.list[Value.list[sym "t";Value.list[sym ":foreground";s "red";sym ":weight";sym "normal"]]]]
+  "camulus-reader-favorite",Value.list[Value.list[sym "t";Value.list[sym ":foreground";s "red";sym ":weight";sym "normal"]]]]
  ~f:(fun(name,spec)->run "custom-declare-face"[sym name;spec;s "Reader presentation.";sym ":group";sym "camulus"])
 
 let installed = ref false
@@ -954,66 +954,66 @@ let install () =
   if not !installed then (
   setup_variables ();
   Reader_media.install ();
-  define1 "ef-reader--set-rows" (fun rows -> set_rows rows;nil);
-  define0 "ef-reader--reading-layout" reading_layout;
-  define1 "ef-reader--header-text" (fun value -> s (header_text value));
-  define1 "ef-reader--shr-code" (fun dom -> shr_code dom;nil);
-  define1 "ef-reader--anchor" (fun p -> anchor (number p));
-  define1 "ef-reader--position" position;
-  Defun.defun_nullary (Symbol.intern "ef-reader--selected") [%here] ~docstring:"Selected content." (Returns Value.Type.value) selected;
-  define0 "ef-reader--render" render;
-  define0 ~interactive:true "ef-reader-open" open_article;
-  define0 ~interactive:true "ef-reader-next-unread" next_unread;
-  define1 "ef-reader-home--key" entry_key;
-  define1 "ef-reader-home-row-entry" home_entry;
-  define1 "ef-reader-home-row" home_row;
-  define0 "ef-reader-home--header" home_header;
-  define0 "ef-reader-home-load-cache" home_cache;
-  define1 "ef-reader--refresh-source" (fun source -> refresh_source source;nil);
-  define0 "ef-reader-home--cancel" home_cancel;
-  define1 "ef-reader-home--pump" (fun more -> home_pump (truth more);nil);
-  define2 "ef-reader-home--begin" (fun entries more -> home_begin entries (truth more);nil);
-  define1 "ef-reader-home--merge-entries" home_merge;
-  define_optional "ef-reader-home-refresh" (fun more -> home_refresh (truth more);nil);
-  define0 "ef-reader-home-open" home_open;
-  define0 ~interactive:true "ef-reader-home-browse-source" browse_source;
-  define0 ~interactive:true "ef-reader-home-errors" home_errors;
-  define0 ~interactive:true "ef-reader-browse-groups" (groups ?backend:None);
-  define0 ~interactive:true "ef-reader-groups-refresh" groups_reload;
+  define1 "camulus-reader--set-rows" (fun rows -> set_rows rows;nil);
+  define0 "camulus-reader--reading-layout" reading_layout;
+  define1 "camulus-reader--header-text" (fun value -> s (header_text value));
+  define1 "camulus-reader--shr-code" (fun dom -> shr_code dom;nil);
+  define1 "camulus-reader--anchor" (fun p -> anchor (number p));
+  define1 "camulus-reader--position" position;
+  Defun.defun_nullary (Symbol.intern "camulus-reader--selected") [%here] ~docstring:"Selected content." (Returns Value.Type.value) selected;
+  define0 "camulus-reader--render" render;
+  define0 ~interactive:true "camulus-reader-open" open_article;
+  define0 ~interactive:true "camulus-reader-next-unread" next_unread;
+  define1 "camulus-reader-home--key" entry_key;
+  define1 "camulus-reader-home-row-entry" home_entry;
+  define1 "camulus-reader-home-row" home_row;
+  define0 "camulus-reader-home--header" home_header;
+  define0 "camulus-reader-home-load-cache" home_cache;
+  define1 "camulus-reader--refresh-source" (fun source -> refresh_source source;nil);
+  define0 "camulus-reader-home--cancel" home_cancel;
+  define1 "camulus-reader-home--pump" (fun more -> home_pump (truth more);nil);
+  define2 "camulus-reader-home--begin" (fun entries more -> home_begin entries (truth more);nil);
+  define1 "camulus-reader-home--merge-entries" home_merge;
+  define_optional "camulus-reader-home-refresh" (fun more -> home_refresh (truth more);nil);
+  define0 "camulus-reader-home-open" home_open;
+  define0 ~interactive:true "camulus-reader-home-browse-source" browse_source;
+  define0 ~interactive:true "camulus-reader-home-errors" home_errors;
+  define0 ~interactive:true "camulus-reader-browse-groups" (groups ?backend:None);
+  define0 ~interactive:true "camulus-reader-groups-refresh" groups_reload;
   define0 ~interactive:true "camulus-subscriptions" subscriptions;
   define0 ~interactive:true "camulus-subscriptions-refresh" subscriptions_refresh;
-  define1 "ef-reader-browse-entry" (fun entry -> browse_entry entry;nil);
+  define1 "camulus-reader-browse-entry" (fun entry -> browse_entry entry;nil);
   define_optional ~interactive:true "camulus" (fun entry -> reader entry;nil);
-  define1 "ef-reader--single-article-source-p" (fun source -> b (single source));
-  define2 "ef-reader--state" state;
-  define0 "ef-reader--reload-lists" reload_lists;
-  define0 ~interactive:true "ef-reader-refresh" refresh;
-  define0 ~interactive:true "ef-reader-more" more;
-  define0 ~interactive:true "ef-reader-entries" entries;
-  define0 ~interactive:true "ef-reader-delete" delete;
-  define0 ~interactive:true "ef-reader-save" save;
-  define0 ~interactive:true "ef-reader-folders" folders;
-  define0 ~interactive:true "ef-reader-folders-refresh" folders_load;
-  define0 ~interactive:true "ef-reader-delete-folder" delete_folder;
-  define0 ~interactive:true "ef-reader-subscription" subscription;
-  define0 ~interactive:true "ef-reader-group-subscription" group_subscription;
-  define1 "ef-reader--attachment" (fun button -> attachment button;nil);
-  define2 "ef-reader--window-scrolled" (fun window _ -> schedule_visible (Window.buffer_exn (Window.of_value_exn window));nil);
-  define1 "ef-reader--window-changed" (fun window -> schedule_visible (Window.buffer_exn (Window.of_value_exn window));nil);
-  define1 "ef-reader--receive" (fun data -> receive data;nil);
-  define1 "ef-reader--mark-visible" (fun target -> mark_visible (Buffer.of_value_exn target);nil);
-  define1 "ef-reader--schedule-visible" (fun target -> schedule_visible (Buffer.of_value_exn target);nil);
-  Defun.defun (Symbol.intern "ef-reader-search") [%here] ~docstring:"Search only this group."
+  define1 "camulus-reader--single-article-source-p" (fun source -> b (single source));
+  define2 "camulus-reader--state" state;
+  define0 "camulus-reader--reload-lists" reload_lists;
+  define0 ~interactive:true "camulus-reader-refresh" refresh;
+  define0 ~interactive:true "camulus-reader-more" more;
+  define0 ~interactive:true "camulus-groups" entries;
+  define0 ~interactive:true "camulus-reader-delete" delete;
+  define0 ~interactive:true "camulus-reader-save" save;
+  define0 ~interactive:true "camulus-reader-folders" folders;
+  define0 ~interactive:true "camulus-reader-folders-refresh" folders_load;
+  define0 ~interactive:true "camulus-reader-delete-folder" delete_folder;
+  define0 ~interactive:true "camulus-reader-subscription" subscription;
+  define0 ~interactive:true "camulus-reader-group-subscription" group_subscription;
+  define1 "camulus-reader--attachment" (fun button -> attachment button;nil);
+  define2 "camulus-reader--window-scrolled" (fun window _ -> schedule_visible (Window.buffer_exn (Window.of_value_exn window));nil);
+  define1 "camulus-reader--window-changed" (fun window -> schedule_visible (Window.buffer_exn (Window.of_value_exn window));nil);
+  define1 "camulus-reader--receive" (fun data -> receive data;nil);
+  define1 "camulus-reader--mark-visible" (fun target -> mark_visible (Buffer.of_value_exn target);nil);
+  define1 "camulus-reader--schedule-visible" (fun target -> schedule_visible (Buffer.of_value_exn target);nil);
+  Defun.defun (Symbol.intern "camulus-reader-search") [%here] ~docstring:"Search only this group."
     ~interactive:(Prompt "Search this entry (empty clears): ") (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open query=required "query" string in search query);
-  Defun.defun (Symbol.intern "ef-reader--load-list") [%here] ~docstring:"Refresh a native list view."
+  Defun.defun (Symbol.intern "camulus-reader--load-list") [%here] ~docstring:"Refresh a native list view."
     (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open synchronize=optional_with_nil "synchronize" value
      and more=optional_with_nil "more" value in load_list (truth synchronize) (truth more));
   install_modes ();
-  run "ef-reader-backends-install" [];
-  run "add-hook" [sym "window-scroll-functions";sym "ef-reader--window-scrolled"];
-  run "add-hook" [sym "window-buffer-change-functions";sym "ef-reader--window-changed"];
+  run "camulus-reader-backends-install" [];
+  run "add-hook" [sym "window-scroll-functions";sym "camulus-reader--window-scrolled"];
+  run "add-hook" [sym "window-buffer-change-functions";sym "camulus-reader--window-changed"];
   installed := true)
 
-let register () = define0 "ef-reader-ui-install" install
+let register () = define0 "camulus-reader-ui-install" install

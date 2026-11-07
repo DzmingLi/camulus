@@ -35,21 +35,21 @@ let import_files path groups_path=
    if not(Poly.equal(json_field "timeline"entry)`Null)then fail "Group registration does not subscribe; use the backend subscription command";
    let value=normalize(of_json entry)in let name=text(field "name"value)in
    if Hash_set.mem names name then fail "Duplicate group name";Hash_set.add names name;value)in
-  set "ef-reader-entries"(Value.list entries);
+  set "camulus-groups"(Value.list entries);
   List.iter assignments~f:(fun(name,value)->set name value));
- List.iter(values(get "ef-reader-entries"))~f:(fun entry->Option.iter(find(text(field "source"entry)))~f:(fun backend->backend.on_entry entry))
+ List.iter(values(get "camulus-groups"))~f:(fun entry->Option.iter(find(text(field "source"entry)))~f:(fun backend->backend.on_entry entry))
 let setup_variables ()=
  List.iter["cl-lib";"tabulated-list";"json";"shr";"subr-x";"button"]~f:(fun name->run "require"[sym name]);
  variable "camulus-group-subscriptions-file"(data_path "XDG_STATE_HOME" "~/.local/state" "group-subscriptions.json");
- variable "ef-reader-state-file"(data_path "XDG_STATE_HOME" "~/.local/state" "state.sqlite3");
- custom ~kind:(Customization.Type.Repeat (Alist (Symbol,String))) "ef-reader-entries" nil
+ variable "camulus-state-file"(data_path "XDG_STATE_HOME" "~/.local/state" "state.sqlite3");
+ custom ~kind:(Customization.Type.Repeat (Alist (Symbol,String))) "camulus-groups" nil
    "Registered browsing groups. Each entry has name, source and group string fields. Registration is independent of subscription.";
  custom ~kind:(Customization.Type.Option {doc_for_none="No browser profile";t=Directory})
-   "ef-reader-firefox-profile" nil "Firefox profile used by backends that read browser cookies.";
- register_settings "browser"(string_settings["firefox_profile","ef-reader-firefox-profile"])
+   "camulus-firefox-profile" nil "Firefox profile used by backends that read browser cookies.";
+ register_settings "browser"(string_settings["firefox_profile","camulus-firefox-profile"])
 let load () =
  let names=Hash_set.create(module String) in
- let entries=List.map (values(get "ef-reader-entries")) ~f:(fun entry ->
+ let entries=List.map (values(get "camulus-groups")) ~f:(fun entry ->
    let data=to_json entry in
    List.iter ["name";"source";"group"] ~f:(fun key -> require_string key data);
    if truth(field "timeline" entry) then fail "Set subscription through the backend";
@@ -57,22 +57,22 @@ let load () =
    let name=text(field "name" entry) in
    if Hash_set.mem names name then fail "Duplicate group name";
    Hash_set.add names name;entry) in
- set "ef-reader-entries" (Value.list entries);
+ set "camulus-groups" (Value.list entries);
  List.iter entries ~f:(fun entry -> Option.iter(find(text(field "source" entry))) ~f:(fun backend -> backend.on_entry entry))
 let register ~idle =
- define0 "ef-reader-load-config" load;
+ define0 "camulus-reader-load-config" load;
  Defun.defun (Symbol.intern "camulus-import-json-config") [%here]
    ~docstring:"Import existing JSON settings once into current Emacs option values. Save them with Customize to persist."
    (Returns Value.Type.unit)
    (let open Defun.Let_syntax in
     let%map_open config=required "config-file" value and groups=required "groups-file" value in
     import_files config groups);
- define0 ~interactive:true "ef-reader-edit-groups" (fun () ->
-   Customization.customize_variable (Symbol.intern "ef-reader-entries"));
- define0 ~interactive:true "ef-reader-edit-config" (fun () -> run "customize-group" [sym "camulus"]);
- define0 "ef-reader-start"(fun()->if idle()then(
+ define0 ~interactive:true "camulus-reader-edit-groups" (fun () ->
+   Customization.customize_variable (Symbol.intern "camulus-groups"));
+ define0 ~interactive:true "camulus-reader-edit-config" (fun () -> run "customize-group" [sym "camulus"]);
+ define0 "camulus-reader-start"(fun()->if idle()then(
   load();run "camulus-group-subscriptions-configure"[get "camulus-group-subscriptions-file"];
-  run "ef-content-state-configure"[get "ef-reader-state-file"];
+  run "camulus-content-state-configure"[get "camulus-state-file"];
   List.iter(all())~f:(fun backend->backend.start());
-  List.iter["ef-reader--requests";"ef-reader--completions";"ef-reader--loads";"ef-reader--states";"ef-reader--reading"]~f:(fun n->run "clrhash"[get n]);
-  run "ef-probe-session-start"[]))
+  List.iter["camulus-reader--requests";"camulus-reader--completions";"camulus-reader--loads";"camulus-reader--states";"camulus-reader--reading"]~f:(fun n->run "clrhash"[get n]);
+  run "camulus-probe-session-start"[]))

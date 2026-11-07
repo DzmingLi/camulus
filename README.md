@@ -75,7 +75,7 @@ emacsWithPackages (epkgs: [
 使用 `M-x customize-group RET camulus` 管理组选项和后端设置。也可以直接在 Emacs 配置中设置。
 
 ```elisp
-(setq ef-reader-entries
+(setq camulus-groups
       '(((name . "NixOS forum")
          (source . "discourse:https://discourse.nixos.org")
          (group . "latest"))

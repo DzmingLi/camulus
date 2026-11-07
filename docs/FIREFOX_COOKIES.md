@@ -2,7 +2,7 @@
 
 `Reader.Firefox_cookies` 是 Camulus 提供给后端的只读凭据能力，和公共 WebKit 视图一样，不属于某一个网站后端。
 
-用户通过 Emacs 可定制选项 `ef-reader-firefox-profile` 指定 Firefox profile。Camulus 启动时创建 provider，并将它的读取函数交给需要浏览器凭据的后端：
+用户通过 Emacs 可定制选项 `camulus-firefox-profile` 指定 Firefox profile。Camulus 启动时创建 provider，并将它的读取函数交给需要浏览器凭据的后端：
 
 ```ocaml
 let provider = Reader.Firefox_cookies.create ~profile () in
@@ -21,7 +21,7 @@ Douban_backend.create_live ~cookies:(Reader.Firefox_cookies.get provider) ()
 
 ```elisp
 (with-eval-after-load 'camulus_native
-  (setopt ef-reader-firefox-profile "~/.config/mozilla/firefox/default/"))
+  (setopt camulus-firefox-profile "~/.config/mozilla/firefox/default/"))
 (autoload 'camulus-firefox-cookies-get "camulus" nil nil)
 (with-eval-after-load 'zhihu
   (setopt zhihu-cookie-function #'camulus-firefox-cookies-get))

@@ -21,9 +21,9 @@ nix develop -c make reader-demo
 - `a`：summary 中归档当前组内的整条讨论；阅读窗口中归档当前这一封。
 - 每封邮件下的附件按钮：选择保存位置，不覆盖已有文件。
 
-启动前可设置 `ef-mail-root`、`ef-mail-muhome`、`ef-mail-sender` 和 `ef-mail-account`。发信地址由后端配置，`ef-mail-account` 选择 SMTP profile。`ef-mail-smtp-profiles` 的每一项为 `(名称 主机 端口 用户名 密码文件 CA文件)`；CA 文件为空时使用系统信任库。未配置 SMTP 时仍可阅读、编辑草稿和归档，发送会失败。
+启动前可设置 `camulus-mail-root`、`camulus-mail-muhome`、`camulus-mail-sender` 和 `camulus-mail-account`。发信地址由后端配置，`camulus-mail-account` 选择 SMTP profile。`camulus-mail-smtp-profiles` 的每一项为 `(名称 主机 端口 用户名 密码文件 CA文件)`；CA 文件为空时使用系统信任库。未配置 SMTP 时仍可阅读、编辑草稿和归档，发送会失败。
 
-账户映射通过 `ef-mail-accounts` 配置 Maildir 前缀、发件地址和 SMTP profile。`ef-mail-smtp-profiles` 指定 SMTP 主机、端口、用户名、密码文件及 CA 文件；凭据只在发送时读取。账户配置示例见 [ENTRIES.md](ENTRIES.md)。
+账户映射通过 `camulus-mail-accounts` 配置 Maildir 前缀、发件地址和 SMTP profile。`camulus-mail-smtp-profiles` 指定 SMTP 主机、端口、用户名、密码文件及 CA 文件；凭据只在发送时读取。账户配置示例见 [ENTRIES.md](ENTRIES.md)。
 
 设置 `(setq camulus-mail-sync-command '("mbsync" "-a"))`，Camulus 会在启动时同步一次，随后每 300 秒同步。命令按参数数组执行；也可以把 `-a` 换成要同步的 channel 名。每次同步成功后运行 `mu index`，更新首页的邮件来源和打开的邮件列表。同一次同步尚未完成时跳过定时触发；切换 buffer 不停止同步，停止 Camulus 会话时取消定时器。`camulus-mail-sync-interval` 可改为其他秒数，设为 `0` 只保留手动命令 `M-x camulus-mail-sync`。未配置 `camulus-mail-sync-command` 时使用纯本地 Maildir。修改间隔后重启会话生效。
 

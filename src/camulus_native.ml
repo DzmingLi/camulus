@@ -6,7 +6,7 @@ let request_mail = Maildir_emacs.submit_operation ~submit:submit_work
 let request_reddit = Reddit_emacs.submit_operation ~submit:submit_work
 let () =
   defun (Symbol.intern "camulus-firefox-cookies-get") [%here]
-    ~docstring:"Return Firefox cookies for HTTPS URL as an alist of string pairs.\nRead ef-reader-firefox-profile on each call, without starting the reader.\nThis synchronous callback reads only the local database; it does not log in."
+    ~docstring:"Return Firefox cookies for HTTPS URL as an alist of string pairs.\nRead camulus-firefox-profile on each call, without starting the reader.\nThis synchronous callback reads only the local database; it does not log in."
     (Returns Value.Type.value)
     (let open Defun.Let_syntax in let%map_open url=required "url" string in
      ensure_ui ();
@@ -18,14 +18,14 @@ let () =
   Zhihu_emacs.install_protocol ();
   Douban_emacs.install_protocol ();
   Maildir_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
-  defun_nullary_nil (Symbol.intern "ef-discourse-clear-config") [%here]
+  defun_nullary_nil (Symbol.intern "camulus-discourse-clear-config") [%here]
     ~docstring:"Clear Discourse session configuration before startup."
     (fun () -> ensure_ui ();if Option.is_some !runtime then failwith "Stop runtime first";discourse_configs:=[]);
-  defun (Symbol.intern "ef-discourse-site") [%here]
+  defun (Symbol.intern "camulus-discourse-site") [%here]
     ~docstring:"Validate and normalize a Discourse forum base URL."
     (Returns Value.Type.string)
     (let open Defun.Let_syntax in let%map_open site=required "site" string in Discourse.Decode.site site);
-  defun (Symbol.intern "ef-discourse-configure") [%here]
+  defun (Symbol.intern "camulus-discourse-configure") [%here]
     ~docstring:"Configure User API credentials before startup; empty key/client means anonymous."
     (Returns Value.Type.unit)
     (let open Defun.Let_syntax in
@@ -56,7 +56,7 @@ let () =
      request_jsonfeed (Rss_backend.operation_of_json (Reader_backend.to_json request)));
   defun_nullary (Symbol.intern "camulus-jsonfeed-followed") [%here]
     ~docstring:"Discover JSON Feed subscriptions." (Returns Value.Type.int) followed_jsonfeed;
-  defun (Symbol.intern "ef-rss-subscriptions-configure") [%here]
+  defun (Symbol.intern "camulus-rss-subscriptions-configure") [%here]
     ~docstring:"Set the RSS backend's own subscriptions file before startup."
     (Returns Value.Type.unit)
     (let open Defun.Let_syntax in
@@ -65,7 +65,7 @@ let () =
      if Option.is_some !runtime then failwith "Stop runtime before changing RSS storage";
      if Stdlib.Filename.is_relative path then invalid_arg "Use an absolute RSS subscriptions path";
      rss_subscriptions_file:=Some path);
-  defun_nullary (Symbol.intern "ef-rss-followed") [%here]
+  defun_nullary (Symbol.intern "camulus-rss-followed") [%here]
     ~docstring:"Discover the RSS backend's followed feed entries, without accessing the content database."
     (Returns Value.Type.int) (fun () ->
       let t=get_runtime () in let id= !next_id+1 in
@@ -99,7 +99,7 @@ let () =
      ensure_ui ();if Option.is_some !runtime then failwith "Stop runtime before changing group subscription storage";
      if Stdlib.Filename.is_relative path then invalid_arg "Use an absolute state path";
      group_subscriptions_file:=Some path);
-  defun (Symbol.intern "ef-content-state-configure") [%here]
+  defun (Symbol.intern "camulus-content-state-configure") [%here]
     ~docstring:"Set an absolute local state database path before startup; empty disables storage."
     (Returns Value.Type.unit)
     (let open Defun.Let_syntax in
@@ -108,7 +108,7 @@ let () =
      if Option.is_some !runtime then failwith "Stop runtime before changing state storage";
      if not(String.is_empty path) && Stdlib.Filename.is_relative path then failwith "Use an absolute state path";
      state_file := if String.is_empty path then None else Some path);
-  defun_nullary (Symbol.intern "ef-content-sources") [%here]
+  defun_nullary (Symbol.intern "camulus-content-sources") [%here]
     ~docstring:"Configured source identities."
     (Returns Value.Type.(list string)) (fun () -> ensure_ui ();
       configured_sources ());
@@ -116,10 +116,10 @@ let () =
     ~docstring:"Submit an operation described by an Emacs alist." (Returns Value.Type.int)
     (let open Defun.Let_syntax in let%map_open request=required "request" value in
      request_state (CS.operation_of_json (Reader_backend.to_json request)));
-  defun (Symbol.intern "ef-probe-start") [%here] ~docstring:"Start the in-process Eio worker."
+  defun (Symbol.intern "camulus-probe-start") [%here] ~docstring:"Start the in-process Eio worker."
     (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open p = required "pipe-process" value in start p);
-  defun (Symbol.intern "ef-probe-submit") [%here] ~docstring:"Submit synthetic work without blocking Emacs."
+  defun (Symbol.intern "camulus-probe-submit") [%here] ~docstring:"Submit synthetic work without blocking Emacs."
     (Returns Value.Type.int)
     (let open Defun.Let_syntax in
      let%map_open ms = required "milliseconds" int
@@ -128,40 +128,40 @@ let () =
      and fail = required "fail" bool
      and allocate = required "allocation-rounds" int in
      submit ms steps service fail allocate);
-  defun (Symbol.intern "ef-probe-cancel") [%here] ~docstring:"Request cancellation of one job."
+  defun (Symbol.intern "camulus-probe-cancel") [%here] ~docstring:"Request cancellation of one job."
     (Returns Value.Type.bool)
     (let open Defun.Let_syntax in let%map_open id = required "id" int in
      Runtime.submit (get_runtime ()) (Protocol.Cancel id));
-  defun_nullary (Symbol.intern "ef-probe-close-view") [%here]
+  defun_nullary (Symbol.intern "camulus-probe-close-view") [%here]
     ~docstring:"Cancel view-owned work and invalidate late view results."
     (Returns Value.Type.int) (fun () ->
       let t = get_runtime () in
       if not (Runtime.submit t (Protocol.Close_view !current_generation)) then
         failwith "close-view not accepted";
       Int.incr current_generation; !current_generation);
-  defun_nullary (Symbol.intern "ef-probe-drain") [%here]
+  defun_nullary (Symbol.intern "camulus-probe-drain") [%here]
     ~docstring:"Publish at most 64 results on the UI thread."
     (Returns Value.Type.(list value)) (fun () -> drain ());
-  defun_nullary (Symbol.intern "ef-probe-status") [%here] ~docstring:"Read worker lifecycle."
+  defun_nullary (Symbol.intern "camulus-probe-status") [%here] ~docstring:"Read worker lifecycle."
     (Returns Value.Type.string) status;
-  defun_nullary (Symbol.intern "ef-probe-stale-count") [%here] ~docstring:"Count discarded stale results."
+  defun_nullary (Symbol.intern "camulus-probe-stale-count") [%here] ~docstring:"Count discarded stale results."
     (Returns Value.Type.int) (fun () -> ensure_ui (); !dropped_stale);
-  defun_nullary (Symbol.intern "ef-probe-signals-unchanged") [%here]
+  defun_nullary (Symbol.intern "camulus-probe-signals-unchanged") [%here]
     ~docstring:"Check SIGPIPE and SIGCHLD ownership against the pre-worker snapshot."
     (Returns Value.Type.bool) (fun () -> ensure_ui (); Reader.Host.signals_unchanged ());
-  defun_nullary_nil (Symbol.intern "ef-probe-stop") [%here] ~docstring:"Request asynchronous shutdown."
+  defun_nullary_nil (Symbol.intern "camulus-probe-stop") [%here] ~docstring:"Request asynchronous shutdown."
     (fun () -> Runtime.request_stop (get_runtime ()));
-  defun_nullary (Symbol.intern "ef-probe-reap") [%here] ~docstring:"Release a finished worker; never wait for active jobs."
+  defun_nullary (Symbol.intern "camulus-probe-reap") [%here] ~docstring:"Release a finished worker; never wait for active jobs."
     (Returns Value.Type.bool) reap;
-  defun_nullary_nil (Symbol.intern "ef-probe-gc") [%here] ~docstring:"Exercise Ecaml value finalization on the UI side."
+  defun_nullary_nil (Symbol.intern "camulus-probe-gc") [%here] ~docstring:"Exercise Ecaml value finalization on the UI side."
     (fun () ->
       ensure_ui ();
       for i = 1 to 2000 do ignore (Stdlib.Sys.opaque_identity (Value.of_utf8_bytes (Int.to_string i)) : Value.t) done;
       Gc.full_major ());
   Reader_ui.register ();
   Runtime_ui.install ~on_start:(Maildir_emacs.start_sync ~submit:request_mail) ~on_stop:Maildir_emacs.stop_sync
-    ~on_event:(fun event -> if Current_buffer.variable_is_defined (Symbol.intern "ef-reader--requests") then Reader_ui.event (Application.event_value event));
-  defun_nullary_nil (Symbol.intern "ef-reader-backends-install") [%here]
+    ~on_event:(fun event -> if Current_buffer.variable_is_defined (Symbol.intern "camulus-reader--requests") then Reader_ui.event (Application.event_value event));
+  defun_nullary_nil (Symbol.intern "camulus-reader-backends-install") [%here]
     ~docstring:"Register the linked backends' optional Emacs capabilities."
     (fun () ->
       let configured source=List.mem (configured_sources ()) source ~equal:String.equal in

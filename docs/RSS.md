@@ -8,7 +8,7 @@ RSS 2.0、RSS 1.0/RDF 和 Atom 1.0 共用 `src/backends/rss/` 中的 OCaml 后�
 nix develop -c make reader-demo
 ```
 
-通过 [入口配置](ENTRIES.md) 声明 RSS URL，或 `M-x ef-reader-rss` 输入地址浏览，按 `s` 选择 subscribed。关注由 RSS 后端独立文件保存，`G` 可以选择这些关注入口；浏览和配置入口不会自动关注。首页 `g` 拉取当前入口。
+通过 [入口配置](ENTRIES.md) 声明 RSS URL，或 `M-x camulus-reader-rss` 输入地址浏览，按 `s` 选择 subscribed。关注由 RSS 后端独立文件保存，`G` 可以选择这些关注入口；浏览和配置入口不会自动关注。首页 `g` 拉取当前入口。
 
 - 每篇文章独立一行；`RET` 在右侧打开正文，支持文本及 SHR HTML 阅读。
 - `m` 选择收藏文件夹，保存文章和所有声明的 enclosure 附件；支持多个文件夹及嵌套目录。
@@ -17,7 +17,7 @@ nix develop -c make reader-demo
 - `s` 选择 unsubscribed 取消关注；从后端发现的入口中移除，显式配置的入口和既有收藏保留。
 - `f` 打开收藏，读取持久副本。
 
-也可以 `M-x ef-reader-rss` 输入地址，先浏览而不订阅。该列表中 `/` 搜索当前订阅源提供的文章，空查询恢复列表；`g` 刷新、`RET` 阅读、`m` 收藏、`h` 回首页。搜索不查询全网，不声称覆盖订阅源已经移除的历史内容。
+也可以 `M-x camulus-reader-rss` 输入地址，先浏览而不订阅。该列表中 `/` 搜索当前订阅源提供的文章，空查询恢复列表；`g` 刷新、`RET` 阅读、`m` 收藏、`h` 回首页。搜索不查询全网，不声称覆盖订阅源已经移除的历史内容。
 
 ## 内容与身份
 

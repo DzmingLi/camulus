@@ -9,7 +9,7 @@ let cancel id=
 let cancel_all ()=List.iter(Hashtbl.keys jobs)~f:cancel
 let start id argv input_path limit=
  let chunks=ref []and size=ref 0 and done_=ref false and status=ref None and err_done=ref false and err=ref nil in
- let complete status bytes=run "ef-host-process-complete"[i id;i status;bytes]in
+ let complete status bytes=run "camulus-host-process-complete"[i id;i status;bytes]in
  let finish ()=match !status with Some status when not !done_ && !err_done->
   done_:=true;Hashtbl.remove jobs id;
   complete status (call "decode-coding-string"[call "concat"(List.rev !chunks);sym "utf-8-unix"]);
@@ -38,5 +38,5 @@ let handle event=
  if Value.eq kind(sym "host-start")then(start(integer(nth 1))(values(nth 2))(text(nth 3))(integer(nth 4));true)
  else if Value.eq kind(sym "host-cancel")then(cancel(integer(nth 1));true)else false
 let install ()=
- define0 "ef-host-cancel-all"cancel_all;
- define1 "ef-host-handle-event"(fun event->b(handle event))
+ define0 "camulus-host-cancel-all"cancel_all;
+ define1 "camulus-host-handle-event"(fun event->b(handle event))

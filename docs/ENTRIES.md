@@ -4,19 +4,22 @@
 
 ## 配置与交互
 
-通过 `M-x customize-group RET camulus` 管理选项，也可以在 Emacs 配置中设置变量。`ef-reader-entries` 登记浏览组，每项包含 `name`、`source`、`group`。
+通过 `M-x customize-group RET camulus` 管理选项，也可以在 Emacs 配置中设置变量。`camulus-groups` 登记浏览组，每项包含 `name`、`source`、`group`。
 
 ```elisp
-(setq ef-reader-entries
+(with-eval-after-load 'camulus_native
+  (setopt camulus-groups
       '(((name . "NixOS")
          (source . "discourse:https://discourse.nixos.org")
          (group . "latest"))
         ((name . "Emacs China")
          (source . "discourse:https://emacs-china.org")
-         (group . "latest"))))
+         (group . "latest")))))
 ```
 
-后端各自声明 Customize 选项，例如 `ef-reddit-username`、`ef-mail-root` 和 `ef-discourse-auth-sources`。Customize 保存到用户的 `custom-file`。组注册不会订阅该组。
+后端各自声明 Customize 选项，例如 `camulus-reddit-username`、`camulus-mail-root` 和 `camulus-discourse-auth-sources`。Customize 保存到用户的 `custom-file`。组注册不会订阅该组。
+
+所有 Emacs 选项、命令、模式和 hook 统一使用 `camulus-` 前缀，不提供旧 `ef-` 名称的兼容别名。此改名不改变订阅、已读、收藏或草稿的存储路径与内容。
 
 旧 JSON 数据可通过 `(camulus-import-json-config CONFIG-PATH GROUPS-PATH)` 一次性导入当前变量，再通过 Customize 保存。正常启动只读取 Emacs 选项。
 
@@ -58,7 +61,7 @@ end
 `target` 与 `settings` 均由后端定义。`set` 指定绝对设置，`get` 每次读取后端当前状态，接受站外修改。它不要求创建一个组，也不依赖内容数据库。接口不强制所有后端枚举全部关注对象；入口发现可以使用后端自己的能力。
 
 - Discourse 的 `target` 是 topic/文章标识，`settings` 是 `Regular | Tracking | Watching | Muted`。调用现有远端 topic 通知级别接口。`watching`、`tracking` 是个人入口，使用服务器筛选的普通 topic 列表，并支持限定在此范围内搜索；需要有效身份。此实现依照 [Discourse TopicQuery 的 state/search 筛选](https://github.com/discourse/discourse/blob/main/lib/topic_query.rb)，没有在本地收集所有讨论再过滤。
-- RSS 的 `target` 是 feed URL，`settings` 是布尔值。关注列表保存在 RSS 后端自己的 `$XDG_STATE_HOME/camulus/rss-subscriptions.json` 中，格式为 URL 数组；路径由 `ef-reader-rss-subscriptions-file` 指定。读写在系统线程执行，使用锁文件和临时文件原子替换，无需 SQLite，也不会因关注而立即抓取正文。`ef-rss-followed` 返回该后端发现的关注入口。
+- RSS 的 `target` 是 feed URL，`settings` 是布尔值。关注列表保存在 RSS 后端自己的 `$XDG_STATE_HOME/camulus/rss-subscriptions.json` 中，格式为 URL 数组；路径由 `camulus-reader-rss-subscriptions-file` 指定。读写在系统线程执行，使用锁文件和临时文件原子替换，无需 SQLite，也不会因关注而立即抓取正文。`camulus-rss-followed` 返回该后端发现的关注入口。
 - Reddit 的 `notifications` 入口经组订阅命令加入首页后，展示回复及提及并按讨论合并，读取列表不加载整个讨论，也不标记远端已读。本轮未为 Reddit 伪造不存在的通用 thread 订阅实现。
 - 邮箱入口继续使用 `/Inbox` 等后端组标识，组关注是本地首页选择，不修改 IMAP 服务器的订阅状态。
 

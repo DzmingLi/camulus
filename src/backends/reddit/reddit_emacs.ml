@@ -87,7 +87,7 @@ let install_protocol ~ensure_ui ~idle ~submit =
   source_providers := source :: !source_providers;
   payload_renderers := (function Reddit_result r -> Some ("reddit",Reddit_backend.result_json r) | _ -> None) :: !payload_renderers;
   event_observers := (fun ~barrier event -> List.map (update_votes ~barrier event) ~f:vote_update_value) :: !event_observers;
-  defun (Symbol.intern "ef-reddit-vote") [%here]
+  defun (Symbol.intern "camulus-reddit-vote") [%here]
     ~docstring:"Set an absolute vote with optimistic UI state; reject overlapping votes for the same item."
     (Returns Value.Type.int)
     (let open Defun.Let_syntax in
@@ -102,7 +102,7 @@ let install_protocol ~ensure_ui ~idle ~submit =
      let request=submit ~service:true (Reddit (Vote (id,direction))) in
      Voting.start votes ~id ~request ~previous ~direction;
      request);
-  defun (Symbol.intern "ef-reddit-vote-state") [%here]
+  defun (Symbol.intern "camulus-reddit-vote-state") [%here]
     ~docstring:"Return the local vote overlay as (direction status message request-id), or nil."
     (Returns Value.Type.value)
     (let open Defun.Let_syntax in
@@ -114,7 +114,7 @@ let install_protocol ~ensure_ui ~idle ~submit =
        let state, message = vote_status update.status in
        Value.list [Value.of_int_exn (vote_code update.direction);Value.intern state;
          Value.of_utf8_bytes message;Value.of_int_exn update.request]);
-  defun (Symbol.intern "ef-reddit-configure") [%here]
+  defun (Symbol.intern "camulus-reddit-configure") [%here]
     ~docstring:"Configure the OCaml Reddit backend before starting the runtime; token file is read only by the worker."
     (Returns Value.Type.unit)
     (let open Defun.Let_syntax in
@@ -136,27 +136,27 @@ let install_protocol ~ensure_ui ~idle ~submit =
 
 let install ~submit ~configured () =
   Interaction_emacs.install ();
-  custom ~kind:Customization.Type.(Option {doc_for_none="Unconfigured";t=String}) "ef-reddit-username" Value.nil "Backend configuration option.";
-  custom ~kind:Customization.Type.File "ef-reddit-token-file" (call "expand-file-name" [s "~/News/nnreddit/refresh-token"]) "Backend configuration option.";
-  custom ~kind:Customization.Type.String "ef-reddit-client-id" (s "5oagOpX2_NKVDej_iuZjFA") "Backend configuration option.";
-  custom ~kind:Customization.Type.String "ef-reddit-redirect-uri" (s "http://127.0.0.1:17973") "Backend configuration option.";
-  register_settings "reddit"(string_settings["username","ef-reddit-username";"token_file","ef-reddit-token-file"]);
+  custom ~kind:Customization.Type.(Option {doc_for_none="Unconfigured";t=String}) "camulus-reddit-username" Value.nil "Backend configuration option.";
+  custom ~kind:Customization.Type.File "camulus-reddit-token-file" (call "expand-file-name" [s "~/News/nnreddit/refresh-token"]) "Backend configuration option.";
+  custom ~kind:Customization.Type.String "camulus-reddit-client-id" (s "5oagOpX2_NKVDej_iuZjFA") "Backend configuration option.";
+  custom ~kind:Customization.Type.String "camulus-reddit-redirect-uri" (s "http://127.0.0.1:17973") "Backend configuration option.";
+  register_settings "reddit"(string_settings["username","camulus-reddit-username";"token_file","camulus-reddit-token-file"]);
   register_local_groups { (base ~name:"Reddit" ~matches:(String.is_prefix ~prefix:"reddit:") ~threaded:true
     ~read:(fun ~source:_ ~id ~thread_id ~group:_ ->
       Value.of_int_exn (submit (Reddit_backend.Thread (Option.value thread_id ~default:id))))) with
-    start=(fun()->if truth(get "ef-reddit-username")then run "ef-reddit-configure"[get "ef-reddit-username";get "ef-reddit-token-file";get "ef-reddit-client-id";get "ef-reddit-redirect-uri"]);
+    start=(fun()->if truth(get "camulus-reddit-username")then run "camulus-reddit-configure"[get "camulus-reddit-username";get "camulus-reddit-token-file";get "camulus-reddit-client-id";get "camulus-reddit-redirect-uri"]);
     controls=Interaction_emacs.controls;list_controls=Interaction_emacs.controls;
     article_marks=(fun m->"  ["^Interaction_emacs.vote_label m^"]");
     row_title=(fun row->s("["^Interaction_emacs.vote_label row^"] "^text(field "title"row)));
-    events=["reddit"];available=configured;thread_contains_bodies=true;browser=Some ("Reddit", "ef-reader-browse-reddit") };
-  Defun.defun (Symbol.intern "ef-reader-browse-reddit") [%here] ~docstring:"Browse a subreddit without following it."
+    events=["reddit"];available=configured;thread_contains_bodies=true;browser=Some ("Reddit", "camulus-reader-browse-reddit") };
+  Defun.defun (Symbol.intern "camulus-reader-browse-reddit") [%here] ~docstring:"Browse a subreddit without following it."
     ~interactive:(Prompt "Subreddit: ") (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open subreddit=required "subreddit" string in
-     run "ef-reader-start" [];
-     let username=Current_buffer.symbol_value (Symbol.intern "ef-reddit-username") in
+     run "camulus-reader-start" [];
+     let username=Current_buffer.symbol_value (Symbol.intern "camulus-reddit-username") in
      if Value.eq username Value.nil then run "user-error" [s "Configure a Reddit account first"];
      let subreddit=String.strip subreddit in
      let subreddit=if String.is_prefix subreddit ~prefix:"r/" then String.drop_prefix subreddit 2 else subreddit in
      if String.is_empty subreddit || not (String.for_all subreddit ~f:(fun c -> Char.is_alphanum c || Char.equal c '_')) then
        run "user-error" [s "Enter a subreddit name"];
-     run "ef-reader-browse-entry" [alist ["name",s ("r/"^subreddit);"source",s ("reddit:"^Value.to_utf8_bytes_exn username);"group",s subreddit]])
+     run "camulus-reader-browse-entry" [alist ["name",s ("r/"^subreddit);"source",s ("reddit:"^Value.to_utf8_bytes_exn username);"group",s subreddit]])

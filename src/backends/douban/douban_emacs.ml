@@ -12,8 +12,8 @@ let pending : int String.Table.t = String.Table.create ()
 let confirmed : (int * D.reaction) String.Table.t = String.Table.create ()
 let redraw () =
  List.iter(Buffer.all_live()) ~f:(fun buffer->Current_buffer.set_temporarily Sync buffer ~f:(fun()->
-  if truth(call "derived-mode-p"[sym "ef-reader-article-mode"]) && String.equal(text(get "ef-reader--source"))"douban" then
-   run "ef-reader--render" []))
+  if truth(call "derived-mode-p"[sym "camulus-reader-article-mode"]) && String.equal(text(get "camulus-reader--source"))"douban" then
+   run "camulus-reader--render" []))
 let prepare ~notify:_ =
  let browser=firefox_cookie_provider () in
  Some {drain=(fun()->[]);close=(fun()->Hashtbl.clear pending;Hashtbl.clear confirmed);
@@ -53,8 +53,8 @@ let install_protocol () =
    | P.Data(request,Douban_liked(id,reaction)) when Option.equal Int.equal (Hashtbl.find pending id)(Some request.id)->
      Hashtbl.set confirmed ~key:id ~data:(barrier,reaction);
      List.iter(Buffer.all_live()) ~f:(fun buffer->Current_buffer.set_temporarily Sync buffer ~f:(fun()->
-      if truth(call "derived-mode-p"[sym "ef-reader-article-mode"]) && String.equal(text(get "ef-reader--source"))"douban" && not(truth(get "ef-reader--archive")) then
-       let table=get "ef-reader--messages" in let item=call "gethash"[s id;table] in
+      if truth(call "derived-mode-p"[sym "camulus-reader-article-mode"]) && String.equal(text(get "camulus-reader--source"))"douban" && not(truth(get "camulus-reader--archive")) then
+       let table=get "camulus-reader--messages" in let item=call "gethash"[s id;table] in
        if truth item then run "puthash"[s id;overlay item reaction;table]));
      redraw ();message (if reaction.liked then "豆瓣：已赞" else "豆瓣：已取消赞") []
    | P.Finished(request,outcome)->(match request.work with
@@ -66,12 +66,12 @@ let install_protocol () =
    | _->());[])::!event_observers
 let install ~submit () =
  let like liked =
-  if not(truth(call "derived-mode-p"[sym "ef-reader-article-mode"])) || not(String.equal(text(get "ef-reader--source"))"douban") || truth(get "ef-reader--archive") then
+  if not(truth(call "derived-mode-p"[sym "camulus-reader-article-mode"])) || not(String.equal(text(get "camulus-reader--source"))"douban") || truth(get "camulus-reader--archive") then
    user_error "请打开豆瓣的在线文章或评论";
-  let id=text(field "id"(call "ef-reader--selected"[])) in
+  let id=text(field "id"(call "camulus-reader--selected"[])) in
   ignore(D.like_target id liked : string * (string * string) list * bool);
-  let item=call "gethash"[s id;get "ef-reader--messages"] in
-  if not(truth(call "gethash"[s id;get "ef-reader--loaded"])) || truth(field "unavailable" item) then user_error "请等待该楼内容加载完成";
+  let item=call "gethash"[s id;get "camulus-reader--messages"] in
+  if not(truth(call "gethash"[s id;get "camulus-reader--loaded"])) || truth(field "unavailable" item) then user_error "请等待该楼内容加载完成";
   if Hashtbl.mem pending id then user_error "该楼的点赞请求仍在提交";
   let request=submit ~service:true (Douban(Like(id,liked))) in
   Hashtbl.set pending ~key:id ~data:request;

@@ -1,19 +1,19 @@
 ;;; mail-live.el --- Opt-in local read-only validation; no mailbox data in logs -*- lexical-binding: t; -*-
 (require 'camulus)
-(setq ef-probe-record-events t)
+(setq camulus-probe-record-events t)
 (let ((root (getenv "MAIL_ROOT")) (home (getenv "MAIL_MUHOME"))
       (sender (getenv "MAIL_SENDER")) (group (getenv "MAIL_GROUP")))
   (unless (and root home sender group) (error "Explicit MAIL_ROOT/MUHOME/SENDER/GROUP required"))
-  (ef-mail-configure root home sender (executable-find "mu") "")
-  (ef-probe-session-start)
+  (camulus-mail-configure root home sender (executable-find "mu") "")
+  (camulus-probe-session-start)
   (cl-labels
       ((request (data)
          (let* ((id (camulus-mail-submit data)) finished)
-           (ef-probe-await
-            (lambda () (setq finished (cl-find-if (lambda (e) (and (eq (car e) 'finished) (= (cadr e) id))) ef-probe--events))) 60)
+           (camulus-probe-await
+            (lambda () (setq finished (cl-find-if (lambda (e) (and (eq (car e) 'finished) (= (cadr e) id))) camulus-probe--events))) 60)
            (unless (eq (nth 3 finished) 'completed) (error "Read-only mail check failed: %s" (nth 4 finished)))
            (mapcar (lambda (e) (nth 3 e))
-                   (cl-remove-if-not (lambda (e) (and (eq (car e) 'mail) (= (cadr e) id))) ef-probe--events)))))
+                   (cl-remove-if-not (lambda (e) (and (eq (car e) 'mail) (= (cadr e) id))) camulus-probe--events)))))
     (unwind-protect
         (let* ((page (car (request `((op . "list") (group . ,group)))))
                (rows (alist-get 'messages page)))
@@ -24,8 +24,8 @@
               (message "PASS: real local mail thread, %d decoded messages" (length articles))))
           (request `((op . "search") (group . ,group) (query . "date:today..now")))
           (message "PASS: real group-scoped search")
-          (ef-probe-gc) (garbage-collect)
-          (unless (ef-probe-signals-unchanged) (error "Host signals changed"))
+          (camulus-probe-gc) (garbage-collect)
+          (unless (camulus-probe-signals-unchanged) (error "Host signals changed"))
           (message "PASS: GC and unchanged SIGPIPE/SIGCHLD; no send or mailbox writes"))
-      (setq ef-probe--events nil)
-      (ef-probe-session-stop))))
+      (setq camulus-probe--events nil)
+      (camulus-probe-session-stop))))
