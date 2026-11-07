@@ -31,7 +31,7 @@ nix develop -c make reader-demo
 
 ## 阅读与身份
 
-`Maildir_backend.Readable` 实现统一阅读接口，`Maildir_backend.Writing` 提供邮件专属 draft/receipt。由 `src/application.ml` 直接调用，可与 Reddit 共用同一个工作 domain。
+`Maildir_backend.Readable` 实现统一阅读接口，`Maildir_backend.Writing` 提供邮件专属 draft/receipt。由 `maildir_emacs.ml` 注册会话和执行能力，公共运行时通过 worker 接口调用，可与 Reddit 共用同一个工作 domain。整体关系见 [架构文档](ARCHITECTURE.md)。
 
 列表和搜索只读索引元数据。组内搜索同时采用 mu 查询约束和结果 Maildir 校验。按 Message-ID / 引用关系合并 summary 条目，不以相同主题合并讨论；列表以当前结果中最新的一封作为打开入口。邮件的 `thread_id` 保持 `None`，`Thread` 参数是入口邮件 ID，不是永久 thread ID。
 

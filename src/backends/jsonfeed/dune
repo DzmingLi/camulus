@@ -2,5 +2,5 @@
  (libraries reader rss_backend jsonfeed jsont jsont.bytesrw eio ptime uri yojson))
 
 (library (name jsonfeed_emacs) (modules jsonfeed_emacs)
- (libraries reader_emacs_backend ecaml jsonfeed_backend)
+ (libraries reader_emacs_backend ecaml jsonfeed_backend rss_emacs)
  (preprocess (pps ppx_jane)))

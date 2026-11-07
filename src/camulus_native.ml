@@ -1,6 +1,6 @@
 open! Core
 open! Ecaml
-open Application
+open Runtime_ui
 
 let request_mail = Maildir_emacs.submit_operation ~submit:submit_work
 let request_reddit = Reddit_emacs.submit_operation ~submit:submit_work
@@ -18,59 +18,9 @@ let () =
   Zhihu_emacs.install_protocol ();
   Douban_emacs.install_protocol ();
   Maildir_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
-  defun_nullary_nil (Symbol.intern "camulus-discourse-clear-config") [%here]
-    ~docstring:"Clear Discourse session configuration before startup."
-    (fun () -> ensure_ui ();if Option.is_some !runtime then failwith "Stop runtime first";discourse_configs:=[]);
-  defun (Symbol.intern "camulus-discourse-site") [%here]
-    ~docstring:"Validate and normalize a Discourse forum base URL."
-    (Returns Value.Type.string)
-    (let open Defun.Let_syntax in let%map_open site=required "site" string in Discourse.Decode.site site);
-  defun (Symbol.intern "camulus-discourse-configure") [%here]
-    ~docstring:"Configure User API credentials before startup; empty key/client means anonymous."
-    (Returns Value.Type.unit)
-    (let open Defun.Let_syntax in
-     let%map_open site=required "site" string
-     and key=required "user-api-key" string
-     and client=required "client-id" string in
-     ensure_ui ();
-     if Option.is_some !runtime then failwith "Stop runtime before changing Discourse identity";
-     let config=Discourse.config ~api_key:key ~client_id:client site in
-     discourse_configs:=config::List.filter !discourse_configs ~f:(fun c -> not(String.equal c.site config.site)));
-  defun (Symbol.intern "camulus-discourse-submit") [%here]
-    ~docstring:"Submit an operation described by an Emacs alist." (Returns Value.Type.int)
-    (let open Defun.Let_syntax in let%map_open request=required "request" value in
-     let j=Reader_backend.to_json request in request_discourse (Discourse.Decode.site (Discourse.Decode.str "site" j)) (Discourse.operation_of_json j));
-  defun (Symbol.intern "camulus-rss-submit") [%here]
-    ~docstring:"Submit an operation described by an Emacs alist." (Returns Value.Type.int)
-    (let open Defun.Let_syntax in let%map_open request=required "request" value in
-     request_rss (Rss_backend.operation_of_json (Reader_backend.to_json request)));
-  defun (Symbol.intern "camulus-jsonfeed-subscriptions-configure") [%here]
-    ~docstring:"Set JSON Feed subscriptions storage before startup." (Returns Value.Type.unit)
-    (let open Defun.Let_syntax in let%map_open path=required "path" string in
-     ensure_ui ();if Option.is_some !runtime then failwith "Stop runtime before configuring JSON Feed storage";
-     if Stdlib.Filename.is_relative path then invalid_arg "Use an absolute subscriptions path";
-     jsonfeed_subscriptions_file:=Some path);
-  defun (Symbol.intern "camulus-jsonfeed-submit") [%here]
-    ~docstring:"Submit an operation described by an Emacs alist." (Returns Value.Type.int)
-    (let open Defun.Let_syntax in let%map_open request=required "request" value in
-     request_jsonfeed (Rss_backend.operation_of_json (Reader_backend.to_json request)));
-  defun_nullary (Symbol.intern "camulus-jsonfeed-followed") [%here]
-    ~docstring:"Discover JSON Feed subscriptions." (Returns Value.Type.int) followed_jsonfeed;
-  defun (Symbol.intern "camulus-rss-subscriptions-configure") [%here]
-    ~docstring:"Set the RSS backend's own subscriptions file before startup."
-    (Returns Value.Type.unit)
-    (let open Defun.Let_syntax in
-     let%map_open path = required "path" string in
-     ensure_ui ();
-     if Option.is_some !runtime then failwith "Stop runtime before changing RSS storage";
-     if Stdlib.Filename.is_relative path then invalid_arg "Use an absolute RSS subscriptions path";
-     rss_subscriptions_file:=Some path);
-  defun_nullary (Symbol.intern "camulus-rss-followed") [%here]
-    ~docstring:"Discover the RSS backend's followed feed entries, without accessing the content database."
-    (Returns Value.Type.int) (fun () ->
-      let t=get_runtime () in let id= !next_id+1 in
-      if not(Runtime.submit t (Protocol.Submit {id;owner=Service;work=Rss_followed})) then failwith "Request not accepted";
-      next_id:=id;id);
+  Discourse_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
+  Rss_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
+  Jsonfeed_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
   defun (Symbol.intern "camulus-subscription-submit") [%here]
     ~docstring:"Submit an operation described by an Emacs alist." (Returns Value.Type.int)
     (let open Defun.Let_syntax in let%map_open request=required "request" value in
@@ -118,7 +68,7 @@ let () =
      request_state (CS.operation_of_json (Reader_backend.to_json request)));
   defun (Symbol.intern "camulus-probe-start") [%here] ~docstring:"Start the in-process Eio worker."
     (Returns Value.Type.unit)
-    (let open Defun.Let_syntax in let%map_open p = required "pipe-process" value in start p);
+    (let open Defun.Let_syntax in let%map_open p = required "pipe-process" value in start_runtime p);
   defun (Symbol.intern "camulus-probe-submit") [%here] ~docstring:"Submit synthetic work without blocking Emacs."
     (Returns Value.Type.int)
     (let open Defun.Let_syntax in
@@ -160,25 +110,22 @@ let () =
       Gc.full_major ());
   Reader_ui.register ();
   Runtime_ui.install ~on_start:(Maildir_emacs.start_sync ~submit:request_mail) ~on_stop:Maildir_emacs.stop_sync
-    ~on_event:(fun event -> if Current_buffer.variable_is_defined (Symbol.intern "camulus-reader--requests") then Reader_ui.event (Application.event_value event));
+    ~on_event:(fun event -> if Current_buffer.variable_is_defined (Symbol.intern "camulus-reader--requests") then Reader_ui.event (Runtime_ui.event_value event));
   defun_nullary_nil (Symbol.intern "camulus-reader-backends-install") [%here]
     ~docstring:"Register the linked backends' optional Emacs capabilities."
     (fun () ->
       let configured source=List.mem (configured_sources ()) source ~equal:String.equal in
       Reader_backend.local_group_operations := Some {followed_groups;subscribe_group};
       Reddit_emacs.install ~submit:request_reddit ~configured ();
-      Discourse_emacs.install ~submit:request_discourse ();
-      Rss_emacs.install ~submit:request_rss ~followed:followed_rss ();
-      Jsonfeed_emacs.install ~submit:request_jsonfeed ~followed:followed_jsonfeed ();
+      Discourse_emacs.install ~submit:submit_work ();
+      Rss_emacs.install ~submit:submit_work ();
+      Jsonfeed_emacs.install ~submit:submit_work ();
       Maildir_emacs.install ~submit:request_mail ~configured ();
-      let publication install source = install
-        ~read:(fun id group -> request_publication source (Publication_read(id,group)))
-        ~attachment:(fun id group part destination -> request_publication source (Publication_attachment(id,group,part,destination))) () in
-      publication Atlantic_emacs.install "atlantic";publication Janestreet_emacs.install "janestreet";
+      Atlantic_emacs.install ~submit:submit_work ();Janestreet_emacs.install ~submit:submit_work ();
       Zhihu_emacs.install ~submit:submit_work ();Douban_emacs.install ~submit:submit_work ();
-      publication Netease_emacs.install "netease";publication Public_inbox_emacs.install "public-inbox";
-      publication Blogger_emacs.install "blogger";publication Gcores_emacs.install "gcores");
+      Netease_emacs.install ~submit:submit_work ();Public_inbox_emacs.install ~submit:submit_work ();
+      Blogger_emacs.install ~submit:submit_work ();Gcores_emacs.install ~submit:submit_work ());
   Reader_config.setup_variables ();
-  Reader_config.register ~idle:(fun()->String.equal(Application.status())"idle");
+  Reader_config.register ~idle:(fun()->String.equal(Runtime_ui.status())"idle");
   Reader_ui.install ();
   provide (Symbol.intern "camulus_native")

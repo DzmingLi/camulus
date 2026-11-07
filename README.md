@@ -24,6 +24,8 @@
 | `d` | 移除当前进展；收藏夹中则移除收藏归属 |
 | `m` / `f` | 选择收藏夹 / 打开收藏夹 |
 | `s` | 后端提供的订阅或追踪设置 |
+| `U` / `p` | 订阅面板 / 在面板中设置来源优先级 |
+| `P` | 主页选择显示哪些优先级 |
 | `C` / `e` | 编辑入口配置 / 查看来源错误 |
 
 ## 后端
@@ -88,6 +90,8 @@ emacsWithPackages (epkgs: [
 
 首页按 `B` 进入组目录，`C` 定制浏览组，支持组订阅的组上按 `s` 订阅或取消订阅。列表中 `S` 管理当前来源组；`s` 管理后端提供的具体关注目标，例如 Discourse 话题。注册和浏览不会订阅，取消订阅也不会删除浏览入口。
 
+订阅来源的本地优先级通过 `camulus-subscription-priorities` 设置，未设置的来源默认为 2 级。`camulus-home-priorities` 选择主页显示的级别，`nil` 显示全部；例如 `(setopt camulus-home-priorities '(1 2))`。筛选不取消订阅，不影响组浏览、已读或收藏；`U` 面板仍列出全部订阅。
+
 订阅是由后端读取和修改的运行状态。Discourse 话题追踪保存在远端；本地组关注及 RSS / JSON Feed 关注保存在 `~/.local/state/camulus/`（遵循 `XDG_STATE_HOME`），由命令维护，不需要手写订阅配置。首页汇集后端返回的时间线来源；Discourse 直接使用远端通知，不保存本地订阅开关。
 
 后端各自定义可定制选项，Customize 保存到用户的 `custom-file`。旧 JSON 数据可用 `(camulus-import-json-config CONFIG-PATH GROUPS-PATH)` 一次性导入变量，再通过 Customize 保存。正常启动读取 Emacs 选项。
@@ -97,6 +101,8 @@ emacsWithPackages (epkgs: [
 本地内容状态默认为 `~/.local/state/camulus/state.sqlite3`，遵循 `XDG_STATE_HOME`。已读、移除、收藏归属和归档相互独立。普通条目保存列表元数据及操作状态；收藏才持久保存正文和附件。最后一个收藏归属移除后可清理归档，不会阻止以后重新获取内容。
 
 ## 开发
+
+完整的模块职责、请求流转、effects 与队列、订阅和状态模型，以及多前端演进方向，见 [代码结构与总体设计](docs/ARCHITECTURE.md)。
 
 ```sh
 nix develop -c make reader-demo
@@ -126,7 +132,7 @@ patches/              Ecaml / Eio 的宿主适配补丁
 
 邮件撰写、草稿、Discourse 认证与点赞、Reddit 授权与投票、进程宿主和配置加载都在 OCaml 模块中实现。Emacs 主线程通过 Ecaml 操作窗口和 buffer，独立 OCaml domain 运行 Eio。跨 domain 消息传递使用 Saturn 的有界 SPSC 队列，命令／事件容量分别为 256／512，邮件进程请求队列容量为 64。后端基本接口不强制 thread、点赞、投票、写入或订阅；这些作为可选模块提供。`*_emacs.ml` 是各后端在 Emacs 中的命令和能力注册，同一目录中的其他模块处理协议与内容。详情参见源码接口及 [运行时验证说明](docs/VALIDATION.md)。
 
-当前刷新发生在打开首页和手动操作时。后台增量同步、完整回复/提及规则、持久离线写入重试、Reddit 完整撰写、邮件附件撰写和邮件 WebKit 整树阅读仍待完成。不要把已实现的会话任务调度视为持久同步队列。
+普通来源在打开首页和手动操作时刷新；邮件还提供启动及定时同步。统一后台增量同步、完整回复/提及规则、持久离线写入重试、Reddit 完整撰写、邮件附件撰写和邮件 WebKit 整树阅读仍待完成。不要把已实现的会话任务调度视为持久同步队列。
 
 ## 许可
 

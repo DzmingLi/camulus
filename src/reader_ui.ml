@@ -62,7 +62,7 @@ let callback f =
 let callback_unit f = callback (fun value -> f value;nil)
 let callback0 f = Function.to_value (Defun.lambda_nullary_nil [%here] f)
 let request_native fields receive finished =
-  let id=i (Application.request_state (Reader.Content_state.operation_of_json (Reader_backend.to_json fields))) in
+  let id=i (Runtime_ui.request_state (Reader.Content_state.operation_of_json (Reader_backend.to_json fields))) in
   put (get "camulus-reader--requests") id (or_ receive (sym "ignore"));
   if truth finished then put (get "camulus-reader--completions") id finished;id
 let request ?(finished=nil) ?(receive=nil) fields = request_native (alist fields) receive finished
@@ -417,6 +417,7 @@ let home_header () =
     match backend.browser with None -> [] | Some (label,_) -> [s "  ";header_action ("["^label^"]") (groups ~backend)]) in
   set "header-line-format" (list ([s "Home  ";header_link "[收藏夹 · f]" "camulus-reader-folders";s "  ";header_link "[Groups · B]" "camulus-reader-browse-groups"] @ links @
     [s "  ";header_link "[Subscriptions · U]" "camulus-subscriptions";
+     s "  ";header_link "[Priorities · P]" "camulus-home-select-priorities";
     s (Printf.sprintf "   %d feeds · %d/%d refreshed%s   RET: read  d: delete  m: choose folder  g: refresh  e: errors"
       (List.length (values (get "camulus-reader-home--entries"))) (number (get "camulus-reader-home--done"))
       (number (get "camulus-reader-home--total")) (if errors=0 then "" else Printf.sprintf " · %d failed" errors))]));
@@ -470,6 +471,7 @@ let home_merge followed =
     let key=text "source" entry ^ "\000" ^ text "group" entry in
     if Hash_set.mem seen key then false else (Hash_set.add seen key;true)) |> list
 let home_begin entries more =
+  let entries=list (Reader_config.visible_subscriptions (values entries)) in
   set "camulus-reader-home--entries" entries;
   let queue=if more then List.filter (values entries) ~f:(fun entry -> truth (find (get "camulus-reader-home--cursors") (entry_key entry))) else values entries in
   set "camulus-reader-home--queue" (list queue);set "camulus-reader-home--total" (i (List.length queue));
@@ -544,7 +546,7 @@ let subscriptions_render () =
     List.iter entries ~f:(fun entry ->
       let start=point () in
       Point.insert "  ";button (text "name" entry) (fun () -> browse_entry entry);
-      Point.insert ("  · "^text "source" entry^"  · "^text "group" entry^"\n");
+      Point.insert (Printf.sprintf "  · priority %d  · %s  · %s\n" (Reader_config.subscription_priority entry) (text "source" entry) (text "group" entry));
       properties start (point ()) [sym "camulus-reader-entry";entry];
       if truth selected && Value.equal (entry_key selected) (entry_key entry) then restored:=Some start);
     let pending=number (get "camulus-reader-subscriptions--pending") in
@@ -557,6 +559,29 @@ let subscriptions_render () =
     Point.goto_min ();
     (match !restored with Some p->goto p|None->run "forward-line"[i(Int.max 0 (number old_line-1))]));
   Current_buffer.set_modified false
+let set_subscription_priority () =
+  let entry=property (point ()) "camulus-reader-entry" in
+  if not(truth entry) then user_error "Choose a source in the subscriptions list";
+  let level=call "read-number" [s "Subscription priority (smaller = higher): ";i(Reader_config.subscription_priority entry)] in
+  ignore(Reader_config.priority level : int);
+  let key=entry_key entry in
+  let rules=values(get "camulus-subscription-priorities") |> List.filter ~f:(fun row ->
+    not(Value.equal (list [call "nth" [i 0;row];call "nth" [i 1;row]]) key)) in
+  let rule=list [field "source" entry;field "group" entry;level] in
+  run "customize-save-variable" [sym "camulus-subscription-priorities";list(rule::rules)];
+  subscriptions_render ();
+  List.iter (Buffer.all_live ()) ~f:(fun target -> in_buffer target (fun () ->
+    if flag "camulus-reader--home" then home_refresh false))
+let select_home_priorities () =
+  let levels=Reader_config.priority(get "camulus-default-subscription-priority") ::
+    List.map (Reader_config.priority_rules ()) ~f:snd |> List.dedup_and_sort ~compare:Int.compare in
+  let chosen=call "completing-read-multiple" [s "Home priorities (empty = all): ";
+    list(List.map levels ~f:(fun n -> s(Int.to_string n)));nil;nil] in
+  let levels=values chosen |> List.map ~f:(fun value ->
+    let number=try Int.of_string(str value) with _ -> user_error "Enter comma-separated nonnegative integers";0 in
+    if number<0 then user_error "Priorities must be nonnegative";i number) in
+  run "customize-save-variable" [sym "camulus-home-priorities";list levels];
+  run "camulus" []
 let subscriptions_refresh () =
   run "camulus-reader-start" [];run "camulus-reader-load-config" [];
   let target=buffer () and generation=token () in
@@ -779,7 +804,7 @@ let group_subscription () =
       let target=Option.bind backend.subscription_target ~f:(fun target ->
         target ~source:(str source) ~selected:(fun () -> user_error "Open an article to change its tracking policy";nil)) in
       (match target with
-       | Some target -> choose_subscription ~label:("Follow "^text "name" entry) (fun setting -> i (Application.request_subscription (str source) target setting))
+       | Some target -> choose_subscription ~label:("Follow "^text "name" entry) (fun setting -> i (Runtime_ui.request_subscription (str source) target setting))
        | None -> user_error "This backend does not offer group subscription settings"))
   | None -> user_error "This backend does not offer group subscription settings")
 let subscription () =
@@ -793,7 +818,7 @@ let subscription () =
       let tracking=Option.bind (capability source) ~f:(fun backend -> backend.topic_tracking) in
       choose_subscription ~label:(if Option.is_some tracking then "Topic notification level" else "Subscription policy") (fun setting -> match tracking with
         | Some tracking -> tracking.change ~source:(str source) ~target ~setting
-        | None -> i (Application.request_subscription (str source) target setting)))
+        | None -> i (Runtime_ui.request_subscription (str source) target setting)))
 let attachment button =
   let prop name=call "button-get" [button;sym name] in
   let source=prop "source" and id=prop "message-id" and part=prop "part" in
@@ -941,7 +966,7 @@ let install_modes () =
   mode "camulus-reader-groups-mode" "special-mode" "Reader groups" None
     "Groups · RET / click: browse  TAB: next entry  T: remote tracking  h: home  g: reload  U: subscriptions  B: all groups  C: edit groups" ignore;
   mode "camulus-subscriptions-mode" "camulus-reader-groups-mode" "Subscriptions" None
-    "Subscriptions · RET / click: browse  s: change subscription  T: remote tracking  g: refresh  B: all groups  h: home" ignore;
+    "Subscriptions · RET / click: browse  p: priority  s: change subscription  T: remote tracking  g: refresh  B: all groups  h: home" ignore;
   mode "camulus-reader-article-mode" "special-mode" "Reader thread" None "Loading…" (fun () ->
     local "camulus-reader--render-token" nil;
     reading_layout ();
@@ -954,11 +979,11 @@ let install_modes () =
   List.iter ["camulus-reader-feed-mode";"camulus-reader-folder-mode"] ~f:(fun mode ->
     bind mode ["RET","camulus-reader-open";"d","camulus-reader-delete";"m","camulus-reader-save";"g","camulus-reader-refresh";"f","camulus-reader-folders";"h","camulus"]);
   bind "camulus-reader-feed-mode" ["s","camulus-reader-subscription";"S","camulus-reader-group-subscription";"G","camulus-groups";"C","camulus-reader-edit-config";"n","camulus-reader-more";"/","camulus-reader-search";
-    "U","camulus-subscriptions";"B","camulus-reader-browse-groups";"b","camulus-reader-home-browse-source";"e","camulus-reader-home-errors"];
+    "U","camulus-subscriptions";"P","camulus-home-select-priorities";"B","camulus-reader-browse-groups";"b","camulus-reader-home-browse-source";"e","camulus-reader-home-errors"];
   bind "camulus-reader-folder-mode" ["D","camulus-reader-delete-folder"];
   bind "camulus-reader-folders-mode" ["RET","push-button";"TAB","forward-button";"<backtab>","backward-button";"f","camulus-reader-folders";"g","camulus-reader-folders-refresh";"h","camulus"];
   bind "camulus-reader-article-mode" ["f","camulus-reader-folders";"s","camulus-reader-subscription";"m","camulus-reader-save";"n","camulus-reader-next-unread";"h","camulus"];
-  bind "camulus-subscriptions-mode" ["g","camulus-subscriptions-refresh";"B","camulus-reader-browse-groups";"U","camulus-subscriptions"];
+  bind "camulus-subscriptions-mode" ["p","camulus-subscription-set-priority";"g","camulus-subscriptions-refresh";"B","camulus-reader-browse-groups";"U","camulus-subscriptions"];
   List.iter ["camulus-reader-feed-mode";"camulus-reader-article-mode";"camulus-reader-groups-mode"] ~f:(fun mode ->
     bind mode ["T","camulus-manage-subscriptions"]);
   bind "camulus-reader-groups-mode" ["RET","push-button";"TAB","forward-button";"<backtab>","backward-button";"f","camulus-reader-folders";"U","camulus-subscriptions";"s","camulus-reader-group-subscription";"S","camulus-reader-group-subscription";"h","camulus";"g","camulus-reader-groups-refresh";"B","camulus-reader-browse-groups";"C","camulus-reader-edit-groups"]
@@ -1010,6 +1035,8 @@ let install () =
   define0 "camulus-reader-home-open" home_open;
   define0 ~interactive:true "camulus-reader-home-browse-source" browse_source;
   define0 ~interactive:true "camulus-reader-home-errors" home_errors;
+  define0 ~interactive:true "camulus-subscription-set-priority" set_subscription_priority;
+  define0 ~interactive:true "camulus-home-select-priorities" select_home_priorities;
   define0 ~interactive:true "camulus-reader-browse-groups" (groups ?backend:None);
   define0 ~interactive:true "camulus-reader-groups-refresh" groups_reload;
   define0 ~interactive:true "camulus-subscriptions" subscriptions;

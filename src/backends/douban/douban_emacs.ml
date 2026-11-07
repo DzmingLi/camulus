@@ -17,16 +17,16 @@ let redraw () =
 let prepare ~notify:_ =
  let browser=firefox_cookie_provider () in
  Some {drain=(fun()->[]);close=(fun()->Hashtbl.clear pending;Hashtbl.clear confirmed);
-  create=(fun ~net:_ ~now:_ ~sleep:_ ->
+  create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ->
    let backend=D.create_live ~cookies:(Reader.Firefox_cookies.get browser) () in
-   {source="douban";
-    page=(fun group ~after ~query->match query with None->D.Live.list backend group ~after|Some query->D.Live.search backend group ~query ~after);
-    archive=(fun target id ~native_thread:_ ~add->
+   {matches_source=String.equal ("douban");
+    page=(fun ~source:_ group ~after ~query->match query with None->D.Live.list backend group ~after|Some query->D.Live.search backend group ~query ~after);
+    archive=(fun ~source:_ ~refresh:_ target id ~native_thread:_ ~add->
      match target with
      | C.Article->D.Live.invalidate backend id;add(D.Live.archive backend "" id);true
      | C.Thread->let complete=ref false in
        D.Live.stream_thread backend id ~emit_article:(fun a->add(D.Live.archive_article backend a)) ~emit:(fun b->complete:=b.complete);!complete);
-    execute=(fun work ~observe ~emit->match work with
+    execute=(fun work ~observe ~emit -> let observe=observe ~source:("douban") in match work with
      | Douban operation ->
        (match operation with
         | Read id->D.Live.stream_thread backend id

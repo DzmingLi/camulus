@@ -38,7 +38,34 @@ let import_files path groups_path=
   set "camulus-groups"(Value.list entries);
   List.iter assignments~f:(fun(name,value)->set name value));
  List.iter(values(get "camulus-groups"))~f:(fun entry->Option.iter(find(text(field "source"entry)))~f:(fun backend->backend.on_entry entry))
+let priority value =
+  if not(truth(call "integerp" [value])) || integer value < 0 then fail "Subscription priorities must be nonnegative integers";
+  integer value
+let priority_rules () =
+  values(get "camulus-subscription-priorities") |> List.map ~f:(fun row ->
+    match values row with
+    | [source;group;level] ->
+      let key=text source,text group in
+      if String.is_empty(fst key) || String.is_empty(snd key) then fail "Priority rules require source and group";
+      key,priority level
+    | _ -> fail "Each priority rule must be (SOURCE GROUP LEVEL)")
+let subscription_priority entry =
+  Option.value (List.Assoc.find (priority_rules ()) (text(field "source" entry),text(field "group" entry)) ~equal:Poly.equal)
+    ~default:(priority(get "camulus-default-subscription-priority"))
+let visible_subscriptions entries =
+  let levels=values(get "camulus-home-priorities") |> List.map ~f:priority in
+  List.filter entries ~f:(fun entry -> List.is_empty levels || List.mem levels (subscription_priority entry) ~equal:Int.equal)
+let validate_priorities () =
+  ignore(priority_rules () : ((string * string) * int) list);
+  ignore(priority(get "camulus-default-subscription-priority") : int);
+  List.iter (values(get "camulus-home-priorities")) ~f:(fun value -> ignore(priority value : int))
 let setup_variables ()=
+ custom ~kind:(Customization.Type.Repeat (List [String;String;Integer])) "camulus-subscription-priorities" nil
+   "Local display priorities as (SOURCE GROUP LEVEL). Smaller levels mean higher priority. This never changes remote subscriptions.";
+ custom ~kind:Customization.Type.Integer "camulus-default-subscription-priority" (i 2)
+   "Priority of a subscription source without an explicit rule.";
+ custom ~kind:(Customization.Type.Option {doc_for_none="Show all priorities";t=Repeat Integer}) "camulus-home-priorities" nil
+   "Subscription priority levels included in Home. Nil shows all. Refresh Home after changing this option.";
  List.iter["cl-lib";"tabulated-list";"json";"shr";"subr-x";"button"]~f:(fun name->run "require"[sym name]);
  variable "camulus-group-subscriptions-file"(data_path "XDG_STATE_HOME" "~/.local/state" "group-subscriptions.json");
  variable "camulus-state-file"(data_path "XDG_STATE_HOME" "~/.local/state" "state.sqlite3");
@@ -48,6 +75,7 @@ let setup_variables ()=
    "camulus-firefox-profile" nil "Firefox profile used by backends that read browser cookies.";
  register_settings "browser"(string_settings["firefox_profile","camulus-firefox-profile"])
 let load () =
+ validate_priorities ();
  let names=Hash_set.create(module String) in
  let entries=List.map (values(get "camulus-groups")) ~f:(fun entry ->
    let data=to_json entry in

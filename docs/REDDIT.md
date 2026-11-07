@@ -61,7 +61,8 @@ Reddit_backend.Make(Http)           身份、授权、分页、解析、操作�
           │
 Reddit_backend.Curl_transport       libcurl multi，Eio 等待/取消
           │
-src/application.ml            扩展 Protocol.work / Protocol.payload
+src/backends/reddit/reddit_emacs.ml  扩展任务与结果类型并注册后端
+src/runtime_ui.ml             通用会话与结果交付
           │
 Reader.Runtime                 与具体后端无关的调度和生命周期
 ```

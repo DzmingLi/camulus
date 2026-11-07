@@ -3,5 +3,5 @@
 (library
  (name janestreet_emacs)
  (modules janestreet_emacs)
- (libraries reader_emacs_backend ecaml)
+ (libraries reader_emacs_backend rss_emacs janestreet_backend ecaml)
  (preprocess (pps ppx_jane)))

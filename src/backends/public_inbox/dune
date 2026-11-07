@@ -3,5 +3,5 @@
 (library
  (name public_inbox_emacs)
  (modules public_inbox_emacs)
- (libraries reader_emacs_backend ecaml)
+ (libraries reader_emacs_backend rss_emacs public_inbox_backend ecaml)
  (preprocess (pps ppx_jane)))

@@ -165,13 +165,13 @@ let custom ?(kind=Customization.Type.Sexp) name default docstring =
 
 (* Worker sessions contain only OCaml data and run on the Eio domain. *)
 type worker = {
-  source : string;
-  page : string -> after:string option -> query:string option -> Reader.Content.page;
-  archive : Reader.Content_state.target -> string -> native_thread:(string -> string) -> add:(Reader.Content_state.archived -> unit) -> bool;
-  execute : Reader.Protocol.work -> observe:(Reader.Content.message list -> unit) -> emit:(Reader.Protocol.payload -> unit) -> bool;
+  matches_source : string -> bool;
+  page : source:string -> string -> after:string option -> query:string option -> Reader.Content.page;
+  archive : source:string -> refresh:bool -> Reader.Content_state.target -> string -> native_thread:(string -> string) -> add:(Reader.Content_state.archived -> unit) -> bool;
+  execute : Reader.Protocol.work -> observe:(source:string -> Reader.Content.message list -> unit) -> emit:(Reader.Protocol.payload -> unit) -> bool;
 }
 type host = {
-  create : net:Eio_unix.Net.t -> now:(unit -> float) -> sleep:(float -> unit) -> worker;
+  create : net:Eio_unix.Net.t -> now:(unit -> float) -> sleep:(float -> unit) -> groups:(source:string -> id:string -> string list) -> worker;
   drain : unit -> Value.t list;
   close : unit -> unit;
 }
@@ -181,3 +181,9 @@ let event_observers : (barrier:int -> Reader.Protocol.event -> Value.t list) lis
 let source_providers : (unit -> string option) list ref = ref []
 let archive_extractors : (string -> (string -> int -> string) option) list ref = ref []
 let configured_sources () = List.filter_map !source_providers ~f:(fun f -> f ())
+
+(* Backend-owned operations may publish the common presentation format. *)
+type Reader.Protocol.work += Subscription of string * string * string option
+type Reader.Protocol.payload += Presentation of string * Yojson.Safe.t
+let reply emit kind fields =
+  emit (Presentation ("content-state", `Assoc (("kind", `String kind) :: fields)))

@@ -57,16 +57,16 @@ let update_votes ~barrier event =
 let prepare ~notify:_ =
   Option.map !reddit_config ~f:(fun config ->
     Voting.clear votes;
-    {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now ~sleep ->
+    {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now ~sleep ~groups:_ ->
       let backend=Reddit_backend.Live.create ~config ~now ~sleep in
-      {source="reddit:"^config.username;
-       page=(fun group ~after ~query ->
+      {matches_source=String.equal ("reddit:"^config.username);
+       page=(fun ~source:_ group ~after ~query ->
          let group=if String.equal group "notifications" then Reddit_backend.Notifications
            else if String.is_prefix group ~prefix:"post:" then Reddit_backend.Post(String.drop_prefix group 5)
            else Reddit_backend.Subreddit group in
          match query with None -> Reddit_backend.Live.list backend group ~after
          | Some query -> Reddit_backend.Live.search backend group ~query ~after);
-       archive=(fun target id ~native_thread ~add ->
+       archive=(fun ~source:_ ~refresh:_ target id ~native_thread ~add ->
          let root=if String.is_prefix id ~prefix:"t3_" then id else native_thread id in
          let complete=ref false in
          Reddit_backend.Live.thread backend root ~emit:(fun batch ->
@@ -74,7 +74,7 @@ let prepare ~notify:_ =
            List.iter batch.messages ~f:(fun message ->
              if Poly.equal target CS.Thread || String.equal message.id id then
                add {CS.message;attachments=`List [];raw=None;files=[]}));!complete);
-       execute=(fun work ~observe ~emit -> match work with
+       execute=(fun work ~observe ~emit -> let observe=observe ~source:("reddit:"^config.username) in match work with
          | Reddit operation ->
            (try Reddit_backend.Live.execute backend operation ~emit:(fun result ->
               let messages=match result with Reddit_backend.Page p -> p.messages | Thread_batch b -> b.messages | _ -> [] in

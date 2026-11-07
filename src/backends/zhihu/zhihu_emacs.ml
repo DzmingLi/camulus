@@ -11,16 +11,16 @@ type Protocol.payload += Zhihu_content of Yojson.Safe.t
 let prepare ~notify:_ =
   let browser=firefox_cookie_provider () in
   Some {drain=(fun()->[]);close=(fun()->());
-    create=(fun ~net:_ ~now:_ ~sleep:_ ->
+    create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ->
       let backend=Z.create_live ~cookies:(Reader.Firefox_cookies.get browser) () in
-      {source="zhihu";
-       page=(fun group ~after ~query->match query with
+      {matches_source=String.equal ("zhihu");
+       page=(fun ~source:_ group ~after ~query->match query with
          | None->Z.Live.list backend group ~after
          | Some query->Z.Live.search backend group ~query ~after);
-       archive=(fun target id ~native_thread:_ ~add->
+       archive=(fun ~source:_ ~refresh:_ target id ~native_thread:_ ~add->
          if Poly.equal target Reader.Content_state.Thread then failwith "Zhihu publications do not have threads";
          Z.Live.invalidate backend id;add(Z.Live.archive backend "" id);true);
-       execute=(fun work ~observe ~emit->match work with
+       execute=(fun work ~observe ~emit -> let observe=observe ~source:("zhihu") in match work with
          | Zhihu operation ->
            (match operation with
             | Read id ->

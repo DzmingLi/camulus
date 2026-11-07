@@ -3,5 +3,5 @@
 (library
  (name atlantic_emacs)
  (modules atlantic_emacs)
- (libraries reader_emacs_backend ecaml)
+ (libraries reader_emacs_backend rss_emacs atlantic_backend ecaml)
  (preprocess (pps ppx_jane)))

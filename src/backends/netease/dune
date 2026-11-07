@@ -3,5 +3,5 @@
 (library
  (name netease_emacs)
  (modules netease_emacs)
- (libraries reader_emacs_backend ecaml)
+ (libraries reader_emacs_backend rss_emacs netease_backend ecaml)
  (preprocess (pps ppx_jane)))

@@ -26,7 +26,7 @@ let prepare ~notify =
     let bridge=Maildir_backend.Process.create ~notify () in
     process_bridge:=Some bridge;
     {drain=drain_processes;close=(fun () -> process_bridge:=None);
-     create=(fun ~net ~now ~sleep ->
+     create=(fun ~net ~now ~sleep ~groups:_ ->
        let run ?(input="") ?timeout argv =
          let r=Maildir_backend.Process.run bridge ~now ~sleep ~input ?timeout argv in
          {Maildir_backend.status=r.status;stdout=r.stdout} in
@@ -35,11 +35,11 @@ let prepare ~notify =
            |> Option.value_exn ~message:"Configure an SMTP profile before sending" in
          Maildir_backend.Smtp.send ~net ~sleep smtp ~sender ~recipients message in
        let backend=Maildir_backend.create ~config ~run ~submit in
-       {source="maildir:"^config.root;
-        page=(fun group ~after ~query -> match query with
+       {matches_source=String.equal ("maildir:"^config.root);
+        page=(fun ~source:_ group ~after ~query -> match query with
           | None -> Maildir_backend.list backend group ~after
           | Some query -> Maildir_backend.search backend group ~query ~after);
-        archive=(fun target id ~native_thread:_ ~add ->
+        archive=(fun ~source:_ ~refresh:_ target id ~native_thread:_ ~add ->
           let capture (a:Maildir_backend.article) =
             let attachments=match Maildir_backend.result_json (Article a) with
               | `Assoc fields -> List.Assoc.find_exn fields ~equal:String.equal "attachments" | _ -> assert false in
@@ -49,7 +49,7 @@ let prepare ~notify =
           | CS.Thread -> let complete=ref false in
             Maildir_backend.execute backend (Thread id) ~emit:(function
               | Article a -> capture a | Thread_batch b -> complete:=b.complete | _ -> ());!complete);
-        execute=(fun work ~observe ~emit -> match work with
+        execute=(fun work ~observe ~emit -> let observe=observe ~source:("maildir:"^config.root) in match work with
           | Mail operation -> Maildir_backend.execute backend operation ~emit:(fun result ->
             let messages=match result with Maildir_backend.Page(p,_) -> p.messages | Thread_batch b -> b.messages | Article a -> [a.message] | _ -> [] in
             if not(List.is_empty messages) then observe messages;
