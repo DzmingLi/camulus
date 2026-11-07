@@ -61,6 +61,42 @@
         (delete-file stamp) (delete-file mail)
         (when (file-directory-p box) (delete-directory box t))))))
 
+(ert-deftest mail-entry-sync-offline-keeps-cache-and-retries-without-polling ()
+  (let* ((stamp (make-temp-file "camulus-entry-sync"))
+         (online (make-temp-name (expand-file-name "online-" camulus-mail-test-base)))
+         (camulus-mail-sender "bob@example.test")
+         (camulus-mail-sync-interval 0)
+         (camulus-mail-sync-command
+          (list (executable-find "sh") "-c"
+                "printf 'run\\n' >> \"$1\"; sleep .1; test -e \"$2\""
+                "entry-sync" stamp online))
+         (entry `((name . "Mail")
+                  (source . ,(concat "maildir:" (expand-file-name "Maildir" camulus-mail-test-base)))
+                  (group . "/Inbox"))))
+    (cl-labels ((runs () (with-temp-buffer (insert-file-contents stamp)
+                          (count-lines (point-min) (point-max)))))
+      (unwind-protect
+          (camulus-mail-test-session
+           (camulus-reader-browse-entry entry)
+           (camulus-probe-await (lambda () (and (= (runs) 1)
+                                                (= 0 (hash-table-count camulus-reader--completions)))))
+           (camulus-probe-await (lambda () (> (hash-table-count camulus-reader--rows) 0)))
+           (let ((ids (sort (mapcar #'prin1-to-string (hash-table-keys camulus-reader--rows)) #'string<)))
+             (sit-for 1.1)
+             (should (= (runs) 1))
+             (should (equal ids (sort (mapcar #'prin1-to-string (hash-table-keys camulus-reader--rows)) #'string<))))
+           (with-temp-file online (insert "online"))
+           (camulus-reader-browse-entry entry)
+           (camulus-probe-await (lambda () (and (= (runs) 2)
+                                                (= 0 (hash-table-count camulus-reader--completions)))))
+           (camulus-reader-refresh)
+           (camulus-probe-await (lambda () (and (= (runs) 3)
+                                                (= 0 (hash-table-count camulus-reader--completions)))))
+           (sit-for 1.1)
+           (should (= (runs) 3)))
+        (dolist (path (list stamp online)) (when (file-exists-p path) (delete-file path)))
+        (when (get-buffer "*Reader*") (kill-buffer "*Reader*"))))))
+
 (ert-deftest mail-native-group-summary-and-search ()
   (camulus-mail-test-session
    (let* ((data (car (camulus-mail-test-request '((op . "list") (group . "/Inbox")))))
@@ -120,7 +156,7 @@
         (should (equal (camulus-probe-status) "running")))
     (camulus-probe-session-stop)))
 
-(ert-deftest mail-reader-expanded-tree-with-inline-attachments ()
+(ert-deftest mail-reader-expanded-tree-with-attachment-pane ()
   (camulus-mail-test-session
    (unwind-protect
        (progn
@@ -133,9 +169,40 @@
            (should (string-match-p "root body" (buffer-string)))
            (should (string-match-p "child body" (buffer-string)))
            (should (< (string-match "root body" (buffer-string)) (string-match "child body" (buffer-string))))
-           (should (string-match-p "Save ../附件.bin" (buffer-string)))
-           (should camulus-reader--complete)))
-     (dolist (b '("*Reader*" "*Reader thread*")) (when (get-buffer b) (kill-buffer b))))))
+           (should-not (string-match-p "Save .*附件.bin" (buffer-string)))
+           (should camulus-reader--complete)
+           (goto-char (point-min))
+           (search-forward "root body")
+           (camulus-mail-attachments)
+           (should (get-buffer-window "*Camulus mail attachments*"))
+           (with-current-buffer "*Camulus mail attachments*"
+             (should (derived-mode-p 'camulus-mail-attachments-mode))
+             (should (equal (aref (cadar tabulated-list-entries) 0) "附件.bin"))
+             (goto-char (point-min))
+             (let ((destination (make-temp-name (expand-file-name "saved-attachment-" camulus-mail-test-base))))
+               (unwind-protect
+                   (cl-letf (((symbol-function 'read-file-name) (lambda (&rest _) destination)))
+                     (camulus-mail-attachments-save)
+                     (camulus-probe-await (lambda () (file-exists-p destination)))
+                     (with-temp-buffer
+                       (insert-file-contents-literally destination)
+                       (should (equal (buffer-string) "attachment\0bytes\n"))))
+                 (when (file-exists-p destination) (delete-file destination))))
+             (let (opened)
+               (cl-letf (((symbol-function 'find-file-other-window)
+                          (lambda (path) (setq opened path))))
+                 (camulus-mail-attachments-open)
+                 (camulus-probe-await (lambda () opened))
+                 (should (equal (file-name-nondirectory opened) "附件.bin"))
+                 (should (file-exists-p opened))
+                 (delete-directory (file-name-directory opened) t)))
+             (camulus-mail-attachments-close))
+           (should-not (get-buffer-window "*Camulus mail attachments*"))
+           (camulus-mail-attachments--refresh)
+           (should-not (get-buffer-window "*Camulus mail attachments*"))
+           (camulus-mail-attachments)
+           (should (get-buffer-window "*Camulus mail attachments*"))))
+     (dolist (b '("*Reader thread*" "*Camulus mail attachments*" "*Reader*")) (when (get-buffer b) (kill-buffer b))))))
 
 (ert-deftest mail-native-send-to-loopback-tls-only ()
   (camulus-mail-configure (expand-file-name "Maildir" camulus-mail-test-base)

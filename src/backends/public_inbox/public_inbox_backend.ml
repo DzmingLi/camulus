@@ -1,7 +1,7 @@
 module C=Reader.Content
 module R=Rss_backend
 module D=R.Decode
-module Mime=Maildir_backend.Mime
+module Mime=Mu_backend.Mime
 let source="public-inbox"
 type group=string
 type cursor=string

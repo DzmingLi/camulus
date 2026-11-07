@@ -10,7 +10,7 @@ let ()=
  let articles=P.parse_mbox ~url (root^reply) in
  let a=List.hd articles and b=List.nth articles 1 in
  check(b.article.message.parent_id=Some a.article.message.id && b.article.message.thread_id=None) "Public-inbox reconstructs mail relations rather than assigning thread identity";
- check(Maildir_backend.Mime.extract b.raw 2="A\000B") "native MIME binary attachment";
+ check(Mu_backend.Mime.extract b.raw 2="A\000B") "native MIME binary attachment";
  check(String.ends_with ~suffix:"Body\nFrom quoted\n>From double\n" a.raw) "mboxrd unquotes one level";
  List.iter(fun url->check(fails(fun()->ignore(P.group url))) "invalid public-inbox URL rejected")
   ["http://host/list/id";"https://host/list/../../etc/passwd";"https://host/list/id?q=secret"];

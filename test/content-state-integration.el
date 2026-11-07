@@ -103,7 +103,12 @@
          (camulus-state-test-ui-idle)
          (with-current-buffer "*Reader thread*"
            (should (string-match-p "root body" (buffer-string)))
-           (should (string-match-p "Save ../附件.bin" (buffer-string)))
+           (should-not (string-match-p "Save .*附件.bin" (buffer-string)))
+           (goto-char (point-min))
+           (camulus-mail-attachments)
+           (with-current-buffer "*Camulus mail attachments*"
+             (should (equal (aref (cadar tabulated-list-entries) 0) "附件.bin"))
+             (camulus-mail-attachments-close))
            (should camulus-reader--archive))
          (let ((article (get-buffer-window "*Reader thread*"))
                (summary (get-buffer-window "*Reader*")))

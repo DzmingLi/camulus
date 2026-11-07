@@ -9,9 +9,9 @@
  (libraries reddit_backend reader eio eio.unix eio_posix yojson uri unix))
 
 (test (name mail_test) (modules mail_test)
- (libraries maildir_backend reader unix yojson))
+ (libraries mu_backend reader unix yojson))
 
-(test (name mail_mime_test) (modules mail_mime_test) (libraries maildir_backend))
+(test (name mail_mime_test) (modules mail_mime_test) (libraries mu_backend))
 
 (test (name voting_test) (modules voting_test) (libraries reader))
 
@@ -31,7 +31,7 @@
  (libraries atlantic_backend janestreet_backend zhihu_backend douban_backend netease_backend public_inbox_backend blogger_backend gcores_backend rss_backend reader eio_posix uri yojson))
 
 (test (name inbox_sources_test) (modules inbox_sources_test)
- (libraries netease_backend public_inbox_backend maildir_backend rss_backend eio_posix zip))
+ (libraries netease_backend public_inbox_backend mu_backend rss_backend eio_posix zip))
 
 (test (name jsonfeed_test) (modules jsonfeed_test)
  (libraries jsonfeed_backend rss_backend reader eio_posix yojson unix))

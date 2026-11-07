@@ -1,4 +1,4 @@
-module Mime = Maildir_backend.Mime
+module Mime = Mu_backend.Mime
 let check b s = if not b then failwith s
 let rejected f = try f (); false with Failure _ | Invalid_argument _ -> true
 let crlf s = String.concat "\r\n" (String.split_on_char '\n' s)

@@ -1,0 +1,10 @@
+(library
+ (name mu_backend) (modules (:standard \ mu_emacs process_emacs compose_emacs attachments_emacs))
+ (libraries reader saturn yojson unix eio eio.unix mrmime rosetta uri
+   angstrom sendmail colombe tls-eio ca-certs mirage-crypto-rng.unix ptime.clock.os))
+
+(library
+ (name mu_emacs)
+ (modules mu_emacs process_emacs compose_emacs attachments_emacs)
+ (libraries reader_emacs_backend ecaml mu_backend)
+ (preprocess (pps ppx_jane)))

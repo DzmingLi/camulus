@@ -33,7 +33,7 @@ src/
   backends/
     reddit/
     discourse/
-    maildir/
+    mu/
     rss/
     jsonfeed/
     ...
@@ -225,7 +225,7 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 
 ## 邮件进程 WebKit 与凭据的归属
 
-[maildir/process.ml](../src/backends/maildir/process.ml) 是当前邮件后端的外部进程桥。worker 请求执行 `mu` 或 `mbsync`，主线程中的 [process_emacs.ml](../src/backends/maildir/process_emacs.ml) 通过 Emacs process API 创建进程并交回结果。这样保留 Emacs 对子进程和 SIGCHLD 的管理。SMTP 使用 OCaml 邮件与 TLS 库，不经过这个进程桥。
+[maildir/process.ml](../src/backends/mu/process.ml) 是当前邮件后端的外部进程桥。worker 请求执行 `mu` 或 `mbsync`，主线程中的 [process_emacs.ml](../src/backends/mu/process_emacs.ml) 通过 Emacs process API 创建进程并交回结果。这样保留 Emacs 对子进程和 SIGCHLD 的管理。SMTP 使用 OCaml 邮件与 TLS 库，不经过这个进程桥。
 
 未来 JMAP 后端可以直接使用 HTTP，不需要实现相同的外部进程机制。公共 `Runtime` 不要求所有后端都能启动子进程。
 

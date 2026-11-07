@@ -1,4 +1,4 @@
-(library (name public_inbox_backend) (modules (:standard \ public_inbox_emacs)) (libraries reader rss_backend maildir_backend uri eio eio.unix zip unix yojson))
+(library (name public_inbox_backend) (modules (:standard \ public_inbox_emacs)) (libraries reader rss_backend mu_backend uri eio eio.unix zip unix yojson))
 
 (library
  (name public_inbox_emacs)

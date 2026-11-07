@@ -79,16 +79,16 @@
     (unwind-protect
         (progn
           (with-temp-file camulus-reader-config-file
-            (insert "{\"version\":1,\"backend_settings\":{\"maildir\":{\"sender\":\"after\",\"accounts\":[[\"/a\",\"a@test\",\"a\"]]},\"browser\":{\"firefox_profile\":\"/profile\"}}}"))
+            (insert "{\"version\":1,\"backend_settings\":{\"mu\":{\"sender\":\"after\",\"accounts\":[[\"/a\",\"a@test\",\"a\"]]},\"browser\":{\"firefox_profile\":\"/profile\"}}}"))
           (camulus-import-json-config camulus-reader-config-file camulus-reader-groups-file)
           (should (equal camulus-mail-sender "after"))
           (should (equal camulus-mail-accounts '(("/a" "a@test" "a"))))
           (should (equal camulus-firefox-profile "/profile"))
           (with-temp-file camulus-reader-config-file
-            (insert "{\"version\":1,\"backend_settings\":{\"maildir\":{\"sender\":\"bad\",\"smtp_profiles\":[[\"a\",\"smtp.test\",70000,\"a\",\"/secret-file\",\"\"]]}}}"))
+            (insert "{\"version\":1,\"backend_settings\":{\"mu\":{\"sender\":\"bad\",\"smtp_profiles\":[[\"a\",\"smtp.test\",70000,\"a\",\"/secret-file\",\"\"]]}}}"))
           (should-error (camulus-import-json-config camulus-reader-config-file camulus-reader-groups-file) :type 'user-error)
           (should (equal camulus-mail-sender "after"))
-          (dolist (settings '("[]" "{\"maildir\":[]}" "{\"maildir\":{\"sender\":null}}"))
+          (dolist (settings '("[]" "{\"mu\":[]}" "{\"mu\":{\"sender\":null}}"))
             (with-temp-file camulus-reader-config-file
               (insert "{\"version\":1,\"backend_settings\":" settings "}"))
             (should-error (camulus-import-json-config camulus-reader-config-file camulus-reader-groups-file) :type 'user-error)

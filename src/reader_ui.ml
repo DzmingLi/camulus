@@ -287,11 +287,14 @@ let render () =
             run "insert-text-button" [s "Open original article";sym "follow-link";b true;sym "url";field "url" m;
               sym "action";callback_unit (fun button -> run "browse-url" [call "button-get" [button;sym "url"]])]);
           Point.insert "\n";
+          if Option.value_map (capability (get "camulus-reader--source")) ~default:true
+              ~f:(fun backend -> backend.inline_attachments) then (
           List.iter (values (find (get "camulus-reader--attachments") id)) ~f:(fun a ->
             run "insert-text-button" [s (Printf.sprintf "[Save %s · %d bytes]" (text "name" a) (number (field "size" a)));
               sym "action";sym "camulus-reader--attachment";sym "follow-link";b true;sym "source";get "camulus-reader--source";
               sym "message-id";id;sym "part";field "part" a;sym "filename";field "name" a;sym "archived";get "camulus-reader--archive"];
             Point.insert "\n");
+          );
           Point.insert "\n";
           let prefix n=styled (String.make n ' ') "fixed-pitch" in
           properties start (point ()) [sym "camulus-reader-id";id;sym "camulus-reader-depth";i depth;
@@ -533,7 +536,9 @@ let reader entry =
       let hints=(if can_subscribe_entry entry then "  S: group subscription settings" else "")^
         String.concat(List.map backend.list_controls ~f:(fun c->"  "^c.hint))in
       if not(String.is_empty hints)then set "header-line-format" (list[get "header-line-format";s hints]));
-    run "camulus-reader--load-list" [])
+    run "camulus-reader--load-list" []);
+  let backends=if truth entry then Option.to_list (capability (field "source" entry)) else Reader_backend.all () in
+  List.iter backends ~f:(fun backend -> backend.on_refresh ())
 let subscriptions_render () =
   let selected=property (point ()) "camulus-reader-entry" and old_line=call "line-number-at-pos" [] in
   let restored=ref None in
@@ -680,6 +685,9 @@ let reload_lists () =
                 set "camulus-reader--search-rows" rows;set_rows rows))))))))
 let refresh () =
   load_list true false;
+  let backends=if flag "camulus-reader--home" then Reader_backend.all ()
+    else Option.to_list (capability(field "source" (get "camulus-reader--entry"))) in
+  List.iter backends ~f:(fun backend -> backend.on_refresh ());
   request_ignore ["op",s "refresh-archives"] ~receive:(callback_unit (fun data ->
     if truth (field "errors" data) then message ("Archive refresh: "^String.concat ~sep:"; " (List.map (values (field "errors" data)) ~f:str))))
 let more () =
@@ -1026,6 +1034,7 @@ let install () =
   define1 "camulus-reader-home-row" home_row;
   define0 "camulus-reader-home--header" home_header;
   define0 "camulus-reader-home-load-cache" home_cache;
+  define1 "camulus-reader--attachment" (fun button -> attachment button;nil);
   define1 "camulus-reader--refresh-source" (fun source -> refresh_source source;nil);
   define0 "camulus-reader-home--cancel" home_cancel;
   define1 "camulus-reader-home--pump" (fun more -> home_pump (truth more);nil);
@@ -1056,7 +1065,6 @@ let install () =
   define0 ~interactive:true "camulus-reader-delete-folder" delete_folder;
   define0 ~interactive:true "camulus-reader-subscription" subscription;
   define0 ~interactive:true "camulus-reader-group-subscription" group_subscription;
-  define1 "camulus-reader--attachment" (fun button -> attachment button;nil);
   define2 "camulus-reader--window-scrolled" (fun window _ -> schedule_visible (Window.buffer_exn (Window.of_value_exn window));nil);
   define1 "camulus-reader--window-changed" (fun window -> schedule_visible (Window.buffer_exn (Window.of_value_exn window));nil);
   define1 "camulus-reader--receive" (fun data -> receive data;nil);

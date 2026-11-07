@@ -2,7 +2,7 @@ open! Core
 open! Ecaml
 open Runtime_ui
 
-let request_mail = Maildir_emacs.submit_operation ~submit:submit_work
+let request_mail = Mu_emacs.submit_operation ~submit:submit_work
 let request_reddit = Reddit_emacs.submit_operation ~submit:submit_work
 let () =
   defun (Symbol.intern "camulus-firefox-cookies-get") [%here]
@@ -17,7 +17,7 @@ let () =
   Reddit_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
   Zhihu_emacs.install_protocol ();
   Douban_emacs.install_protocol ();
-  Maildir_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
+  Mu_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
   Discourse_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
   Rss_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
   Jsonfeed_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
@@ -109,7 +109,7 @@ let () =
       for i = 1 to 2000 do ignore (Stdlib.Sys.opaque_identity (Value.of_utf8_bytes (Int.to_string i)) : Value.t) done;
       Gc.full_major ());
   Reader_ui.register ();
-  Runtime_ui.install ~on_start:(Maildir_emacs.start_sync ~submit:request_mail) ~on_stop:Maildir_emacs.stop_sync
+  Runtime_ui.install ~on_start:(Mu_emacs.start_sync ~submit:request_mail) ~on_stop:Mu_emacs.stop_sync
     ~on_event:(fun event -> if Current_buffer.variable_is_defined (Symbol.intern "camulus-reader--requests") then Reader_ui.event (Runtime_ui.event_value event));
   defun_nullary_nil (Symbol.intern "camulus-reader-backends-install") [%here]
     ~docstring:"Register the linked backends' optional Emacs capabilities."
@@ -120,7 +120,7 @@ let () =
       Discourse_emacs.install ~submit:submit_work ();
       Rss_emacs.install ~submit:submit_work ();
       Jsonfeed_emacs.install ~submit:submit_work ();
-      Maildir_emacs.install ~submit:request_mail ~configured ();
+      Mu_emacs.install ~submit:request_mail ~configured ~request_state:Runtime_ui.request_state ();
       Atlantic_emacs.install ~submit:submit_work ();Janestreet_emacs.install ~submit:submit_work ();
       Zhihu_emacs.install ~submit:submit_work ();Douban_emacs.install ~submit:submit_work ();
       Netease_emacs.install ~submit:submit_work ();Public_inbox_emacs.install ~submit:submit_work ();

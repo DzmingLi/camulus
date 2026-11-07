@@ -1,6 +1,6 @@
-# OCaml 邮件后端：本地 Maildir / mu 切片
+# Mu 后端：本地索引、Maildir 与邮件同步
 
-这一版是本地 Maildir 邮件后端，保留 mu 索引和现有 mbsync 同步。`Maildir_backend` 使用 Mrmime 解析及生成 MIME，通过 Colombe + tls-eio 直接发送 SMTP；不再绑定 GMime 或调用 msmtp。`process_emacs.ml` 通过 Ecaml 提供 mu 子进程宿主；`compose_emacs.ml` 负责撰写和草稿交互。没有以 Gnus 或 mu4e 作为后端，也没有 Elisp 后端扩展接口。
+这一版是本地 Maildir 邮件后端，保留 mu 索引和现有 mbsync 同步。`Mu_backend` 使用 Mrmime 解析及生成 MIME，通过 Colombe + tls-eio 直接发送 SMTP；不再绑定 GMime 或调用 msmtp。`process_emacs.ml` 通过 Ecaml 提供 mu 子进程宿主；`compose_emacs.ml` 负责撰写和草稿交互。没有以 Gnus 或 mu4e 作为后端，也没有 Elisp 后端扩展接口。
 
 ## 运行
 
@@ -19,19 +19,19 @@ nix develop -c make reader-demo
 - `c` / `r`：新建 / 回复，summary 所在窗口切换为 Message 编辑 buffer，右侧阅读窗口保留。
 - `D`：打开当前账户的草稿组；`RET` 恢复编辑。
 - `a`：summary 中归档当前组内的整条讨论；阅读窗口中归档当前这一封。
-- 每封邮件下的附件按钮：选择保存位置，不覆盖已有文件。
+- 邮件有附件时，在正文窗口下方显示附件面板；随当前邮件切换。`A` 手动打开，面板中 `RET` / `o` 打开附件，`s` 保存当前附件，`S` 保存全部，`q` 关闭。正文不再显示附件按钮。
 
 启动前可设置 `camulus-mail-root`、`camulus-mail-muhome`、`camulus-mail-sender` 和 `camulus-mail-account`。发信地址由后端配置，`camulus-mail-account` 选择 SMTP profile。`camulus-mail-smtp-profiles` 的每一项为 `(名称 主机 端口 用户名 密码文件 CA文件)`；CA 文件为空时使用系统信任库。未配置 SMTP 时仍可阅读、编辑草稿和归档，发送会失败。
 
 账户映射通过 `camulus-mail-accounts` 配置 Maildir 前缀、发件地址和 SMTP profile。`camulus-mail-smtp-profiles` 指定 SMTP 主机、端口、用户名、密码文件及 CA 文件；凭据只在发送时读取。账户配置示例见 [ENTRIES.md](ENTRIES.md)。
 
-设置 `(setq camulus-mail-sync-command '("mbsync" "-a"))`，Camulus 会在启动时同步一次，随后每 300 秒同步。命令按参数数组执行；也可以把 `-a` 换成要同步的 channel 名。每次同步成功后运行 `mu index`，更新首页的邮件来源和打开的邮件列表。同一次同步尚未完成时跳过定时触发；切换 buffer 不停止同步，停止 Camulus 会话时取消定时器。`camulus-mail-sync-interval` 可改为其他秒数，设为 `0` 只保留手动命令 `M-x camulus-mail-sync`。未配置 `camulus-mail-sync-command` 时使用纯本地 Maildir。修改间隔后重启会话生效。
+设置 `(setopt camulus-mail-sync-command '("mbsync" "-a"))` 后，进入首页或邮件组时自动同步，`M-x camulus-mail-sync` 可手动同步。每次成功后运行 `mu index`，更新首页邮件来源和打开的邮件列表。同步尚未完成时跳过重复触发；失败时保留缓存，下一次进入或手动刷新可重试。默认 `camulus-mail-sync-interval` 为 `0`，不定时轮询；显式设置正数才启用周期同步。未配置同步命令时使用纯本地 Maildir。
 
 原生阅读界面采用文本 / SHR，Olivetti 已加载时会启用它。**约定的默认 WebKit 整树阅读尚未接入**。界面、窗口、撰写和草稿回调均使用 Ecaml。
 
 ## 阅读与身份
 
-`Maildir_backend.Readable` 实现统一阅读接口，`Maildir_backend.Writing` 提供邮件专属 draft/receipt。由 `maildir_emacs.ml` 注册会话和执行能力，公共运行时通过 worker 接口调用，可与 Reddit 共用同一个工作 domain。整体关系见 [架构文档](ARCHITECTURE.md)。
+`Mu_backend.Readable` 实现统一阅读接口，`Mu_backend.Writing` 提供邮件专属 draft/receipt。由 `mu_emacs.ml` 注册会话和执行能力，公共运行时通过 worker 接口调用，可与 Reddit 共用同一个工作 domain。整体关系见 [架构文档](ARCHITECTURE.md)。
 
 列表和搜索只读索引元数据。组内搜索同时采用 mu 查询约束和结果 Maildir 校验。按 Message-ID / 引用关系合并 summary 条目，不以相同主题合并讨论；列表以当前结果中最新的一封作为打开入口。邮件的 `thread_id` 保持 `None`，`Thread` 参数是入口邮件 ID，不是永久 thread ID。
 
@@ -43,9 +43,9 @@ ID 为 `mail:` 加 Message-ID，跨文件夹副本共享身份。没有 Message-
 
 ## 后端边界与异步宿主
 
-mu 命令、查询语法、Maildir 移动及索引维护都属于这个后端，核心只负责通用任务调度。`src/backends/maildir/process.ml` 是 Maildir 实现使用的 Emacs 宿主能力，不是所有邮件后端都必须实现的接口。未来 JMAP 可以成为独立后端，直接使用网络 API，不依赖 mu、mbsync、子进程接口或这里的 SMTP 模块；目前尚未实现 JMAP。
+mu 命令、查询语法、Maildir 移动及索引维护都属于这个后端，核心只负责通用任务调度。`src/backends/mu/process.ml` 是 Maildir 实现使用的 Emacs 宿主能力，不是所有邮件后端都必须实现的接口。未来 JMAP 可以成为独立后端，直接使用网络 API，不依赖 mu、mbsync、子进程接口或这里的 SMTP 模块；目前尚未实现 JMAP。
 
-`src/backends/maildir/process.ml` 随 Maildir 后端组织，提供该后端需要的异步子进程支持。工作 domain 提交普通 OCaml 请求，通过 Eio 挂起等待；主线程用 Emacs `make-process` 管理子进程、输出和退出状态。不另设 SIGCHLD handler，不调用 Eio process manager。取消或超时会请求 Emacs 终止相应子进程。
+`src/backends/mu/process.ml` 随 Maildir 后端组织，提供该后端需要的异步子进程支持。工作 domain 提交普通 OCaml 请求，通过 Eio 挂起等待；主线程用 Emacs `make-process` 管理子进程、输出和退出状态。不另设 SIGCHLD handler，不调用 Eio process manager。取消或超时会请求 Emacs 终止相应子进程。
 
 mu 的 argv 按参数传递，不拼接 shell 命令。子进程默认超时 60 秒，stdout/stderr 合计上限 16 MiB；stderr 只计量、不转发，避免写入敏感日志。SMTP 不再经过这个宿主，也不再将发送正文写入临时 stdin 文件。
 

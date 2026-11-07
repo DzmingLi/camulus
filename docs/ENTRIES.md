@@ -85,7 +85,7 @@ schema v1/v2 自动迁移到 v3，保留 MIME、附件、收藏和已读。旧�
 
 `make test` 覆盖 OCaml、配置/订阅与 Emacs 交互回归。
 
-首页打开会刷新一次，也可用 `g` 手动刷新。Maildir 可单独配置 [周期性邮件同步](MAIL.md#运行)。持久离线写入队列仍未实现。Discourse 的回复/发帖能力已在后端提供，编辑界面及自动保存草稿尚未接入。
+首页打开会刷新一次，也可用 `g` 手动刷新。Mu 的邮件同步同样在进入时触发，参见 [邮件同步](MAIL.md#运行)。持久离线写入队列仍未实现。Discourse 的回复/发帖能力已在后端提供，编辑界面及自动保存草稿尚未接入。
 
 ## 来源与组标识
 
@@ -112,7 +112,7 @@ schema v1/v2 自动迁移到 v3，保留 MIME、附件、收藏和已读。旧�
   "browser": {"firefox_profile": "/absolute/path/to/firefox/profile"},
   "discourse": {"auth_sources": ["/absolute/path/to/deployed-authinfo"]},
   "reddit": {"username": "YOUR_USERNAME", "token_file": "/absolute/path/to/refresh-token"},
-  "maildir": {
+  "mu": {
     "root": "/absolute/path/to/Maildir",
     "muhome": "/absolute/path/to/mu",
     "sender": "you@example.org",
