@@ -4,19 +4,11 @@ open! Core
 open! Ecaml
 module Runtime = Reader.Runtime
 module Protocol = Reader.Protocol
-module Voting = Reader.Voting
 module CS = Reader.Content_state
 module Discourse = Discourse_backend
 type publication_operation = Publication_read of string * string option | Publication_attachment of string * string option * int * string
-type Protocol.work += Reddit of Reddit_backend.operation | Mail of Maildir_backend.operation | Local of CS.operation | Rss of Rss_backend.operation | Discourse of string * Discourse.operation | Subscription of string * string * string option | Rss_followed | Jsonfeed_followed | Jsonfeed of Rss_backend.operation | Publication of string * publication_operation | Csrin of Csrin_backend.operation | Group_followed of string | Group_subscription of Reader.Local_subscriptions.target * string option
-type Protocol.payload += Reddit_result of Reddit_backend.result | Mail_result of Maildir_backend.result | State_result of Yojson.Safe.t | Rss_result of Yojson.Safe.t | Discourse_result of Discourse.result
-let reddit_service = function
-  | Reddit_backend.Vote _ | Reply _ | Submit _ | Authorize | Complete_authorization _ -> true
-  | _ -> false
-let mail_service = function
-  | Maildir_backend.Send _ | Attachment _ | Draft_new _ | Draft_save _ | Draft_send _ | Archive _ | Trash _ -> true
-  | _ -> false
-
+type Protocol.work += Local of CS.operation | Rss of Rss_backend.operation | Discourse of string * Discourse.operation | Subscription of string * string * string option | Rss_followed | Jsonfeed_followed | Jsonfeed of Rss_backend.operation | Publication of string * publication_operation | Group_followed of string | Group_subscription of Reader.Local_subscriptions.target * string option
+type Protocol.payload += State_result of Yojson.Safe.t | Rss_result of Yojson.Safe.t | Discourse_result of Discourse.result
 external open_channel : Value.t -> Os.file_descr = "ecaml_probe_open_channel"
 
 let owner_thread = Host_thread.id (Host_thread.self ())
@@ -30,26 +22,14 @@ let wake_fd = ref None
 let current_generation = ref 0
 let next_id = ref 0
 let dropped_stale = ref 0
-let reddit_config = ref None
-let mail_config = ref None
+let backend_hosts : Reader_backend.host list ref = ref []
 let discourse_configs = ref []
-let process_bridge = ref None
-let votes = Voting.create ()
 let state_file = ref None
 let rss_subscriptions_file = ref None
 let jsonfeed_subscriptions_file = ref None
 let group_subscriptions_file = ref None
 let firefox_profile = ref None
-let csrin_site = ref "https://cs.rin.ru/forum/"
-let publication_source s = List.mem ["atlantic";"janestreet";"zhihu";"douban";"netease";"public-inbox";"blogger";"gcores";"csrin"] s ~equal:String.equal
-
-let vote_of_int = function
-  | 1 -> Reader.Content.Upvote | -1 -> Downvote | 0 -> No_vote
-  | _ -> invalid_arg "Vote must be -1, 0 or 1"
-let vote_code = function Reader.Content.Upvote -> 1 | Downvote -> -1 | No_vote -> 0
-let vote_status = function
-  | Voting.Pending -> "pending", "" | Confirmed -> "confirmed", ""
-  | Rejected message -> "rejected", message | Uncertain message -> "uncertain", message
+let publication_source s = List.mem ["atlantic";"janestreet";"douban";"netease";"public-inbox";"blogger";"gcores"] s ~equal:String.equal
 
 let get_runtime () =
   ensure_ui ();
@@ -65,85 +45,63 @@ let start process =
   Os.set_close_on_exec fd;
   let notify_ui () = ignore (Reader.Host.notify fd : bool) in
   try
-    let bridge = Option.map !mail_config ~f:(fun _ -> Maildir_backend.Process.create ~notify:notify_ui ()) in
+    let hosts=List.filter_map !Reader_backend.worker_factories ~f:(fun prepare -> prepare ~notify:notify_ui) in
     let extension ~net ~now ~sleep =
-      let reddit = Option.map !reddit_config ~f:(fun config -> Reddit_backend.Live.create ~config ~now ~sleep) in
-      let run ?(input="") argv =
-        let r=Maildir_backend.Process.run (Option.value_exn bridge) ~now ~sleep ~input argv in
-        {Maildir_backend.status=r.status;stdout=r.stdout} in
-      let mail = Option.map !mail_config ~f:(fun config ->
-        let submit ~profile ~sender ~recipients source =
-          let smtp=match List.Assoc.find config.Maildir_backend.smtp_profiles profile ~equal:String.equal with
-            | Some smtp -> smtp | None -> failwith "Configure an SMTP profile before sending" in
-          Maildir_backend.Smtp.send ~net ~sleep smtp ~sender ~recipients source in
-        Maildir_backend.create ~config ~run ~submit) in
+      let workers=List.map hosts ~f:(fun host -> host.Reader_backend.create ~net ~now ~sleep) in
+      let worker source=List.find workers ~f:(fun w -> String.equal w.Reader_backend.source source) in
       let group_subscriptions=Option.map !group_subscriptions_file ~f:Reader.Local_subscriptions.create in
       let groups () = Option.value_exn ~message:"Configure group subscriptions state before startup" group_subscriptions in
       let rss = Rss_backend.Live.create ?subscriptions_file:!rss_subscriptions_file () in
       let jsonfeed = Jsonfeed_backend.Live.create ?subscriptions_file:!jsonfeed_subscriptions_file () in
       let atlantic=Atlantic_backend.Live.create () and janestreet=Janestreet_backend.Live.create () in
-      let cookies url=match !firefox_profile with
-        | Some profile->Reader.Browser_cookies.get ~profile url
-        | None->failwith "Configure backend_settings.browser.firefox_profile for this backend" in
-      let zhihu=Zhihu_backend.Live.create ~cookies () and douban=Douban_backend.Live.create ~cookies () in
+      let browser=Reader.Firefox_cookies.create ?profile:!firefox_profile () in
+      let douban=Douban_backend.create_live ~cookies:(Reader.Firefox_cookies.get browser) () in
       let netease=Netease_backend.Live.create() and public_inbox=Public_inbox_backend.Live.create() in
       let blogger=Blogger_backend.Live.create() and gcores=Gcores_backend.Live.create() in
-      let csrin=Csrin_backend.Live.create ~base:!csrin_site
-        ~cookies:(fun url -> match !firefox_profile with Some _ -> cookies url | None -> []) () in
       let publication_list source group ~after = match source with
         | "atlantic"->Atlantic_backend.Live.list atlantic group ~after
         | "janestreet"->Janestreet_backend.Live.list janestreet group ~after
-        | "zhihu"->Zhihu_backend.Live.list zhihu group ~after
         | "douban"->Douban_backend.Live.list douban group ~after
         | "netease"->Netease_backend.Live.list netease group ~after
         | "public-inbox"->Public_inbox_backend.Live.list public_inbox group ~after
         | "blogger"->Blogger_backend.Live.list blogger group ~after
         | "gcores"->Gcores_backend.Live.list gcores group ~after
-        | "csrin"->Csrin_backend.Live.list csrin group ~after
         | _->invalid_arg "Unknown publication" in
       let publication_search source group ~query ~after = match source with
         | "atlantic"->Atlantic_backend.Live.search atlantic group ~query ~after
         | "janestreet"->Janestreet_backend.Live.search janestreet group ~query ~after
-        | "zhihu"->Zhihu_backend.Live.search zhihu group ~query ~after
         | "douban"->Douban_backend.Live.search douban group ~query ~after
         | "netease"->Netease_backend.Live.search netease group ~query ~after
         | "public-inbox"->Public_inbox_backend.Live.search public_inbox group ~query ~after
         | "blogger"->Blogger_backend.Live.search blogger group ~query ~after
         | "gcores"->Gcores_backend.Live.search gcores group ~query ~after
-        | "csrin"->Csrin_backend.Live.search csrin group ~query ~after
         | _->invalid_arg "Unknown publication" in
       let publication_read source group id = match source with
         | "atlantic"->Atlantic_backend.Live.read atlantic group id
         | "janestreet"->Janestreet_backend.Live.read janestreet group id
-        | "zhihu"->Zhihu_backend.Live.read zhihu group id
         | "douban"->Douban_backend.Live.read douban group id
         | "netease"->Netease_backend.Live.read netease group id
         | "public-inbox"->Public_inbox_backend.Live.read public_inbox group id
         | "blogger"->Blogger_backend.Live.read blogger group id
         | "gcores"->Gcores_backend.Live.read gcores group id
-        | "csrin"->Csrin_backend.Live.read csrin group id
         | _->invalid_arg "Unknown publication" in
       let publication_archive source group id = match source with
         | "atlantic"->Atlantic_backend.Live.archive atlantic group id
         | "janestreet"->Janestreet_backend.Live.archive janestreet group id
-        | "zhihu"->Zhihu_backend.Live.archive zhihu group id
         | "douban"->Douban_backend.Live.archive douban group id
         | "netease"->Netease_backend.Live.archive netease group id
         | "public-inbox"->Public_inbox_backend.Live.archive public_inbox group id
         | "blogger"->Blogger_backend.Live.archive blogger group id
         | "gcores"->Gcores_backend.Live.archive gcores group id
-        | "csrin"->Csrin_backend.Live.archive csrin group id
         | _->invalid_arg "Unknown publication" in
       let publication_attachment source group id part destination = match source with
         | "atlantic"->Atlantic_backend.Live.attachment atlantic group id part destination
         | "janestreet"->Janestreet_backend.Live.attachment janestreet group id part destination
-        | "zhihu"->Zhihu_backend.Live.attachment zhihu group id part destination
         | "douban"->Douban_backend.Live.attachment douban group id part destination
         | "netease"->Netease_backend.Live.attachment netease group id part destination
         | "public-inbox"->Public_inbox_backend.Live.attachment public_inbox group id part destination
         | "blogger"->Blogger_backend.Live.attachment blogger group id part destination
         | "gcores"->Gcores_backend.Live.attachment gcores group id part destination
-        | "csrin"->Csrin_backend.Live.attachment csrin group id part destination
         | _->invalid_arg "Unknown publication" in
       let forums=Stdlib.Hashtbl.create 8 in
       List.iter !discourse_configs ~f:(fun config ->
@@ -161,9 +119,6 @@ let start process =
         Eio.Mutex.lock db_lock;
         Exn.protect ~finally:(fun () -> Eio.Mutex.unlock db_lock) ~f:(fun () ->
           Eio_unix.run_in_systhread (fun () -> CS.with_db path f)) in
-      let rsource=Option.map !reddit_config ~f:(fun c -> "reddit:"^c.Reddit_backend.username) in
-      let msource=Option.map !mail_config ~f:(fun c -> "maildir:"^c.Maildir_backend.root) in
-      let is_source expected source=Option.value_map expected ~default:false ~f:(String.equal source) in
       let reply emit kind fields = emit (State_result (`Assoc (("kind",`String kind)::fields))) in
       let observe ?(replace=false) emit source group messages =
         if Option.is_some !state_file then begin
@@ -174,7 +129,7 @@ let start process =
       let publication_group source id requested = match requested with
         | Some group -> group
         | None when String.equal source "janestreet" -> "posts"
-        | None when List.mem ["zhihu";"douban";"public-inbox";"gcores";"csrin"] source ~equal:String.equal -> ""
+        | None when List.mem ["douban";"public-inbox";"gcores"] source ~equal:String.equal -> ""
         | None -> storage(fun db -> CS.groups_for_item db ~source ~id) |> List.hd
           |> Option.value_or_thunk ~default:(fun () -> failwith "Open this publication's entry before reading the article") in
       let archived source target id =
@@ -187,24 +142,9 @@ let start process =
             List.sum (module Int) a.files ~f:(fun (_,data) -> String.length data);
           if !bytes > 128 * 1024 * 1024 then failwith "Archive exceeds the 128 MiB operation limit";
           Stdlib.Hashtbl.replace articles a.message.id a in
-        if is_source rsource source then begin
-          let root=if String.is_prefix id ~prefix:"t3_" then id else
-            storage(fun db -> CS.native_thread db ~source ~id) |> Option.value_exn in
-          Reddit_backend.Live.thread (Option.value_exn reddit) root ~emit:(fun batch ->
-            complete:=batch.complete;
-            List.iter batch.messages ~f:(fun message ->
-              if Poly.equal target CS.Thread || String.equal message.id id then
-                add {CS.message;attachments=`List [];raw=None;files=[]}))
-        end else if is_source msource source then begin
-          let backend=Option.value_exn mail in
-          let capture (a:Maildir_backend.article) =
-            let attachments=match Maildir_backend.result_json (Article a) with
-              | `Assoc fields -> List.Assoc.find_exn fields ~equal:String.equal "attachments" | _ -> assert false in
-            add {CS.message=a.message;attachments;raw=Some(Maildir_backend.raw_message backend a.message.id);files=[]} in
-          (match target with
-           | CS.Article -> capture (Maildir_backend.read backend id);complete:=true
-           | CS.Thread -> Maildir_backend.execute backend (Thread id) ~emit:(function
-               | Article a -> capture a | Thread_batch b -> complete:=b.complete | _ -> ()))
+        if Option.is_some(worker source) then begin
+          complete:=(Option.value_exn(worker source)).archive target id ~add
+            ~native_thread:(fun id -> storage(fun db -> CS.native_thread db ~source ~id) |> Option.value_exn)
         end else if Discourse.is_source source then begin
           let backend=forum(Discourse.site_of_source source) in
           (match target with
@@ -223,10 +163,6 @@ let start process =
         end else if String.equal source "douban" && Poly.equal target CS.Thread then begin
           Douban_backend.Live.stream_thread douban id
             ~emit_article:(fun a->add(Douban_backend.Live.archive_article douban a))
-            ~emit:(fun b->complete:=b.complete)
-        end else if String.equal source "csrin" && Poly.equal target CS.Thread then begin
-          Csrin_backend.Live.stream_thread csrin id
-            ~emit_article:(fun a->add(Csrin_backend.Live.archive_article csrin a))
             ~emit:(fun b->complete:=b.complete)
         end else if publication_source source then begin
           if Poly.equal target CS.Thread then failwith "Publication articles do not have threads";
@@ -278,7 +214,9 @@ let start process =
           let data=match storage(fun db -> CS.attachment_archive db ~source ~id ~part) with
             | Some data -> data
             | None -> let raw=storage(fun db -> CS.raw_archive db ~source ~id) in
-              Maildir_backend.Mime.extract raw part in
+              let extract=List.find_map !Reader_backend.archive_extractors ~f:(fun f -> f source)
+                |> Option.value_exn ~message:"No backend can extract this archived attachment" in
+              extract raw part in
           Eio_unix.run_in_systhread(fun () ->
             let fd=Os.openfile destination [Os.O_WRONLY;Os.O_CREAT;Os.O_EXCL;Os.O_CLOEXEC] 0o600 in
             let ch=Os.out_channel_of_descr fd in
@@ -290,15 +228,8 @@ let start process =
             | Some v -> v
             | None -> let v=Atomic.make 0 in Stdlib.Hashtbl.add entry_versions (source,group) v;v in
           let epoch=Atomic.fetch_and_add version 1 + 1 in
-          let page = if is_source rsource source then
-              let group=if String.equal group "notifications" then Reddit_backend.Notifications
-                else if String.is_prefix group ~prefix:"post:" then Reddit_backend.Post(String.drop_prefix group 5)
-                else Reddit_backend.Subreddit group in
-              (match query with None -> Reddit_backend.Live.list (Option.value_exn reddit) group ~after
-               | Some query -> Reddit_backend.Live.search (Option.value_exn reddit) group ~query ~after)
-            else if is_source msource source then
-              (match query with None -> Maildir_backend.list (Option.value_exn mail) group ~after
-               | Some query -> Maildir_backend.search (Option.value_exn mail) group ~query ~after)
+          let page = if Option.is_some(worker source) then
+              (Option.value_exn(worker source)).page group ~after ~query
             else if publication_source source then
               (match query with None -> publication_list source group ~after
                | Some query -> publication_search source group ~query ~after)
@@ -363,7 +294,6 @@ let start process =
                     Stdlib.Hashtbl.replace rss_refreshed (source^group) ()
                   end
                 end;
-                if String.equal source "zhihu" then Zhihu_backend.Live.invalidate zhihu id;
                 if String.equal source "douban" then Douban_backend.Live.invalidate douban id;
                 let articles=archived source target id in
                 storage(fun db -> CS.refresh_archive db ~source ~target ~id articles)
@@ -373,21 +303,12 @@ let start process =
       in
       fun work ~emit -> match work with
       | Local operation -> state operation emit
-      | Csrin operation ->
-        (match operation with
-         | Csrin_backend.Forums -> reply emit "csrin-forums" ["rows",`List(List.map (Csrin_backend.Live.forums csrin) ~f:(fun(group,name)->`Assoc["group",`String group;"name",`String name]))]
-         | Login(username,password) -> Csrin_backend.Live.login csrin ~username ~password;reply emit "csrin-login" []
-         | Prepare(group,id) ->
-           let d=Csrin_backend.Live.prepare csrin group id in
-           reply emit "csrin-compose" ["forum",`String d.forum;"topic",(match d.topic with None->`Null|Some s->`String s);"subject",`String d.subject]
-         | Send draft -> let url=Csrin_backend.Live.send csrin draft in reply emit "csrin-sent" ["url",`String url])
       | Publication(source,operation) ->
         (match operation with
          | Publication_read(id,group) ->
            let group=publication_group source id group in
-           if String.equal source "douban" || String.equal source "public-inbox" || String.equal source "csrin" then
+           if String.equal source "douban" || String.equal source "public-inbox" then
              (if String.equal source "douban" then Douban_backend.Live.stream_thread douban id
-              else if String.equal source "csrin" then Csrin_backend.Live.stream_thread csrin id
               else Public_inbox_backend.Live.stream_thread public_inbox id)
                ~emit_article:(fun a->observe emit source None [a.message];emit(Rss_result(Rss_backend.article_json a)))
                ~emit:(fun b->emit(Rss_result(`Assoc["kind",`String "thread";"thread",`String b.thread;
@@ -473,27 +394,14 @@ let start process =
          | Attachment(_,id,part,destination) ->
            Rss_backend.Live.attachment rss url id part destination;
            reply emit "saved" ["path",`String destination])
-      | Reddit operation ->
-        (try Reddit_backend.Live.execute (Option.value_exn reddit) operation
-               ~emit:(fun result ->
-                 let messages=match result with Reddit_backend.Page p -> p.messages | Thread_batch b -> b.messages | _ -> [] in
-                 let group=None in
-                 if not(List.is_empty messages) then observe emit (Option.value_exn rsource) group messages;
-                 emit (Reddit_result result))
-         with Reddit_backend.Error error as ex ->
-           emit (Reddit_result (Reddit_backend.Backend_error error)); raise ex)
-      | Mail operation -> Maildir_backend.execute (Option.value_exn mail) operation
-                            ~emit:(fun result ->
-                              let messages=match result with Maildir_backend.Page(p,_) -> p.messages | Thread_batch b -> b.messages | Article a -> [a.message] | _ -> [] in
-                              let group=None in
-                              if not(List.is_empty messages) then observe emit (Option.value_exn msource) group messages;
-                              emit (Mail_result result))
-      | _ -> failwith "Unknown backend task"
+      | work ->
+        if not(List.exists workers ~f:(fun worker ->
+          worker.execute work ~observe:(observe emit worker.source None) ~emit)) then
+          failwith "Unknown backend task"
     in
     let t = Runtime.create ~extension ~notify_ui () in
-    process_bridge := bridge;
+    backend_hosts := hosts;
     runtime := Some t; wake_fd := Some fd;
-    Voting.clear votes;
     current_generation := 0; dropped_stale := 0
   with ex -> Os.close fd; raise ex
 
@@ -521,12 +429,6 @@ let event_value =
   function
   | Protocol.Ready domain -> Value.list [sym "ready"; int domain]
   | Progress (r, step) -> Value.list [sym "progress"; int r.id; owner r.owner; int step]
-  | Data (r, Reddit_result result) ->
-    Value.list [sym "reddit";int r.id;owner r.owner;
-      Reader_backend.of_json (Reddit_backend.result_json result)]
-  | Data (r, Mail_result result) ->
-    Value.list [sym "mail";int r.id;owner r.owner;
-      Reader_backend.of_json (Maildir_backend.result_json result)]
   | Data (r, Discourse_result result) ->
     Value.list [sym "discourse";int r.id;owner r.owner;
       Reader_backend.of_json (Discourse.result_json result)]
@@ -535,7 +437,10 @@ let event_value =
   | Data (r, State_result result) ->
     Value.list [sym "content-state";int r.id;owner r.owner;
       Reader_backend.of_json result]
-  | Data _ -> failwith "Unknown backend event"
+  | Data (r,payload) ->
+    let name,data=List.find_map !Reader_backend.payload_renderers ~f:(fun render -> render payload)
+      |> Option.value_exn ~message:"Unknown backend event" in
+    Value.list [sym name;int r.id;owner r.owner;Reader_backend.of_json data]
   | Finished (r, outcome) ->
     let state, message = match outcome with
       | Completed -> "completed", ""
@@ -543,37 +448,6 @@ let event_value =
       | Failed message -> "failed", message
     in
     Value.list [sym "finished"; int r.id; owner r.owner; sym state; Value.of_utf8_bytes message]
-
-let vote_update_value (update : Voting.update) =
-  let state, message = vote_status update.status in
-  Value.list [Value.intern "reddit-vote";Value.of_int_exn update.request;
-    Value.of_utf8_bytes update.id;Value.of_int_exn (vote_code update.direction);
-    Value.intern state;Value.of_utf8_bytes message]
-
-let update_votes event =
-  let finish (r : Protocol.request) status = match r.work with
-    | Reddit (Vote (id,_)) -> Option.to_list (Voting.finish votes ~id ~request:r.id ~barrier:!next_id ~status)
-    | _ -> [] in
-  let observe request messages =
-    List.filter_map messages ~f:(fun (m : Reader.Content.message) ->
-      Voting.observe votes ~id:m.id ~request ~direction:m.my_vote) in
-  match event with
-  | Protocol.Data (r,Reddit_result (Voted _)) -> finish r Voting.Confirmed
-  | Data (r,Reddit_result (Backend_error error)) ->
-    let message = Reddit_backend.to_string error in
-    let status = match error with
-      | Reddit_backend.Uncertain_write | Invalid_response _ -> Voting.Uncertain message
-      | _ -> Voting.Rejected message in
-    finish r status
-  | Finished (r,outcome) ->
-    let message = match outcome with
-      | Protocol.Completed -> "No vote confirmation received; refresh to check"
-      | Cancelled -> "Vote cancelled; remote outcome is unknown"
-      | Failed message -> message in
-    finish r (Voting.Uncertain message)
-  | Data (r,Reddit_result (Page page)) -> observe r.id page.messages
-  | Data (r,Reddit_result (Thread_batch batch)) -> observe r.id batch.messages
-  | _ -> []
 
 let drain ?(receive=ignore) ?(publish_values=true) () =
   let t = get_runtime () in
@@ -589,19 +463,13 @@ let drain ?(receive=ignore) ?(publish_values=true) () =
       in
       if stale then (Int.incr dropped_stale; loop (remaining - 1) acc)
       else
-        let update = update_votes event in
+        let update = List.concat_map !Reader_backend.event_observers ~f:(fun f -> f ~barrier:!next_id event) in
         receive event;
         let acc = if publish_values then event_value event :: acc else acc in
-        let acc = List.fold (if publish_values then update else []) ~init:acc ~f:(fun acc update -> vote_update_value update :: acc) in
+        let acc = List.fold (if publish_values then update else []) ~init:acc ~f:(fun acc update -> update :: acc) in
         loop (remaining - 1) acc
   in
-  let processes = match !process_bridge with
-    | None -> []
-    | Some bridge -> List.map (Maildir_backend.Process.drain bridge) ~f:(function
-      | Maildir_backend.Process.Start r -> Value.list [Value.intern "host-start";Value.of_int_exn r.id;
-          Value.list (List.map r.argv ~f:Value.of_utf8_bytes);Value.of_utf8_bytes r.input_path;Value.of_int_exn r.limit]
-      | Cancel id -> Value.list [Value.intern "host-cancel";Value.of_int_exn id]) in
-  processes @ loop 64 []
+  List.concat_map !backend_hosts ~f:(fun host -> host.drain ()) @ loop 64 []
 
 let status () =
   ensure_ui ();
@@ -620,7 +488,8 @@ let reap () =
     if not (Runtime.reap t) then false
     else begin
       Option.iter !wake_fd ~f:Os.close;
-      wake_fd := None; runtime := None; process_bridge := None; true
+      List.iter !backend_hosts ~f:(fun host -> host.close ());
+      backend_hosts:=[];wake_fd := None; runtime := None; true
     end
 
 
@@ -637,23 +506,14 @@ let request_state operation =
 let request_rss operation = submit_work ~service:(match operation with Rss_backend.Attachment _->true | _->false) (Rss operation)
 let request_jsonfeed operation = submit_work ~service:(match operation with Rss_backend.Attachment _->true | _->false) (Jsonfeed operation)
 let request_discourse site operation = submit_work ~service:(Discourse.service operation) (Discourse(site,operation))
-let request_reddit operation =
-  if Option.is_none !reddit_config then failwith "Configure Reddit first";
-  submit_work ~service:(reddit_service operation) (Reddit operation)
-let request_mail operation =
-  if Option.is_none !mail_config then failwith "Configure mail first";
-  submit_work ~service:(mail_service operation) (Mail operation)
 let request_publication source operation =
   if not(publication_source source) then invalid_arg "Unknown publication backend";
   submit_work ~service:(match operation with Publication_read _->false | _->true) (Publication(source,operation))
 let request_subscription source target setting = submit_work ~service:true (Subscription(source,target,setting))
 let followed_rss () = submit_work ~service:true Rss_followed
 let followed_jsonfeed () = submit_work ~service:true Jsonfeed_followed
-let configured_sources () =
-  Option.to_list (Option.map !reddit_config ~f:(fun c -> "reddit:"^c.Reddit_backend.username)) @
-  Option.to_list (Option.map !mail_config ~f:(fun c -> "maildir:"^c.Maildir_backend.root))
+let configured_sources = Reader_backend.configured_sources
 
-let request_csrin operation = submit_work ~service:true (Csrin operation)
 
 let followed_groups ~backend = submit_work ~service:true (Group_followed backend)
 let subscribe_group ~backend ~source ~group ~setting =

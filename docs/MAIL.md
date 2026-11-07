@@ -25,6 +25,8 @@ nix develop -c make reader-demo
 
 账户映射通过 `ef-mail-accounts` 配置 Maildir 前缀、发件地址和 SMTP profile。`ef-mail-smtp-profiles` 指定 SMTP 主机、端口、用户名、密码文件及 CA 文件；凭据只在发送时读取。账户配置示例见 [ENTRIES.md](ENTRIES.md)。
 
+设置 `(setq camulus-mail-sync-command '("mbsync" "-a"))`，Camulus 会在启动时同步一次，随后每 300 秒同步。命令按参数数组执行；也可以把 `-a` 换成要同步的 channel 名。每次同步成功后运行 `mu index`，更新首页的邮件来源和打开的邮件列表。同一次同步尚未完成时跳过定时触发；切换 buffer 不停止同步，停止 Camulus 会话时取消定时器。`camulus-mail-sync-interval` 可改为其他秒数，设为 `0` 只保留手动命令 `M-x camulus-mail-sync`。未配置 `camulus-mail-sync-command` 时使用纯本地 Maildir。修改间隔后重启会话生效。
+
 原生阅读界面采用文本 / SHR，Olivetti 已加载时会启用它。**约定的默认 WebKit 整树阅读尚未接入**。界面、窗口、撰写和草稿回调均使用 Ecaml。
 
 ## 阅读与身份
@@ -65,13 +67,13 @@ SMTP 在 Eio 工作 domain 内直接使用 TCP、tls-eio 和 Colombe 的调度�
 
 在统一首页或邮件组的 summary 列表按 `d`，邮件后端会将当前组中属于该讨论的邮件移入同一账户的 `Trash`，成功后更新本地索引和列表缓存。失败时不写入 feed 移除标记；部分成功会报告数量并刷新实际剩余内容。已在 Trash 的邮件不会再次删除或永久清除。搜索结果暂不执行 `d`，收藏文件夹中的 `d` 仍只取消收藏归属。
 
-移入 Trash 保留完整 MIME、附件及已有标志，不额外添加会使 mbsync expunge 的 `T` 标志。其他账户和 Sent 中的副本保留；后续由现有 mbsync 同步。本功能不自动运行 mbsync。
+移入 Trash 保留完整 MIME、附件及已有标志，不额外添加会使 mbsync expunge 的 `T` 标志。其他账户和 Sent 中的副本保留；本地移动由下一次邮件同步推送到 IMAP。
 
 归档是移动到同一账户的 `Archive` Maildir。summary 的操作仅移动当前源组中属于该讨论的邮件，阅读窗口的操作只移动选中的一封；其他账户副本及 Sent 中的相关邮件保留。Drafts 组不执行此操作。
 
-使用 `mu move --change-name` 更新文件和索引，保留原始 MIME（包括附件）及已读等标志，重命名时移除旧的 mbsync UID 信息。不存在的 Archive 会先创建并登记到索引。多封移动可能部分失败，界面会报告成功与失败数量。后续由已有 mbsync 同步这次本地移动；本后端不会自动启动 mbsync。
+使用 `mu move --change-name` 更新文件和索引，保留原始 MIME（包括附件）及已读等标志，重命名时移除旧的 mbsync UID 信息。不存在的 Archive 会先创建并登记到索引。多封移动可能部分失败，界面会报告成功与失败数量。后续由 mbsync 同步这次本地移动。
 
-这实现的是邮件文件夹归档。跨后端多文件夹收藏已在统一 feed 界面实现，独立保存正文和原始 MIME，并在手动刷新时更新新增回复；见 [README](../README.md#阅读与内容管理)。后台自动持续同步仍待实现。
+这实现的是邮件文件夹归档。跨后端多文件夹收藏已在统一 feed 界面实现，独立保存正文和原始 MIME，并在手动刷新时更新新增回复；见 [README](../README.md#阅读与内容管理)。
 
 ## 底层发送接口与边界
 

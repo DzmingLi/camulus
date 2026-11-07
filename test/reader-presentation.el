@@ -114,7 +114,7 @@
                     ef-reddit-request ef-discourse-request ef-content-request ef-subscription-request
                     ef-reader--request ef-reader--event ef-reader--load-archive))
     (should-not (fboundp command)))
-  (should (string-suffix-p "/camulus/config.json" ef-reader-config-file)))
+  (should (custom-variable-p 'ef-reader-entries)))
 
 (defun reader-test-rows (ids)
   (mapcar (lambda (id) `((source . "test") (id . ,id) (author . "A") (title . ,id))) ids))
@@ -166,7 +166,8 @@
 
 (ert-deftest reader-header-click-does-not-prompt-for-an-event ()
   (save-window-excursion
-    (let ((buffer (generate-new-buffer " *Reader header test*")) called)
+    (let ((buffer (generate-new-buffer " *Reader header test*"))
+          (ef-reader-entries nil))
       (unwind-protect
           (progn
             (switch-to-buffer buffer)
@@ -177,10 +178,12 @@
                    (command (lookup-key map [header-line mouse-1]))
                    (last-input-event (list 'mouse-1 (list (selected-window) 'header-line '(0 . 0) 0))))
               (should (equal (interactive-form command) '(interactive "")))
-              (cl-letf (((symbol-function 'ef-reader-discourse) (lambda () (interactive) (setq called t)))
+              (cl-letf (((symbol-function 'ef-reader-load-config) #'ignore)
                         ((symbol-function 'read-string) (lambda (&rest _) (ert-fail "Unexpected event prompt"))))
                 (call-interactively command))
-              (should called)))
+              (should (eq major-mode 'ef-reader-groups-mode))
+              (should (string-match-p "No registered groups here" (buffer-string)))))
+        (when (get-buffer "*Camulus groups: Discourse*") (kill-buffer "*Camulus groups: Discourse*"))
         (kill-buffer buffer)))))
 
 (ert-deftest reader-read-gray-remains-visible-with-a-dark-shadow-face ()

@@ -25,7 +25,7 @@ let install ~submit ~followed () =
     ~interactive:(Prompt "Search this feed (empty clears): ") (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open query=required "query" string in
      set "ef-reader--rss-query" (if String.is_empty query then Value.nil else s query);refresh submit ());
-  variable "ef-reader-rss-subscriptions-file"(data_path "XDG_STATE_HOME" "~/.local/state" "rss-subscriptions.json");
+  custom ~kind:Customization.Type.File "ef-reader-rss-subscriptions-file" (data_path "XDG_STATE_HOME" "~/.local/state" "rss-subscriptions.json") "Backend state file.";
   register { (base ~name:"RSS / Atom" ~matches:(String.is_prefix ~prefix:"rss:") ~threaded:false
     ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Value.of_int_exn (submit (Rss_backend.Read(String.drop_prefix source 4,id))))) with
     attachment=Some (fun ~source ~id ~group ~part ~destination -> ignore group; Value.of_int_exn (submit (Rss_backend.Attachment(String.drop_prefix source 4,id,part,destination))));

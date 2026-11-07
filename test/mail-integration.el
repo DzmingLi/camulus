@@ -27,6 +27,40 @@
   (let ((id (camulus-mail-submit request)))
     (ef-mail-test-await id) (ef-mail-test-data id)))
 
+(ert-deftest mail-sync-starts-repeats-reindexes-and-refreshes-the-open-list ()
+  (let* ((root (expand-file-name "Maildir" ef-mail-test-base))
+         (source (concat "maildir:" root))
+         (box (expand-file-name "Sync-test" root))
+         (stamp (make-temp-file "camulus-sync-runs"))
+         (mail (make-temp-file "camulus-sync-message"))
+         (ef-mail-root root)
+         (ef-mail-sender "bob@example.test")
+         (camulus-mail-sync-interval 1)
+         (camulus-mail-sync-command
+          (list (executable-find "sh") "-c" "printf 'run\\n' >> \"$1\"; sleep .3; cp \"$2\" \"$3\""
+                "fixture-sync" stamp mail (expand-file-name "new/message" box))))
+    (cl-labels ((runs () (with-temp-buffer (insert-file-contents stamp) (count-lines (point-min) (point-max)))))
+      (unwind-protect
+          (with-temp-buffer
+            (dolist (sub '("cur" "new" "tmp")) (make-directory (expand-file-name sub box) t))
+            (with-temp-file mail
+              (insert "From: Alice <alice@example.test>\nTo: Bob <bob@example.test>\nSubject: Sync fixture\nMessage-ID: <auto-sync@example.test>\nDate: Fri, 16 Oct 2026 10:00:00 +0800\n\nSynced body.\n"))
+            (ef-reader-feed-mode)
+            (setq ef-reader--entry `((source . ,source) (group . "/Sync-test")))
+            (ef-mail-test-session
+             (ef-probe-await (lambda () (= (runs) 1)) 5)
+             ;; An explicit refresh while the initial job is running must not
+             ;; run a second sync command or queue one behind it.
+             (camulus-mail-sync)
+             (ef-probe-await (lambda () (and ef-reader--rows (= (hash-table-count ef-reader--rows) 1))) 8)
+             (should (equal "mail:auto-sync@example.test" (alist-get 'id (car (hash-table-values ef-reader--rows)))))
+             (ef-probe-await (lambda () (>= (runs) 2)) 5)))
+        (let ((before (runs)))
+          (sit-for 1.1)
+          (should (= before (runs))))
+        (delete-file stamp) (delete-file mail)
+        (when (file-directory-p box) (delete-directory box t))))))
+
 (ert-deftest mail-native-group-summary-and-search ()
   (ef-mail-test-session
    (let* ((data (car (ef-mail-test-request '((op . "list") (group . "/Inbox")))))

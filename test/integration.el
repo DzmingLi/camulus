@@ -3,6 +3,36 @@
 (require 'camulus)
 (setq ef-probe-record-events t)
 
+(ert-deftest firefox-cookie-callback-without-reader-startup ()
+  (let* ((profile (make-temp-file "camulus-cookie-callback-" t))
+         (ef-reader-firefox-profile profile)
+         (database (expand-file-name "cookies.sqlite" profile)))
+    (unwind-protect
+        (progn
+          ;; Synthetic credentials only. No real profile or network access.
+          (should (= 0 (call-process "python3" nil nil nil "-c"
+            "import sqlite3,sys
+with sqlite3.connect(sys.argv[1]) as db:
+ db.execute('CREATE TABLE moz_cookies (host,path,name,value,expiry,originAttributes,creationTime)')
+ db.executemany('INSERT INTO moz_cookies VALUES (?,?,?,?,?,?,?)', [('.zhihu.com','/','session','fixture',4102444800,'',1),('.douban.com','/','other','private',4102444800,'',2)])"
+            database)))
+          (should (equal (ef-probe-status) "idle"))
+          (should (equal (camulus-firefox-cookies-get "https://www.zhihu.com/api/")
+                         '(("session" . "fixture"))))
+          (should-not (camulus-firefox-cookies-get "https://example.com/"))
+          (should-error (camulus-firefox-cookies-get "http://www.zhihu.com/"))
+          (let ((ef-reader-firefox-profile nil))
+            (should-error (camulus-firefox-cookies-get "https://www.zhihu.com/")))
+          (should (= 0 (call-process "python3" nil nil nil "-c"
+            "import sqlite3,sys
+with sqlite3.connect(sys.argv[1]) as db:
+ db.execute(\"UPDATE moz_cookies SET value='updated' WHERE name='session'\")"
+            database)))
+          (should (equal (camulus-firefox-cookies-get "https://www.zhihu.com/")
+                         '(("session" . "updated"))))
+          (should (equal (ef-probe-status) "idle")))
+      (delete-directory profile t))))
+
 (defmacro ef-probe-with-session (&rest body)
   `(progn
      (ef-probe-session-start)

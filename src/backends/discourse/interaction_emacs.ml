@@ -66,7 +66,8 @@ let like unlike=
   if not(truth(get "ef-reader--archive")) && truth item then(run "puthash"[id;assign "liked"(b liked)item;table];run "ef-reader--render"[]))
 let install ()=
  run "require"[sym "auth-source"];
- List.iter["ef-discourse-auth-sources";"ef-discourse-sites"]~f:(fun n->variable n nil);
+ custom ~kind:(Customization.Type.Repeat String) "ef-discourse-auth-sources" nil "Auth-source files used for Discourse authentication.";
+ variable "ef-discourse-sites" nil;
  List.iter["ef-discourse--callbacks","eql";"ef-discourse--likes","equal";"ef-discourse--like-values","equal"]~f:(fun(n,test)->variable n(call "make-hash-table"[sym ":test";sym test]));
  define0 "ef-discourse-setup"setup;
  define1 "ef-discourse--event"(fun event->let id=call "nth"[i 1;event]in

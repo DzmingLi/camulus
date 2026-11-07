@@ -9,12 +9,14 @@ build:
 
 test: export XDG_CONFIG_HOME = $(BUILD_ABS)/test-config
 test: export XDG_STATE_HOME = $(BUILD_ABS)/test-state
-test: build csrin-test
+test: build
 	dune runtest --build-dir $(BUILD_ABS)
 	timeout 60s $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -l test/integration.el
 	timeout 10s $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -l test/exit.el
 	timeout 30s $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -l test/reddit-integration.el
 	timeout 30s $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -l test/entries-integration.el
+	dune build --build-dir $(BUILD_ABS) test/webkit_probe.so
+	timeout 30s $(EMACS) -Q --batch --module-assertions -L $(BUILD_ABS)/default/test -l test/webkit-integration.el
 	timeout 30s $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -l test/reader-presentation.el
 	python3 test/setup-mail-fixture.py $(BUILD_ABS)/mail-fixture
 	MAIL_FIXTURE=$(BUILD_ABS)/mail-fixture timeout 90s python3 test/smtp-fixture.py $(BUILD_ABS)/mail-fixture $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -L test -l test/mail-integration.el
@@ -39,7 +41,3 @@ reddit-live: build
 
 mail-live: build
 	timeout 180s $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -L test -l test/mail-live.el
-
-.PHONY: csrin-test
-csrin-test: build
-	timeout 60s python3 test/csrin-fixture.py $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -l test/csrin-integration.el

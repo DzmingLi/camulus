@@ -25,12 +25,14 @@ let with_snapshot file f =
     let after=List.map(fun suffix->stamp(file^suffix))["";"-wal"] in
     if before<>after then (if remaining>0 then attempt(remaining-1) else failwith "Firefox cookie database is changing; retry shortly")
     else f target in attempt 2)
-let get ~profile url =
+type t = {profile:string option}
+let create ?profile () = {profile}
+let get_sync t url =
+ let profile=match t.profile with Some path->path|None->failwith "Configure ef-reader-firefox-profile to use Firefox cookies" in
  let u=Uri.of_string url in
  let host=Option.value (Uri.host u) ~default:"" |> String.lowercase_ascii in
  let path=match Uri.path u with ""->"/" | p->p in
  if Uri.scheme u<>Some "https" || host="" then invalid_arg "Cookies require an HTTPS destination";
- Eio_unix.run_in_systhread(fun () ->
   let file=Filename.concat profile "cookies.sqlite" in
   if not(Sys.file_exists file) then failwith "Firefox cookies.sqlite not found in the configured profile";
   let read file =
@@ -54,7 +56,8 @@ let get ~profile url =
       read(count+1)acc
     | Sqlite3.Rc.DONE -> List.rev acc
     | _ -> failwith "Cannot read Firefox cookies" in read 0 [])) in
-  try read file with Sqlite3.Error _ -> with_snapshot file read)
+  try read file with Sqlite3.Error _ -> with_snapshot file read
+let get t url = Eio_unix.run_in_systhread(fun () -> get_sync t url)
 let header pairs =
  List.iter(fun(k,v)->if String.exists(fun c->c='\r'||c='\n'||c='\000') (k^v) then failwith "Invalid cookie")pairs;
  String.concat "; " (List.map(fun(k,v)->k^"="^v)pairs)

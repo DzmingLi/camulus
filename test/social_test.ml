@@ -15,14 +15,23 @@ let ()=
  let answer={|{"id":12,"author":{"name":"Alice"},"question":{"id":7,"title":"Question"},"created_time":1700000000,"content":"<p>Full answer</p><img data-actualsrc='https://cdn.example/image.jpg' src='data:x'>"}|} in
  let status={|{"id":"12","author":{"id":"7","name":"Alice"},"create_time":"2026-10-16 09:00:00","text":"Status body","images":[{"large":{"url":"https://cdn.example/photo.jpg"}}]}|} in
  Eio_posix.run(fun _->
-  let z=Zh.create ~cookies:(fun _->["d_c0","test-dc0"])() in
+  let current_cookie=ref "test-dc0" and cookie_urls=ref [] in
+  let z=Zh.create ~cookies:(fun url->cookie_urls:=url::!cookie_urls;["d_c0",!current_cookie])() in
+  let anonymous=Zh.create ~cookies:(fun _->[]) () in
+  check(fails(fun()->ignore(Zh.list anonymous "answers.alice" ~after:None))) "missing Firefox cookie fails before HTTP";
+  check(!requests=[]) "missing credentials never issue a request";
   queue:=[response("{\"data\": ["^answer^"],\"paging\":{\"is_end\":false,\"next\":\"https://evil.test\"}}")];
   let first=Zh.list z "answers.alice" ~after:None in
   check((List.hd first.messages).id="answer:12" && first.after<>None) "Zhihu stable answer and continuation";
   check(List.mem_assoc "x-zse-96" (List.hd !requests).headers) "signature sent";
+  check(List.hd !cookie_urls=(List.hd !requests).url) "cookie provider receives actual API URL";
   check(fails(fun()->ignore(Zh.list z "answers.bob" ~after:first.after))) "Zhihu cursor scoped to author";
   queue:=[response "{\"data\":[],\"paging\":{\"is_end\":true}}"];
+  current_cookie:="updated-dc0";
   ignore(Zh.list z "answers.alice" ~after:first.after);
+  let updated=List.hd !requests in
+  check(List.assoc "Cookie" updated.headers="d_c0=updated-dc0") "next API request sees refreshed browser cookies";
+  check(List.assoc "x-zse-96" updated.headers=Z.Sign.header ~url:updated.url ~dc0:!current_cookie) "signature uses refreshed cookie";
   check(Uri.host(Uri.of_string(List.hd !requests).url)=Some "www.zhihu.com") "untrusted paging URL never followed";
   queue:=[response "binary\000"];
   let a=Zh.archive z "answers.alice" "answer:12" in
@@ -69,12 +78,16 @@ let ()=
     ".evilzhihu.com","/","evil",9999999999L,"";".zhihu.com","/","expired",1L,"";
     ".zhihu.com","/","container",9999999999L,"^userContextId=1"];
   ignore(Sqlite3.db_close db);
-  let cookies=Reader.Browser_cookies.get ~profile "https://www.zhihu.com/api/v4/x" in
+  let unconfigured=Reader.Firefox_cookies.create () in
+  check(fails(fun()->ignore(Reader.Firefox_cookies.get unconfigured "https://www.zhihu.com/"))) "unconfigured provider fails only on use";
+  let browser=Reader.Firefox_cookies.create ~profile () in
+  check(fails(fun()->ignore(Reader.Firefox_cookies.get browser "http://www.zhihu.com/"))) "provider rejects plaintext destinations";
+  let cookies=Reader.Firefox_cookies.get browser "https://www.zhihu.com/api/v4/x" in
   check(List.map fst cookies=["path";"domain"]) "cookie expiry, domain, path and Firefox container scope";
-  check(List.map fst(Reader.Browser_cookies.get ~profile "https://www.zhihu.com/apix")=["domain"]) "cookie path boundary";
+  check(List.map fst(Reader.Firefox_cookies.get browser "https://www.zhihu.com/apix")=["domain"]) "cookie path boundary";
   let locked=Sqlite3.db_open path in
   ignore(Sqlite3.exec locked "PRAGMA journal_mode=WAL; PRAGMA locking_mode=EXCLUSIVE; BEGIN EXCLUSIVE; INSERT INTO moz_cookies(host,path,name,value,expiry,originAttributes) VALUES('.zhihu.com','/','new-login','session',9999999999,''); COMMIT");
-  check(List.mem_assoc "new-login" (Reader.Browser_cookies.get ~profile "https://www.zhihu.com/")) "locked Firefox WAL snapshot sees latest login";
+  check(List.mem_assoc "new-login" (Reader.Firefox_cookies.get browser "https://www.zhihu.com/")) "locked Firefox WAL snapshot sees latest login";
   ignore(Sqlite3.db_close locked);
   Array.iter(fun name->Sys.remove(Filename.concat profile name))(Sys.readdir profile);Unix.rmdir profile);
  print_endline "PASS: Zhihu signatures and pages; Douban timeline, nested trees, reply inbox; credential isolation and archives"

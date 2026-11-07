@@ -74,11 +74,11 @@ module Make(H:R.Http.S)=struct
   let rec fetch depth url=
    if depth>3 || not(allowed url) then failwith "Unsupported Douban destination or redirect";
    let cookies=t.cookies url in
-   let r=H.request {R.Http.url;headers=["User-Agent","Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0";"Cookie",Reader.Browser_cookies.header cookies;
+   let r=H.request {R.Http.url;headers=["User-Agent","Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0";"Cookie",Reader.Firefox_cookies.header cookies;
     "Referer",url];limit=16*1024*1024} in
    if List.mem r.status [301;302;303;307;308] then
     (match List.assoc_opt "location" r.headers with None->failwith "Douban redirect missing target"|Some loc->fetch(depth+1)(R.Http.resolve url loc))
-   else if r.status<>200 then failwith(Printf.sprintf "Douban HTTP %d; check browser login or access challenge" r.status)
+   else if r.status<>200 then failwith(Printf.sprintf "Douban HTTP %d; check Firefox login or access challenge" r.status)
    else r.body,url in fetch 0 url
  let json t url=
   let j=Yojson.Safe.from_string(fst(request t url)) in
@@ -196,3 +196,7 @@ end
 module Live=Make(R.Curl_transport)
 module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live
 module Threading : Reader.Backend.Threading with type t=Live.t = Live
+
+(* The host supplies its selected credential provider; the backend does not
+   discover browser profiles or read browser databases. *)
+let create_live ~cookies () = Live.create ~cookies ()

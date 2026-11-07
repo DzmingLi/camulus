@@ -3,5 +3,5 @@
 (library
  (name zhihu_emacs)
  (modules zhihu_emacs)
- (libraries reader_emacs_backend ecaml)
+ (libraries reader_emacs_backend ecaml zhihu_backend)
  (preprocess (pps ppx_jane)))

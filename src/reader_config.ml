@@ -15,8 +15,7 @@ let read_config path =
  let data=parse_file path in
  if not(Poly.equal(json_field "version"data)(`Int 1))then fail "Invalid configuration: expected version 1";
  data
-let load ()=
- let path=get "ef-reader-config-file" and groups_path=get "ef-reader-groups-file"in
+let import_files path groups_path=
  let exists path=truth(call "file-exists-p"[path])in
  if exists path || exists groups_path then(
   let data=if exists path then read_config path else `Assoc []in
@@ -41,37 +40,36 @@ let load ()=
  List.iter(values(get "ef-reader-entries"))~f:(fun entry->Option.iter(find(text(field "source"entry)))~f:(fun backend->backend.on_entry entry))
 let setup_variables ()=
  List.iter["cl-lib";"tabulated-list";"json";"shr";"subr-x";"button"]~f:(fun name->run "require"[sym name]);
- variable "ef-reader-config-file"(data_path "XDG_CONFIG_HOME" "~/.config" "config.json");
- variable "ef-reader-groups-file"(data_path "XDG_CONFIG_HOME" "~/.config" "groups.json");
  variable "camulus-group-subscriptions-file"(data_path "XDG_STATE_HOME" "~/.local/state" "group-subscriptions.json");
  variable "ef-reader-state-file"(data_path "XDG_STATE_HOME" "~/.local/state" "state.sqlite3");
- List.iter["ef-reader-entries";"ef-reader-firefox-profile"]~f:(fun n->variable n nil);
- register_settings "browser"(string_settings["firefox_profile","ef-reader-firefox-profile"]);
- List.iter["ef-reader--requests";"ef-reader--completions";"ef-reader--loads";"ef-reader--states";"ef-reader--reading"]~f:(fun n->variable n(call "make-hash-table"[sym ":test";sym "equal"]));
- List.iter["entry";"home";"cursor";"query";"search-rows";"list-token";"list-request";"rows";"folder";"source";"title";"messages";"attachments";"loaded";"complete";"archive";"active";"positioned";"view-token";"visibility-timer";"rss-query"]~f:(fun n->let name="ef-reader--"^n in variable name nil;run "make-variable-buffer-local"[sym name]);
- variable "ef-reader-reply-indent"(i 4);
- run "custom-declare-group"[sym "camulus";nil;s "Read feeds and discussions.";sym ":group";sym "applications"];
- let read_attributes color=Value.list[sym ":inherit";sym "shadow";sym ":foreground";s color;sym ":weight";sym "normal"]in
- let background name color=Value.list[Value.list[Value.list[sym "background";sym name]];read_attributes color]in
- List.iter["ef-reader-heading",Value.list[Value.list[sym "t";Value.list[sym ":weight";sym "bold"]]];
-  "ef-reader-separator",Value.list[Value.list[sym "t";Value.list[sym ":inherit";sym "shadow";sym ":underline";sym "t"]]];
-  "ef-reader-read",Value.list[background "light" "gray55";background "dark" "gray65";
-    Value.list[sym "t";Value.list[sym ":inherit";sym "shadow"]]];
-  "ef-reader-favorite",Value.list[Value.list[sym "t";Value.list[sym ":foreground";s "red";sym ":weight";sym "normal"]]]]
- ~f:(fun(name,spec)->run "custom-declare-face"[sym name;spec;s "Reader presentation.";sym ":group";sym "camulus"])
+ custom ~kind:(Customization.Type.Repeat (Alist (Symbol,String))) "ef-reader-entries" nil
+   "Registered browsing groups. Each entry has name, source and group string fields. Registration is independent of subscription.";
+ custom ~kind:(Customization.Type.Option {doc_for_none="No browser profile";t=Directory})
+   "ef-reader-firefox-profile" nil "Firefox profile used by backends that read browser cookies.";
+ register_settings "browser"(string_settings["firefox_profile","ef-reader-firefox-profile"])
+let load () =
+ let names=Hash_set.create(module String) in
+ let entries=List.map (values(get "ef-reader-entries")) ~f:(fun entry ->
+   let data=to_json entry in
+   List.iter ["name";"source";"group"] ~f:(fun key -> require_string key data);
+   if truth(field "timeline" entry) then fail "Set subscription through the backend";
+   let entry=normalize entry in
+   let name=text(field "name" entry) in
+   if Hash_set.mem names name then fail "Duplicate group name";
+   Hash_set.add names name;entry) in
+ set "ef-reader-entries" (Value.list entries);
+ List.iter entries ~f:(fun entry -> Option.iter(find(text(field "source" entry))) ~f:(fun backend -> backend.on_entry entry))
 let register ~idle =
- define0 "ef-reader-load-config"load;
- let edit variable initial message_text =
-  let path=get variable in
-  run "make-directory"[call "file-name-directory"[path];sym "t"];run "find-file"[path];
-  if integer(call "buffer-size"[])=0 then Point.insert initial;
-  message message_text []in
- define0 ~interactive:true "ef-reader-edit-groups"(fun()->edit "ef-reader-groups-file"
-  "{\n  \"version\": 1,\n  \"groups\": []\n}\n"
-  "Save groups, then B reloads the browsing directory. Registering a group does not subscribe.");
- define0 ~interactive:true "ef-reader-edit-config"(fun()->edit "ef-reader-config-file"
-  "{\n  \"version\": 1,\n  \"backend_settings\": {}\n}\n"
-  "Save settings, then g refreshes the home feed. New identities require a runtime restart.");
+ define0 "ef-reader-load-config" load;
+ Defun.defun (Symbol.intern "camulus-import-json-config") [%here]
+   ~docstring:"Import existing JSON settings once into current Emacs option values. Save them with Customize to persist."
+   (Returns Value.Type.unit)
+   (let open Defun.Let_syntax in
+    let%map_open config=required "config-file" value and groups=required "groups-file" value in
+    import_files config groups);
+ define0 ~interactive:true "ef-reader-edit-groups" (fun () ->
+   Customization.customize_variable (Symbol.intern "ef-reader-entries"));
+ define0 ~interactive:true "ef-reader-edit-config" (fun () -> run "customize-group" [sym "camulus"]);
  define0 "ef-reader-start"(fun()->if idle()then(
   load();run "camulus-group-subscriptions-configure"[get "camulus-group-subscriptions-file"];
   run "ef-content-state-configure"[get "ef-reader-state-file"];

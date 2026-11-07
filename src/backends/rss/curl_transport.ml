@@ -2,7 +2,7 @@
    Never globally clean up libcurl inside a host shared with other modules. *)
 let () = Curl.global_init Curl.CURLINIT_GLOBALALL
 
-let request (r : Http.request) =
+let perform ?(configure=fun _ -> ()) ?(completed=fun _ -> ()) (r : Http.request) =
   if not (List.mem "asynchdns" (Curl.version_info ()).features) then
     raise (Http.Transport_error "libcurl must support asynchronous DNS for the Eio transport");
   ignore (Http.validate r.url);
@@ -10,7 +10,8 @@ let request (r : Http.request) =
   let attached = ref false in
   Fun.protect ~finally:(fun () ->
     if !attached then Curl.Multi.remove multi easy;
-    Curl.Multi.cleanup multi; Curl.cleanup easy) @@ fun () ->
+    Curl.Multi.cleanup multi;
+    Fun.protect ~finally:(fun () -> Curl.cleanup easy) (fun () -> completed easy)) @@ fun () ->
   let body = Buffer.create 4096 and headers = ref [] and header_size = ref 0 in
   Curl.set_url easy r.url;
   Curl.set_nosignal easy true;
@@ -39,6 +40,7 @@ let request (r : Http.request) =
          headers := (key,value) :: !headers);
       String.length line
     end);
+  configure easy;
   Curl.Multi.add multi easy; attached := true;
   let rec poll () =
     ignore (Curl.Multi.perform multi);
@@ -53,3 +55,5 @@ let request (r : Http.request) =
    | Curl.CurlException _ | Curl.Multi.Error _ | Curl.Multi.CError _ ->
      raise (Http.Transport_error "Feed transport failure"));
   { Http.status = Curl.get_responsecode easy; headers = !headers; body = Buffer.contents body }
+
+let request r = perform r

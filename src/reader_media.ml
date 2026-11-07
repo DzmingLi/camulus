@@ -150,7 +150,7 @@ let render ~source ~id ~base ~index ~width dom=
   match (if String.is_empty url then None else Reader.Html.safe_link ~base "src" url) with
   | None->()
   | Some url->
-    let supported=truth(call "display-graphic-p" []) && truth(call "require" [sym "webkit-module";nil;sym "t"]) in
+    let supported=Reader_webkit.available () in
     if supported then (
       let requested=Int.of_string_opt(attr "width" dom) in
       let preferred=Option.value requested ~default:700 |> Int.max 120 |> Int.min 4096 in

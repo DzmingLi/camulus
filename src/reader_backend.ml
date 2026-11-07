@@ -92,6 +92,10 @@ let set name v=run "set"[sym name;v]
 let local name v=run "make-local-variable"[sym name];set name v
 let field name v=call "alist-get"[sym name;v]
 let text v=if truth v then Value.to_utf8_bytes_exn v else ""
+let firefox_cookie_provider () =
+ let configured=get "ef-reader-firefox-profile" in
+ let profile=if truth configured then Some(text(call "expand-file-name" [configured])) else None in
+ Reader.Firefox_cookies.create ?profile ()
 let integer v=Value.to_int_exn v
 let i=Value.of_int_exn
 let b v=if v then sym "t"else nil
@@ -129,3 +133,29 @@ let string_settings fields value=
    |None->None|Some(`String v)when not(String.contains v '\000')->Some(variable,s v)
    |_->failwith("Invalid backend setting: "^key))
  |_->failwith "Backend settings must be an object"
+
+let customization_group = lazy (Customization.Group.defgroup "camulus" [%here]
+  ~docstring:"Read feeds and discussions." ~parents:[Customization.Group.emacs])
+let custom ?(kind=Customization.Type.Sexp) name default docstring =
+  ignore (Customization.defcustom (Symbol.intern name) [%here] ~docstring
+    ~group:(Lazy.force customization_group) ~type_:Value.Type.value
+    ~customization_type:kind ~standard_value:default () : Value.t Customization.t)
+
+(* Worker sessions contain only OCaml data and run on the Eio domain. *)
+type worker = {
+  source : string;
+  page : string -> after:string option -> query:string option -> Reader.Content.page;
+  archive : Reader.Content_state.target -> string -> native_thread:(string -> string) -> add:(Reader.Content_state.archived -> unit) -> bool;
+  execute : Reader.Protocol.work -> observe:(Reader.Content.message list -> unit) -> emit:(Reader.Protocol.payload -> unit) -> bool;
+}
+type host = {
+  create : net:Eio_unix.Net.t -> now:(unit -> float) -> sleep:(float -> unit) -> worker;
+  drain : unit -> Value.t list;
+  close : unit -> unit;
+}
+let worker_factories : (notify:(unit -> unit) -> host option) list ref = ref []
+let payload_renderers : (Reader.Protocol.payload -> (string * Yojson.Safe.t) option) list ref = ref []
+let event_observers : (barrier:int -> Reader.Protocol.event -> Value.t list) list ref = ref []
+let source_providers : (unit -> string option) list ref = ref []
+let archive_extractors : (string -> (string -> int -> string) option) list ref = ref []
+let configured_sources () = List.filter_map !source_providers ~f:(fun f -> f ())

@@ -4,12 +4,21 @@
 
 ## 配置与交互
 
-两个配置文件分别负责稳定的声明：
+通过 `M-x customize-group RET camulus` 管理选项，也可以在 Emacs 配置中设置变量。`ef-reader-entries` 登记浏览组，每项包含 `name`、`source`、`group`。
 
-- `~/.config/camulus/groups.json`：`{"version":1,"groups":[...]}`，每组具有 `name`、`source`、`group`。由 `ef-reader-groups-file` 覆盖路径。
-- `~/.config/camulus/config.json`：`{"version":1,"backend_settings":{...}}`。由 `ef-reader-config-file` 覆盖路径。
+```elisp
+(setq ef-reader-entries
+      '(((name . "NixOS")
+         (source . "discourse:https://discourse.nixos.org")
+         (group . "latest"))
+        ((name . "Emacs China")
+         (source . "discourse:https://emacs-china.org")
+         (group . "latest"))))
+```
 
-两者遵循 `XDG_CONFIG_HOME`，都是 JSON 数据。示例见 [groups.json](../examples/groups.json) 和 [config.json](../examples/config.json)。注册组中没有 `timeline` 开关，配置中也没有订阅名单；`M-x camulus` 总是打开首页。
+后端各自声明 Customize 选项，例如 `ef-reddit-username`、`ef-mail-root` 和 `ef-discourse-auth-sources`。Customize 保存到用户的 `custom-file`。组注册不会订阅该组。
+
+旧 JSON 数据可通过 `(camulus-import-json-config CONFIG-PATH GROUPS-PATH)` 一次性导入当前变量，再通过 Customize 保存。正常启动只读取 Emacs 选项。
 
 订阅是可变状态，由后端的可选能力决定。首页完全使用各后端 `followed` 返回的入口；注册组仅为这些入口提供名字及浏览目录。没有任何订阅时，注册再多组也不会使首页出现内容。
 
@@ -21,8 +30,8 @@ Discourse 话题 `s` 仍调用服务器的追踪设置；`S` 关注整个浏览�
 
 首页先显示选入 feed 的本地缓存，并异步刷新；最多同时刷新 4 个入口，每个来源返回后逐步更新列表。按活动时间倒序排列，同一来源内的讨论跨入口合并，邮件继续按回复与 References 关系合并。每个来源维护自己的分页游标，`n` 加载尚有下一页的来源。失败时保留该来源缓存，页首显示失败数，`e` 查看详情。`b` 浏览所选条目的来源入口，`h` 返回统一首页。
 
-- 首页顶部可点击 `Groups`、`Discourse`、`Reddit`、`RSS / Atom` 浏览入口。`B` 打开组目录，按来源列出所有配置组，也可以浏览未配置的 subreddit、论坛和 RSS URL；这些操作不会订阅或加入首页。论坛内 `c` 选择分类，`/` 搜索。
-- 组目录 `C` 编辑 `groups.json`；首页 `C` 编辑 `config.json`。保存后重新打开目录或刷新。
+- 首页顶部的后端按钮打开对应的已登记组目录。Discourse 可登记多个站点及各自的列表，Reddit 可登记多个 subreddit；`B` 打开所有组。目录中可单独选择临时浏览未登记的组。浏览不会订阅或加入首页。论坛内 `c` 选择分类，`/` 搜索。
+- 组目录 `C` 打开浏览组选项；首页 `C` 打开 Camulus Customize 页面。应用后重新打开目录或刷新。
 - 组目录 `s` 订阅/取消订阅所选组；列表 `S` 操作当前组（首页操作所选行的来源组）。取消订阅立即重新计算首页，浏览入口保留。
 - `G` 同时显示 RSS 后端已关注的 feed；取消关注移除这个发现入口，但不会移除配置文件里显式声明的入口。
 - 首页不提供全局搜索；在 `G` / `b` 打开的入口中，`/` 搜索当前入口，空查询恢复列表。搜索结果不写入入口活动缓存，不改变订阅关系。
@@ -67,7 +76,7 @@ schema v1/v2 自动迁移到 v3，保留 MIME、附件、收藏和已读。旧�
 
 `make test` 覆盖 OCaml、配置/订阅与 Emacs 交互回归。
 
-首页打开会刷新一次，也可用 `g` 手动刷新；还没有周期性后台刷新。持久离线写入队列、自动后台同步仍未实现；本轮的订阅接口不会假装已具备离线重试。Discourse 的回复/发帖能力已在后端提供，编辑界面及自动保存草稿尚未接入。
+首页打开会刷新一次，也可用 `g` 手动刷新。Maildir 可单独配置 [周期性邮件同步](MAIL.md#运行)。持久离线写入队列仍未实现。Discourse 的回复/发帖能力已在后端提供，编辑界面及自动保存草稿尚未接入。
 
 ## 来源与组标识
 
@@ -105,7 +114,7 @@ schema v1/v2 自动迁移到 v3，保留 MIME、附件、收藏和已读。旧�
 }
 ```
 
-知乎和豆瓣由 OCaml 读取指定 Firefox profile 的 Cookie，仅选择默认容器、匹配域名/路径且有效的记录。浏览器锁定数据库时，使用权限受限的临时数据库/WAL 快照，读取后删除；配置文件不保存 Cookie。请求签名、分页和正文解析也在 OCaml 中。图片下载不携带登录 Cookie。服务端登录挑战或访问限制会报告失败并保留旧列表，不伪装成空 feed。
+知乎和豆瓣均通过 Camulus 的公共 Firefox Cookie 能力读取指定 profile，见 [ZHIHU.md](ZHIHU.md)。由 OCaml 选择 Cookie，仅选择默认容器、匹配域名/路径且有效的记录。浏览器锁定数据库时，使用权限受限的临时数据库/WAL 快照，读取后删除；配置文件不保存 Cookie。请求签名、分页和正文解析也在 OCaml 中。图片下载不携带登录 Cookie。服务端登录挑战或访问限制会报告失败并保留旧列表，不伪装成空 feed。
 
 Discourse 增加 `replies`（直接回复）和 `notifications`（回复、提及、引用）入口，读取服务器通知并按原生 topic 合并；GET 不提交标为已读操作。这些通知入口暂不提供组内搜索。
 
@@ -114,7 +123,3 @@ Discourse 增加 `replies`（直接回复）和 `notifications`（回复、提�
 `make test` 使用隔离的 XDG 配置/状态目录，包含原有回归、原生新后端测试、Firefox WAL 快照测试和 Emacs 界面测试。真实网络检查是单独显式运行的 `test/publication_live.ml` 和 `test/publication-native-live.el`，不会随普通测试运行；不会发帖、点赞或修改远端订阅。相关后端的源项目署名位于各目录 `NOTICE`。
 
 启动新进程以加载新版本原生模块：在项目目录执行 `nix develop -c make reader-demo`，首页 `G` 选择入口，`g` 抓取当前入口，`RET` 打开，`m` 收藏。已加载旧 `.so` 的 Emacs 进程需要重启才能使用新后端。
-
-## CS.RIN.RU
-
-`source: "csrin"`，`group: "forum.ID"` 或 `"topic.ID"`。默认浏览入口不进入首页；需要时通过组订阅命令加入首页。支持论坛发现、逐页完整讨论、登录、发帖/回复与草稿，详细配置和边界见 [CSRIN.md](CSRIN.md)。

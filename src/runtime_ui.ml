@@ -48,15 +48,15 @@ let stop () =
   run "ef-host-cancel-all" [];
   if truth(call "process-live-p" [get "ef-probe--process"]) then run "delete-process" [get "ef-probe--process"];
   set "ef-probe--timer" nil;set "ef-probe--process" nil
-let install ~on_event =
+let install ~on_event ~on_start ~on_stop =
   List.iter ["ef-probe--process";"ef-probe--timer";"ef-probe--events";"ef-probe--hold";"ef-probe-record-events";"ef-probe-event-hook"]
     ~f:(fun name->Reader_backend.variable name nil);
   Reader_backend.variable "ef-probe--wakeups"(Value.of_int_exn 0);
   receive:=on_event;
   let define name f=Defun.defun_nullary_nil (Symbol.intern name) [%here] ~docstring:"Camulus event-loop operation." f in
   define "ef-probe--publish" publish;
-  define "ef-probe-session-start" start;
-  define "ef-probe-session-stop" stop;
+  define "ef-probe-session-start" (fun () -> start ();on_start ());
+  define "ef-probe-session-stop" (fun () -> on_stop ();stop ());
   run "add-hook"[sym "kill-emacs-hook";sym "ef-probe-session-stop"];
   Defun.defun (Symbol.intern "ef-probe--receive") [%here] ~docstring:"Drain worker events after a pipe wakeup."
     (Returns Value.Type.unit)

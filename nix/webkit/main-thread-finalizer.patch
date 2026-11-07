@@ -1,0 +1,32 @@
+--- a/webkit-module.c
++++ b/webkit-module.c
+@@ -992,8 +992,8 @@
+   return Qnil;
+ }
+ 
+-static void
+-client_free (void *ptr)
++static gboolean
++client_free_on_main (gpointer ptr)
+ {
+   debug_print ("c %p client_free\n", ptr);
+   Client *c = (Client *)ptr;
+@@ -1001,6 +1001,18 @@
+   gtk_widget_destroy (GTK_WIDGET (c->view));
+   g_object_unref (c->view);
+   free(c);
++  return G_SOURCE_REMOVE;
++}
++
++static void
++client_free (void *ptr)
++{
++  /* Emacs can finalize user pointers on a Lisp worker thread, or during
++     a native GTK call's allocation. GTK/WebKit destruction must run on
++     the GUI loop, after the current call has returned. An idle source
++     always queues; g_main_context_invoke could run inline on the worker
++     if it acquires the context. The source owns PTR until cleanup. */
++  g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, client_free_on_main, ptr, NULL);
+ }
+ 
+ static emacs_value

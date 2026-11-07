@@ -59,9 +59,13 @@
         });
       };
       # An ordinary Emacs package; no OCaml compiler is needed at runtime.
+      lib.mkWebkitPackage = epkgs: pkgs.callPackage ./nix/webkit {
+        emacsPackages = epkgs;
+      };
       lib.mkEmacsPackage = epkgs: epkgs.trivialBuild {
         pname = "camulus";
         version = "0.1.0";
+        packageRequires = [ (self.lib.mkWebkitPackage epkgs) ];
         src = "${scope.camulus}/share/emacs/site-lisp/camulus";
         buildPhase = ''
           emacs --batch -Q --eval '(progn (require (quote loaddefs-gen)) (loaddefs-generate default-directory (expand-file-name "camulus-autoloads.el")))'

@@ -2,7 +2,21 @@ open! Core
 open! Ecaml
 open Application
 
+let request_mail = Maildir_emacs.submit_operation ~submit:submit_work
+let request_reddit = Reddit_emacs.submit_operation ~submit:submit_work
 let () =
+  defun (Symbol.intern "camulus-firefox-cookies-get") [%here]
+    ~docstring:"Return Firefox cookies for HTTPS URL as an alist of string pairs.\nRead ef-reader-firefox-profile on each call, without starting the reader.\nThis synchronous callback reads only the local database; it does not log in."
+    (Returns Value.Type.value)
+    (let open Defun.Let_syntax in let%map_open url=required "url" string in
+     ensure_ui ();
+     let provider=Reader_backend.firefox_cookie_provider () in
+     Value.list(List.map (Reader.Firefox_cookies.get_sync provider url) ~f:(fun(name,value)->
+       Reader_backend.call "cons" [Value.of_utf8_bytes name;Value.of_utf8_bytes value])));
+  let idle () = Option.is_none !runtime in
+  Reddit_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
+  Zhihu_emacs.install_protocol ();
+  Maildir_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
   defun_nullary_nil (Symbol.intern "ef-discourse-clear-config") [%here]
     ~docstring:"Clear Discourse session configuration before startup."
     (fun () -> ensure_ui ();if Option.is_some !runtime then failwith "Stop runtime first";discourse_configs:=[]);
@@ -26,7 +40,7 @@ let () =
     (let open Defun.Let_syntax in let%map_open request=required "request" value in
      let j=Reader_backend.to_json request in request_discourse (Discourse.Decode.site (Discourse.Decode.str "site" j)) (Discourse.operation_of_json j));
   defun (Symbol.intern "ef-browser-profile-configure") [%here]
-    ~docstring:"Set Firefox profile for Zhihu and Douban; cookies are read only on requests."
+    ~docstring:"Configure the shared read-only Firefox cookie provider for opt-in backends."
     (Returns Value.Type.unit)
     (let open Defun.Let_syntax in
      let%map_open path=required "profile" string in
@@ -103,114 +117,11 @@ let () =
   defun_nullary (Symbol.intern "ef-content-sources") [%here]
     ~docstring:"Configured source identities."
     (Returns Value.Type.(list string)) (fun () -> ensure_ui ();
-      Option.to_list (Option.map !reddit_config ~f:(fun c -> "reddit:"^c.Reddit_backend.username)) @
-      Option.to_list (Option.map !mail_config ~f:(fun c -> "maildir:"^c.Maildir_backend.root)));
+      configured_sources ());
   defun (Symbol.intern "camulus-state-submit") [%here]
     ~docstring:"Submit an operation described by an Emacs alist." (Returns Value.Type.int)
     (let open Defun.Let_syntax in let%map_open request=required "request" value in
      request_state (CS.operation_of_json (Reader_backend.to_json request)));
-  defun (Symbol.intern "ef-reddit-vote") [%here]
-    ~docstring:"Set an absolute vote with optimistic UI state; reject overlapping votes for the same item."
-    (Returns Value.Type.int)
-    (let open Defun.Let_syntax in
-     let%map_open id = required "item-id" string
-     and previous = required "previous-vote" int
-     and direction = required "direction" int in
-     let t = get_runtime () in
-     if Option.is_none !reddit_config then failwith "Configure Reddit first";
-     ignore (Reddit_backend.Decode.require_thing id : string);
-     let previous = vote_of_int previous and direction = vote_of_int direction in
-     if Voting.is_pending votes id then failwith "A vote for this item is still pending";
-     let request = !next_id + 1 in
-     if not (Runtime.submit t (Protocol.Submit {id=request;owner=Service;work=Reddit (Vote (id,direction))})) then
-       failwith "Request not accepted: runtime stopping or queue full";
-     Voting.start votes ~id ~request ~previous ~direction;
-     next_id := request; request);
-  defun (Symbol.intern "ef-reddit-vote-state") [%here]
-    ~docstring:"Return the local vote overlay as (direction status message request-id), or nil."
-    (Returns Value.Type.value)
-    (let open Defun.Let_syntax in
-     let%map_open id = required "item-id" string in
-     ensure_ui ();
-     match Voting.find votes id with
-     | None -> Value.nil
-     | Some update ->
-       let state, message = vote_status update.status in
-       Value.list [Value.of_int_exn (vote_code update.direction);Value.intern state;
-         Value.of_utf8_bytes message;Value.of_int_exn update.request]);
-  defun (Symbol.intern "ef-host-process-complete") [%here]
-    ~docstring:"Complete an Emacs-owned subprocess for the OCaml worker."
-    (Returns Value.Type.unit)
-    (let open Defun.Let_syntax in
-     let%map_open id = required "id" int
-     and status = required "status" int
-     and stdout = required "stdout" string in
-     ensure_ui ();Option.iter !process_bridge ~f:(fun t -> Maildir_backend.Process.complete t id {status;stdout}));
-  defun (Symbol.intern "ef-mail-configure") [%here]
-    ~docstring:"Configure the local Maildir/mu/Colombe backend before starting the runtime."
-    (Returns Value.Type.unit)
-    (let open Defun.Let_syntax in
-     let%map_open root = required "maildir-root" string
-     and muhome = required "muhome" string
-     and sender = required "sender" string
-     and mu = required "mu-program" string
-     and account = required "smtp-profile" string in
-     ensure_ui ();
-     if Option.is_some !runtime then failwith "Stop the runtime before reconfiguring mail";
-     let config={ (Maildir_backend.config ~root ~muhome ~sender) with mu;account } in
-     Maildir_backend.validate_config config;mail_config:=Some config);
-  defun (Symbol.intern "ef-mail-configure-account") [%here]
-    ~docstring:"Add an account route (Maildir prefix, sender, SMTP profile) before startup."
-    (Returns Value.Type.unit)
-    (let open Defun.Let_syntax in
-     let%map_open prefix = required "prefix" string
-     and address = required "address" string
-     and smtp_account = required "smtp-account" string in
-     ensure_ui ();
-     if Option.is_some !runtime then failwith "Stop runtime before configuring accounts";
-     let c=Option.value_exn !mail_config in
-     let config={c with accounts={Maildir_backend.prefix;address;smtp_account} ::
-       List.filter c.accounts ~f:(fun a -> not(String.equal a.prefix prefix))} in
-     Maildir_backend.validate_config config;mail_config:=Some config);
-  defun (Symbol.intern "ef-mail-configure-smtp") [%here]
-    ~docstring:"Configure implicit-TLS SMTP. Password file is read only on explicit sending."
-    (Returns Value.Type.unit)
-    (let open Defun.Let_syntax in
-     let%map_open name = required "profile" string
-     and host = required "host" string
-     and port = required "port" int
-     and username = required "username" string
-     and password_file = required "password-file" string
-     and ca_file = required "ca-file" string in
-     ensure_ui ();
-     if Option.is_some !runtime then failwith "Stop runtime before configuring SMTP";
-     let smtp={Maildir_backend.Smtp.host;port;username;password_file;ca_file} in
-     Maildir_backend.Smtp.validate smtp;
-     let c=Option.value_exn !mail_config in
-     mail_config:=Some {c with smtp_profiles=(name,smtp)::
-       List.filter c.smtp_profiles ~f:(fun (n,_) -> not(String.equal n name))});
-  defun (Symbol.intern "camulus-mail-submit") [%here]
-    ~docstring:"Submit an operation described by an Emacs alist." (Returns Value.Type.int)
-    (let open Defun.Let_syntax in let%map_open request=required "request" value in
-     request_mail (Maildir_backend.operation_of_json (Reader_backend.to_json request)));
-  defun (Symbol.intern "ef-reddit-configure") [%here]
-    ~docstring:"Configure the OCaml Reddit backend before starting the runtime; token file is read only by the worker."
-    (Returns Value.Type.unit)
-    (let open Defun.Let_syntax in
-     let%map_open username = required "username" string
-     and token_file = required "token-file" string
-     and client_id = required "client-id" string
-     and redirect_uri = required "redirect-uri" string in
-     ensure_ui ();
-     if Option.is_some !runtime then failwith "Stop the runtime before reconfiguring Reddit";
-     let config = Reddit_backend.config ~username ~token_file in
-     let config = {config with client_id;redirect_uri} in
-     Reddit_backend.validate_config config;
-     reddit_config := Some config);
-  defun (Symbol.intern "camulus-reddit-submit") [%here]
-    ~docstring:"Submit an operation described by an Emacs alist." (Returns Value.Type.int)
-    (let open Defun.Let_syntax in let%map_open request=required "request" value in
-     request_reddit (Reddit_backend.operation_of_json (Reader_backend.to_json request)));
   defun (Symbol.intern "ef-probe-start") [%here] ~docstring:"Start the in-process Eio worker."
     (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open p = required "pipe-process" value in start p);
@@ -254,7 +165,8 @@ let () =
       for i = 1 to 2000 do ignore (Stdlib.Sys.opaque_identity (Value.of_utf8_bytes (Int.to_string i)) : Value.t) done;
       Gc.full_major ());
   Reader_ui.register ();
-  Runtime_ui.install ~on_event:(fun event -> if Current_buffer.variable_is_defined (Symbol.intern "ef-reader--requests") then Reader_ui.event (Application.event_value event));
+  Runtime_ui.install ~on_start:(Maildir_emacs.start_sync ~submit:request_mail) ~on_stop:Maildir_emacs.stop_sync
+    ~on_event:(fun event -> if Current_buffer.variable_is_defined (Symbol.intern "ef-reader--requests") then Reader_ui.event (Application.event_value event));
   defun_nullary_nil (Symbol.intern "ef-reader-backends-install") [%here]
     ~docstring:"Register the linked backends' optional Emacs capabilities."
     (fun () ->
@@ -269,12 +181,8 @@ let () =
         ~read:(fun id group -> request_publication source (Publication_read(id,group)))
         ~attachment:(fun id group part destination -> request_publication source (Publication_attachment(id,group,part,destination))) () in
       publication Atlantic_emacs.install "atlantic";publication Janestreet_emacs.install "janestreet";
-      publication Zhihu_emacs.install "zhihu";publication Douban_emacs.install "douban";
+      Zhihu_emacs.install ~submit:submit_work ();publication Douban_emacs.install "douban";
       publication Netease_emacs.install "netease";publication Public_inbox_emacs.install "public-inbox";
-      Csrin_emacs.install ~submit:request_csrin ~configure:(fun site ->
-        ensure_ui ();if Option.is_some !runtime then failwith "Stop runtime before changing CS.RIN.RU identity";
-        csrin_site:=Csrin_backend.site site) ();
-      publication Csrin_emacs.install_reader "csrin";
       publication Blogger_emacs.install "blogger";publication Gcores_emacs.install "gcores");
   Reader_config.setup_variables ();
   Reader_config.register ~idle:(fun()->String.equal(Application.status())"idle");

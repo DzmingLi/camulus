@@ -25,7 +25,8 @@ let ()=Eio_posix.run(fun _->
  run "NetEase events" (fun()->List.length(Netease_backend.Live.list n "events.398686067" ~after:None).messages);
  run "Public-inbox MIME thread" (fun()->List.length(Public_inbox_backend.Live.list p "https://list.orgmode.org/orgmode/875xwqj4tl.fsf@localhost/" ~after:None).messages);
  Option.iter(fun profile->
-  let cookies url=Reader.Browser_cookies.get ~profile url in
+  let browser=Reader.Firefox_cookies.create ~profile () in
+  let cookies=Reader.Firefox_cookies.get browser in
   let module H=struct let request r=
    let result=Rss_backend.Curl_transport.request r in
    Option.iter(fun loc->let u=Uri.of_string loc in Printf.printf "Redirect: %s%s\n%!" (Option.value(Uri.host u)~default:"")(Uri.path u))(List.assoc_opt "location" result.headers);
@@ -37,10 +38,13 @@ let ()=Eio_posix.run(fun _->
     match code with `Int n->Printf.printf "Remote API error code: %d\n%!" n|_->()
     with _->());
    result end in
-  let module Z=Zhihu_backend.Make(H) in let module B=Douban_backend.Make(H) in
-  let z=Z.create ~cookies () and d=B.create ~cookies () in
-  List.iter(fun group->run ("Zhihu "^group)(fun()->let p=Z.list z group ~after:None in List.length p.messages)) ["articles.people.xiscei";"answers.xiscei"];
+  let module B=Douban_backend.Make(H) in
+  let d=B.create ~cookies () in
   run "Douban timeline" (fun()->let p=B.list d "timeline.152457381" ~after:None in List.length p.messages);
-  run "Douban reply inbox" (fun()->let p=B.list d "replies.266418270" ~after:None in List.length p.messages)
+  run "Douban reply inbox" (fun()->let p=B.list d "replies.266418270" ~after:None in List.length p.messages);
+  let z=Zhihu_backend.create_live ~cookies () in
+  List.iter(fun group->run ("Zhihu "^group)(fun()->
+   let p=Zhihu_backend.Live.list z group ~after:None in List.length p.messages))
+   ["articles.people.xiscei";"answers.xiscei"]
  )(Sys.getenv_opt "EF_FIREFOX_PROFILE");
  if !errors>0 then exit 1)

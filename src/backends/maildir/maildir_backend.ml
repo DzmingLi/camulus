@@ -47,12 +47,13 @@ type operation = List of group * cursor option | Search of group * string * curs
   | Draft_send of string * string
   | Archive of string * string * bool
   | Trash of string * string * bool
+  | Sync of string list
 type result = Page of M.page * bool | Thread_batch of M.thread_batch | Article of article
   | Saved of string | Sent of receipt
   | Draft of saved_draft | Drafts of saved_draft list | Archived of move_result | Trashed of move_result
-  | Draft_sent of string * bool
+  | Draft_sent of string * bool | Synced
 type process_result = { status : int; stdout : string }
-type run = ?input:string -> string list -> process_result
+type run = ?input:string -> ?timeout:float -> string list -> process_result
 type submit = profile:string -> sender:string -> recipients:string list -> string -> unit
 type snapshot = { group : string; query : string; rows : M.message list; truncated : bool }
 type t = { config : config; run : run; submit : submit; headers : (string,header) Hashtbl.t;
@@ -231,6 +232,12 @@ let special_folder t group name = (account_for t group).prefix ^ "/" ^ name
 let with_mutation t f =
   Eio.Mutex.lock t.mutations;
   Fun.protect ~finally:(fun () -> Eio.Mutex.unlock t.mutations) f
+let sync t command = with_mutation t @@ fun () ->
+  let result=t.run ~timeout:240. command in
+  if result.status<>0 then error ("Synchronization command failed (status "^string_of_int result.status^")");
+  let indexed=t.run ~timeout:120. [t.config.mu;"index";"--muhome";t.config.muhome;"--quiet"] in
+  if indexed.status<>0 then error ("Mail synchronized, but mu index failed (status "^string_of_int indexed.status^")");
+  Hashtbl.clear t.snapshots
 let index_file t path =
   try (t.run [t.config.mu;"add";"--muhome";t.config.muhome;"--quiet";"--";path]).status=0
   with Eio.Cancel.Cancelled _ as ex -> raise ex | _ -> false
@@ -439,6 +446,7 @@ let result_json = function
   | Draft_sent(id,cleaned) -> `Assoc["kind",`String "draft-sent";"id",`String id;"cleaned",`Bool cleaned]
   | Draft d -> `Assoc["kind",`String "draft";"draft",draft_json ~include_source:true d]
   | Drafts ds -> `Assoc["kind",`String "drafts";"drafts",`List(List.map(draft_json ~include_source:false) ds)]
+  | Synced -> `Assoc["kind",`String "synced"]
   | (Archived r | Trashed r) as result -> `Assoc["kind",`String (match result with Trashed _->"trashed"|_->"archived");"destination",`String r.destination;
                         "moved",`List(List.map(fun s -> `String s) r.moved);"failed",`Int r.failed]
   | Sent r -> `Assoc["kind",`String "sent";"id",`String r.message_id]
@@ -456,5 +464,6 @@ let execute t op ~emit = match op with
   | Draft_list g -> emit(Drafts(list_drafts t g))
   | Archive(g,id,whole) -> emit(Archived(archive t g id whole))
   | Trash(g,id,whole) -> emit(Trashed(trash t g id whole))
+  | Sync command -> sync t command;emit Synced
 
   | Draft_send(key,rev) -> let id,cleaned=send_draft t key rev in emit(Draft_sent(id,cleaned))

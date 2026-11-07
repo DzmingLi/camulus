@@ -2,7 +2,7 @@ open! Core
 open! Ecaml
 open Reader_backend
 let install ~submit ~followed () =
-  variable "camulus-jsonfeed-subscriptions-file"(data_path "XDG_STATE_HOME" "~/.local/state" "jsonfeed-subscriptions.json");
+  custom ~kind:Customization.Type.File "camulus-jsonfeed-subscriptions-file" (data_path "XDG_STATE_HOME" "~/.local/state" "jsonfeed-subscriptions.json") "Backend state file.";
   register { (base ~name:"JSON Feed" ~matches:Jsonfeed_backend.is_source ~threaded:false
     ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Value.of_int_exn (submit (Rss_backend.Read(Jsonfeed_backend.url_of_source source,id))))) with
     attachment=Some (fun ~source ~id ~group:_ ~part ~destination ->

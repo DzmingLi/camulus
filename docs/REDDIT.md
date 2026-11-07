@@ -30,7 +30,7 @@ nix develop -c make reader-demo
 
 启动全新 `emacs -Q` 后输入 subreddit 和 Reddit 用户名。默认读取 `~/News/nnreddit/refresh-token`。身份和凭据路径由 Camulus 配置声明，不读取旧后端变量。
 
-也可以在 Emacs 中设置下列变量，或使用入口 JSON 的 `backend_settings.reddit`：
+可在 Emacs 配置中设置下列变量，或通过 Camulus 的 Customize 页面管理。
 
 ```elisp
 (setq ef-reddit-username "YOUR_USERNAME"

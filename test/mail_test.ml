@@ -33,7 +33,7 @@ let () =
     json_header path "separate@test" [] 3 "/Inbox";
     json_header path "outside@test" [] 4 "/Other"] in
   let calls=ref [] in
-  let run ?(input="") argv = calls := (argv,input)::!calls;
+  let run ?(input="") ?timeout:_ argv = calls := (argv,input)::!calls;
     {Maildir_backend.status=0;stdout=Yojson.Safe.to_string (`List rows)} in
   let config={ (B.config ~root ~muhome:root ~sender:"me@example.test") with page_size=1 } in
   let unused ~profile:_ ~sender:_ ~recipients:_ _ = failwith "unexpected SMTP" in

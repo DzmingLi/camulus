@@ -192,15 +192,18 @@ let with_bindings vars f =
     | (name,value)::rest -> Current_buffer.set_value_temporarily Sync (Var.create (Symbol.intern name) Value.Type.value) value ~f:(fun () -> loop rest)
   in loop vars
 
-let header_link label command =
+let header_action label activate =
   let map=Keymap.create () in
   let action=Function.to_value (Defun.lambda_nullary_nil [%here] ~interactive:No_arg (fun () ->
      let event=get "last-input-event" in
      Selected_window.set (Window.of_value_exn (call "posn-window" [call "event-start" [event]]));
-     run "call-interactively" [sym command])) in
+     activate ())) in
   run "define-key" [Keymap.to_value map;vector [sym "header-line";sym "mouse-1"];action];
   propertize (s label) [sym "face";sym "link";sym "mouse-face";sym "highlight";
     sym "help-echo";s label;sym "local-map";Keymap.to_value map]
+
+let header_link label command =
+  header_action label (fun () -> run "call-interactively" [sym command])
 
 let with_image_downloads f =
   let target=buffer () and generation=get "ef-reader--render-token" in
@@ -357,10 +360,54 @@ let open_article () =
   let window=call "display-buffer-in-direction" [bv target;alist ["direction",sym "right";"window-width",call "string-to-number" [s "0.6"]]] in
   if truth window then Selected_window.set (Window.of_value_exn window)
 
+let browse_entry entry = run "camulus" [entry];run "ef-reader--load-list" [b true]
+let button label action = run "insert-text-button" [s label;sym "follow-link";b true;sym "action";callback_unit (fun _ -> action ())]
+let groups ?backend () =
+  run "ef-reader-load-config" [];
+  let title=Option.value_map backend ~default:"Groups" ~f:(fun (b : Reader_backend.t) -> b.name) in
+  let name=Option.value_map backend ~default:"*Reader groups*" ~f:(fun _ -> "*Camulus groups: "^title^"*") in
+  ignore (show_buffer name : Buffer.t);run "ef-reader-groups-mode" [];
+  local "ef-reader-groups--backend" (Option.value_map backend ~default:nil ~f:(fun b -> s b.name));
+  let entries=values (get "ef-reader-entries") |> List.filter ~f:(fun entry ->
+    Option.for_all backend ~f:(fun b -> b.matches (text "source" entry))) in
+  let browse_unregistered label command =
+    button label (fun () -> run "call-interactively" [sym command]) in
+  writable (fun () ->
+    Current_buffer.erase ();
+    Point.insert (title^" · Browse groups\n\nOpening a group does not subscribe to it or add it to Home.\n");
+    (match backend with
+     | Some _ -> ()
+     | None ->
+       Point.insert "\n";
+       List.iter (Reader_backend.all ()) ~f:(fun backend ->
+         Option.iter backend.browser ~f:(fun (label,command) ->
+           browse_unregistered (label^"…") command;Point.insert "   "));
+       Point.insert "\n\n";
+       List.iter (Reader_backend.all ()) ~f:(fun backend ->
+         List.iter (backend.entrances ()) ~f:(fun entrance -> button entrance.label entrance.open_;Point.insert "\n")));
+    let sources=List.map entries ~f:(field "source") |> List.stable_dedup ~compare:(fun a b -> String.compare (str a) (str b)) in
+    List.iter sources ~f:(fun source ->
+      Point.insert "\n";insert_value (styled (str source) "bold");Point.insert "\n";
+      List.iter entries ~f:(fun entry -> if Value.equal source (field "source" entry) then (
+        let start=point () in Point.insert "  ";
+        button (text "name" entry) (fun () -> browse_entry entry);Point.insert ("  · "^text "group" entry^"\n");
+        properties start (point ()) [sym "ef-reader-entry";entry])));
+    if List.is_empty entries then Point.insert "\nNo registered groups here. Press C to register groups.\n";
+    Option.iter backend ~f:(fun b -> Option.iter b.browser ~f:(fun (_,command) ->
+      Point.insert "\n";browse_unregistered "Browse an unregistered group…" command;Point.insert "\n"));
+    Point.goto_min ();
+    let first=call "next-button" [i (point ())] in
+    if truth first then run "goto-char" [call "button-start" [first]]);
+  Current_buffer.set_modified false
+let groups_reload () =
+  let name=str (get "ef-reader-groups--backend") in
+  let backend=List.find (Reader_backend.all ()) ~f:(fun b -> String.equal b.name name) in
+  groups ?backend ()
+
 let home_header () =
   let errors=List.length (values (get "ef-reader-home--errors")) in
   let links=List.concat_map (Reader_backend.all ()) ~f:(fun backend ->
-    match backend.browser with None -> [] | Some (label,command) -> [s "  ";header_link ("["^label^"]") command]) in
+    match backend.browser with None -> [] | Some (label,_) -> [s "  ";header_action ("["^label^"]") (groups ~backend)]) in
   set "header-line-format" (list ([s "Home  ";header_link "[收藏夹 · f]" "ef-reader-folders";s "  ";header_link "[Groups · B]" "ef-reader-browse-groups"] @ links @
     [s "  ";header_link "[Subscriptions · U]" "camulus-subscriptions";
     s (Printf.sprintf "   %d feeds · %d/%d refreshed%s   RET: read  d: delete  m: choose folder  g: refresh  e: errors"
@@ -474,31 +521,6 @@ let reader entry =
       let hints=String.concat(List.map backend.list_controls ~f:(fun c->"  "^c.hint))in
       if not(String.is_empty hints)then set "header-line-format" (list[get "header-line-format";s hints]));
     run "ef-reader--load-list" [])
-let browse_entry entry = run "camulus" [entry];run "ef-reader--load-list" [b true]
-let button label action = run "insert-text-button" [s label;sym "follow-link";b true;sym "action";callback_unit (fun _ -> action ())]
-let groups () =
-  run "ef-reader-load-config" [];
-  ignore (show_buffer "*Reader groups*" : Buffer.t);run "ef-reader-groups-mode" [];
-  writable (fun () ->
-    Current_buffer.erase ();
-    Point.insert "Browse groups\n\nOpening a group does not subscribe to it or add it to Home.\n\n";
-    List.iter (Reader_backend.all ()) ~f:(fun backend ->
-      Option.iter backend.browser ~f:(fun (label,command) ->
-        button (label^"…") (fun () -> run "call-interactively" [sym command]);Point.insert "   "));
-    Point.insert "\n\n";
-    List.iter (Reader_backend.all ()) ~f:(fun backend ->
-      List.iter (backend.entrances ()) ~f:(fun entrance -> button entrance.label entrance.open_;Point.insert "\n"));
-    let entries=values (get "ef-reader-entries") in
-    let sources=List.map entries ~f:(field "source") |> List.stable_dedup ~compare:(fun a b -> String.compare (str a) (str b)) in
-    List.iter sources ~f:(fun source ->
-      Point.insert "\n";insert_value (styled (str source) "bold");Point.insert "\n";
-      List.iter entries ~f:(fun entry -> if Value.equal source (field "source" entry) then (
-        let start=point () in Point.insert "  ";
-        button (text "name" entry) (fun () -> browse_entry entry);Point.insert ("  · "^text "group" entry^"\n");
-        properties start (point ()) [sym "ef-reader-entry";entry])));
-    if List.is_empty entries then Point.insert "\nNo configured groups yet. Press C to add browsing entries.\n";
-    Point.goto_min ());
-  Current_buffer.set_modified false
 let subscriptions_render () =
   let selected=property (point ()) "ef-reader-entry" and old_line=call "line-number-at-pos" [] in
   let restored=ref None in
@@ -590,6 +612,19 @@ let load_list synchronize more =
               set "ef-reader--search-rows" rows;rows) else rows in
             set_rows rows))) in
       set "ef-reader--list-request" (request ~receive fields)))
+let refresh_source source =
+  List.iter (Buffer.all_live ()) ~f:(fun target -> in_buffer target (fun () ->
+    if derived "ef-reader-feed-mode" then
+      if flag "ef-reader--home" then (
+        let generation=get "ef-reader-home--token" in
+        List.iter (values(get "ef-reader-home--entries")) ~f:(fun entry ->
+          if Value.equal source (field "source" entry) then
+            request_ignore ["op",s "refresh";"source",source;"group",field "group" entry]
+              ~receive:(callback_unit(fun data ->
+                if String.equal (text "kind" data) "feed" && home_current target generation then in_buffer target(fun () ->
+                  put (get "ef-reader-home--cursors") (entry_key entry) (field "after" data);home_cache ())))))
+      else if not(flag "ef-reader--query") && Value.equal source (field "source" (get "ef-reader--entry")) then
+        load_list true false))
 let reload_lists () =
   List.iter (Buffer.all_live ()) ~f:(fun target -> in_buffer target (fun () ->
     if (derived "ef-reader-feed-mode" || derived "ef-reader-folder-mode")
@@ -865,6 +900,7 @@ let bind mode_name bindings =
 let install_modes () =
   run "require" [sym "tabulated-list"];
   List.iter ["entries";"errors";"pending"] ~f:(fun name -> local_default ("ef-reader-subscriptions--"^name) nil);
+  local_default "ef-reader-groups--backend" nil;
   List.iter ["entries";"cursors";"token";"jobs";"queue";"errors"] ~f:(fun name -> local_default ("ef-reader-home--"^name) nil);
   List.iter ["done";"total"] ~f:(fun name -> local_default ("ef-reader-home--"^name) (i 0));
   mode "ef-reader-feed-mode" "tabulated-list-mode" "Feed"
@@ -876,7 +912,7 @@ let install_modes () =
   mode "ef-reader-folders-mode" "special-mode" "Favorite folders" None
     "RET / click: open folder  TAB: next folder  g: refresh  h: home" ignore;
   mode "ef-reader-groups-mode" "special-mode" "Reader groups" None
-    "Groups · RET / click: browse  TAB: next entry  h: home  g: reload  U: subscriptions  s: follow group  C: edit groups" ignore;
+    "Groups · RET / click: browse  TAB: next entry  h: home  g: reload  U: subscriptions  s: follow group  B: all groups  C: edit groups" ignore;
   mode "camulus-subscriptions-mode" "ef-reader-groups-mode" "Subscriptions" None
     "Subscriptions · RET / click: browse  s: change subscription  g: refresh  B: all groups  h: home" ignore;
   mode "ef-reader-article-mode" "special-mode" "Reader thread" None "Loading…" (fun () ->
@@ -896,12 +932,27 @@ let install_modes () =
   bind "ef-reader-folders-mode" ["RET","push-button";"TAB","forward-button";"<backtab>","backward-button";"f","ef-reader-folders";"g","ef-reader-folders-refresh";"h","camulus"];
   bind "ef-reader-article-mode" ["f","ef-reader-folders";"s","ef-reader-subscription";"m","ef-reader-save";"n","ef-reader-next-unread";"h","camulus"];
   bind "camulus-subscriptions-mode" ["g","camulus-subscriptions-refresh";"B","ef-reader-browse-groups";"U","camulus-subscriptions"];
-  bind "ef-reader-groups-mode" ["f","ef-reader-folders";"U","camulus-subscriptions";"s","ef-reader-group-subscription";"S","ef-reader-group-subscription";"h","camulus";"g","ef-reader-browse-groups";"C","ef-reader-edit-groups"]
+  bind "ef-reader-groups-mode" ["RET","push-button";"TAB","forward-button";"<backtab>","backward-button";"f","ef-reader-folders";"U","camulus-subscriptions";"s","ef-reader-group-subscription";"S","ef-reader-group-subscription";"h","camulus";"g","ef-reader-groups-refresh";"B","ef-reader-browse-groups";"C","ef-reader-edit-groups"]
 
+
+let setup_variables () =
+ List.iter["ef-reader--requests";"ef-reader--completions";"ef-reader--loads";"ef-reader--states";"ef-reader--reading"]~f:(fun n->Reader_backend.variable n(call "make-hash-table"[sym ":test";sym "equal"]));
+ List.iter["entry";"home";"cursor";"query";"search-rows";"list-token";"list-request";"rows";"folder";"source";"title";"messages";"attachments";"loaded";"complete";"archive";"active";"positioned";"view-token";"visibility-timer";"rss-query"]~f:(fun n->let name="ef-reader--"^n in Reader_backend.variable name nil;run "make-variable-buffer-local"[sym name]);
+ Reader_backend.variable "ef-reader-reply-indent"(i 4);
+ run "custom-declare-group"[sym "camulus";nil;s "Read feeds and discussions.";sym ":group";sym "applications"];
+ let read_attributes color=Value.list[sym ":inherit";sym "shadow";sym ":foreground";s color;sym ":weight";sym "normal"]in
+ let background name color=Value.list[Value.list[Value.list[sym "background";sym name]];read_attributes color]in
+ List.iter["ef-reader-heading",Value.list[Value.list[sym "t";Value.list[sym ":weight";sym "bold"]]];
+  "ef-reader-separator",Value.list[Value.list[sym "t";Value.list[sym ":inherit";sym "shadow";sym ":underline";sym "t"]]];
+  "ef-reader-read",Value.list[background "light" "gray55";background "dark" "gray65";
+    Value.list[sym "t";Value.list[sym ":inherit";sym "shadow"]]];
+  "ef-reader-favorite",Value.list[Value.list[sym "t";Value.list[sym ":foreground";s "red";sym ":weight";sym "normal"]]]]
+ ~f:(fun(name,spec)->run "custom-declare-face"[sym name;spec;s "Reader presentation.";sym ":group";sym "camulus"])
 
 let installed = ref false
 let install () =
   if not !installed then (
+  setup_variables ();
   Reader_media.install ();
   define1 "ef-reader--set-rows" (fun rows -> set_rows rows;nil);
   define0 "ef-reader--reading-layout" reading_layout;
@@ -918,6 +969,7 @@ let install () =
   define1 "ef-reader-home-row" home_row;
   define0 "ef-reader-home--header" home_header;
   define0 "ef-reader-home-load-cache" home_cache;
+  define1 "ef-reader--refresh-source" (fun source -> refresh_source source;nil);
   define0 "ef-reader-home--cancel" home_cancel;
   define1 "ef-reader-home--pump" (fun more -> home_pump (truth more);nil);
   define2 "ef-reader-home--begin" (fun entries more -> home_begin entries (truth more);nil);
@@ -926,7 +978,8 @@ let install () =
   define0 "ef-reader-home-open" home_open;
   define0 ~interactive:true "ef-reader-home-browse-source" browse_source;
   define0 ~interactive:true "ef-reader-home-errors" home_errors;
-  define0 ~interactive:true "ef-reader-browse-groups" groups;
+  define0 ~interactive:true "ef-reader-browse-groups" (groups ?backend:None);
+  define0 ~interactive:true "ef-reader-groups-refresh" groups_reload;
   define0 ~interactive:true "camulus-subscriptions" subscriptions;
   define0 ~interactive:true "camulus-subscriptions-refresh" subscriptions_refresh;
   define1 "ef-reader-browse-entry" (fun entry -> browse_entry entry;nil);

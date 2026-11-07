@@ -25,12 +25,13 @@ type operation = List of group * cursor option | Search of group * string * curs
   | Draft_send of string * string
   | Archive of string * string * bool
   | Trash of string * string * bool
+  | Sync of string list
 type result = Page of Reader.Content.page * bool | Thread_batch of Reader.Content.thread_batch
   | Article of article | Saved of string | Sent of receipt
   | Draft of saved_draft | Drafts of saved_draft list | Archived of move_result | Trashed of move_result
-  | Draft_sent of string * bool
+  | Draft_sent of string * bool | Synced
 type process_result = { status : int; stdout : string }
-type run = ?input:string -> string list -> process_result
+type run = ?input:string -> ?timeout:float -> string list -> process_result
 type submit = profile:string -> sender:string -> recipients:string list -> string -> unit
 type t
 val create : config:config -> run:run -> submit:submit -> t

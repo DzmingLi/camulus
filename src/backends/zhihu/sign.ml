@@ -26,16 +26,16 @@ let encode input=
    value:= !value lor ((padded.(group*3+2-j) lxor mask) lsl (j*8)) done;
   for i=0 to 3 do Buffer.add_char out alphabet.[(!value lsr (6*i)) land 63] done
  done;Buffer.contents out
-let encrypt input=
- (* Header inputs are hexadecimal MD5, all in encodeURIComponent's unescaped set. *)
+let encrypt_bytes ~nonce ~kind input=
  let n=2+String.length input in let padding=16-n mod 16 in
- let plain=Array.make(n+padding)padding in plain.(0)<-12;plain.(1)<-0;
+ let plain=Array.make(n+padding)padding in plain.(0)<-nonce;plain.(1)<-kind;
  String.iteri(fun i c->plain.(i+2)<-Char.code c)input;
  let cipher=Array.make(Array.length plain)0 and iv=ref(Array.init 16(fun i->Char.code key.[i] lxor 42)) in
  for chunk=0 to Array.length plain/16-1 do
   iv:=block(Array.init 16(fun i->plain.(chunk*16+i) lxor !iv.(i)));
   Array.blit !iv 0 cipher (chunk*16) 16
  done;encode cipher
+let encrypt input=encrypt_bytes ~nonce:12 ~kind:0 input
 let header ~url ~dc0 =
  let u=Uri.of_string url in
  let path=match Uri.path_and_query u with ""->"/"|s->s in

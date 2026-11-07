@@ -47,11 +47,11 @@ module Make(H:R.Http.S)=struct
  let create ~cookies ()={cookies;cache=Hashtbl.create 128}
  let request t ~referer url=
   let cookies=t.cookies url in
-  let dc0=match List.assoc_opt "d_c0" cookies with Some s when s<>""->s|_->failwith "Log in to Zhihu in the configured Firefox profile (d_c0 missing)" in
-  let headers=["User-Agent","Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";"Cookie",Reader.Browser_cookies.header cookies;"Referer",referer;"x-api-version","3.0.91";
+  let dc0=match List.assoc_opt "d_c0" cookies with Some s when s<>""->s|_->failwith "Log in to Zhihu in the configured Firefox profile first (d_c0 missing)" in
+  let headers=["User-Agent","Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";"Cookie",Reader.Firefox_cookies.header cookies;"Referer",referer;"x-api-version","3.0.91";
    "x-app-za","OS=Web";"x-requested-with","fetch";"x-zse-93",Sign.version;"x-zse-96",Sign.header ~url ~dc0] in
   let r=H.request {R.Http.url;headers;limit=16*1024*1024} in
-  if r.status<>200 then failwith(Printf.sprintf "Zhihu HTTP %d; check browser login or access challenge" r.status);
+  if r.status<>200 then failwith(Printf.sprintf "Zhihu HTTP %d; check login or complete verification in the configured Firefox profile" r.status);
   Yojson.Safe.from_string r.body
  let list t group ~after=
   let kind,user_type,user=parts group in
@@ -84,3 +84,5 @@ module Make(H:R.Http.S)=struct
 end
 module Live=Make(R.Curl_transport)
 module Readable : Reader.Backend.S with type t=Live.t and type group=group and type cursor=cursor = Live
+
+let create_live ~cookies () = Live.create ~cookies ()
