@@ -28,8 +28,7 @@ let state_file = ref None
 let rss_subscriptions_file = ref None
 let jsonfeed_subscriptions_file = ref None
 let group_subscriptions_file = ref None
-let firefox_profile = ref None
-let publication_source s = List.mem ["atlantic";"janestreet";"douban";"netease";"public-inbox";"blogger";"gcores"] s ~equal:String.equal
+let publication_source s = List.mem ["atlantic";"janestreet";"netease";"public-inbox";"blogger";"gcores"] s ~equal:String.equal
 
 let get_runtime () =
   ensure_ui ();
@@ -54,14 +53,11 @@ let start process =
       let rss = Rss_backend.Live.create ?subscriptions_file:!rss_subscriptions_file () in
       let jsonfeed = Jsonfeed_backend.Live.create ?subscriptions_file:!jsonfeed_subscriptions_file () in
       let atlantic=Atlantic_backend.Live.create () and janestreet=Janestreet_backend.Live.create () in
-      let browser=Reader.Firefox_cookies.create ?profile:!firefox_profile () in
-      let douban=Douban_backend.create_live ~cookies:(Reader.Firefox_cookies.get browser) () in
       let netease=Netease_backend.Live.create() and public_inbox=Public_inbox_backend.Live.create() in
       let blogger=Blogger_backend.Live.create() and gcores=Gcores_backend.Live.create() in
       let publication_list source group ~after = match source with
         | "atlantic"->Atlantic_backend.Live.list atlantic group ~after
         | "janestreet"->Janestreet_backend.Live.list janestreet group ~after
-        | "douban"->Douban_backend.Live.list douban group ~after
         | "netease"->Netease_backend.Live.list netease group ~after
         | "public-inbox"->Public_inbox_backend.Live.list public_inbox group ~after
         | "blogger"->Blogger_backend.Live.list blogger group ~after
@@ -70,7 +66,6 @@ let start process =
       let publication_search source group ~query ~after = match source with
         | "atlantic"->Atlantic_backend.Live.search atlantic group ~query ~after
         | "janestreet"->Janestreet_backend.Live.search janestreet group ~query ~after
-        | "douban"->Douban_backend.Live.search douban group ~query ~after
         | "netease"->Netease_backend.Live.search netease group ~query ~after
         | "public-inbox"->Public_inbox_backend.Live.search public_inbox group ~query ~after
         | "blogger"->Blogger_backend.Live.search blogger group ~query ~after
@@ -79,7 +74,6 @@ let start process =
       let publication_read source group id = match source with
         | "atlantic"->Atlantic_backend.Live.read atlantic group id
         | "janestreet"->Janestreet_backend.Live.read janestreet group id
-        | "douban"->Douban_backend.Live.read douban group id
         | "netease"->Netease_backend.Live.read netease group id
         | "public-inbox"->Public_inbox_backend.Live.read public_inbox group id
         | "blogger"->Blogger_backend.Live.read blogger group id
@@ -88,7 +82,6 @@ let start process =
       let publication_archive source group id = match source with
         | "atlantic"->Atlantic_backend.Live.archive atlantic group id
         | "janestreet"->Janestreet_backend.Live.archive janestreet group id
-        | "douban"->Douban_backend.Live.archive douban group id
         | "netease"->Netease_backend.Live.archive netease group id
         | "public-inbox"->Public_inbox_backend.Live.archive public_inbox group id
         | "blogger"->Blogger_backend.Live.archive blogger group id
@@ -97,7 +90,6 @@ let start process =
       let publication_attachment source group id part destination = match source with
         | "atlantic"->Atlantic_backend.Live.attachment atlantic group id part destination
         | "janestreet"->Janestreet_backend.Live.attachment janestreet group id part destination
-        | "douban"->Douban_backend.Live.attachment douban group id part destination
         | "netease"->Netease_backend.Live.attachment netease group id part destination
         | "public-inbox"->Public_inbox_backend.Live.attachment public_inbox group id part destination
         | "blogger"->Blogger_backend.Live.attachment blogger group id part destination
@@ -129,7 +121,7 @@ let start process =
       let publication_group source id requested = match requested with
         | Some group -> group
         | None when String.equal source "janestreet" -> "posts"
-        | None when List.mem ["douban";"public-inbox";"gcores"] source ~equal:String.equal -> ""
+        | None when List.mem ["public-inbox";"gcores"] source ~equal:String.equal -> ""
         | None -> storage(fun db -> CS.groups_for_item db ~source ~id) |> List.hd
           |> Option.value_or_thunk ~default:(fun () -> failwith "Open this publication's entry before reading the article") in
       let archived source target id =
@@ -159,10 +151,6 @@ let start process =
         end else if String.equal source "public-inbox" && Poly.equal target CS.Thread then begin
           Public_inbox_backend.Live.stream_thread public_inbox id
             ~emit_article:(fun a->add(Public_inbox_backend.Live.archive_article public_inbox a))
-            ~emit:(fun b->complete:=b.complete)
-        end else if String.equal source "douban" && Poly.equal target CS.Thread then begin
-          Douban_backend.Live.stream_thread douban id
-            ~emit_article:(fun a->add(Douban_backend.Live.archive_article douban a))
             ~emit:(fun b->complete:=b.complete)
         end else if publication_source source then begin
           if Poly.equal target CS.Thread then failwith "Publication articles do not have threads";
@@ -294,7 +282,6 @@ let start process =
                     Stdlib.Hashtbl.replace rss_refreshed (source^group) ()
                   end
                 end;
-                if String.equal source "douban" then Douban_backend.Live.invalidate douban id;
                 let articles=archived source target id in
                 storage(fun db -> CS.refresh_archive db ~source ~target ~id articles)
               with ex -> errors:=(source^" archive: "^Exn.to_string ex)::!errors
@@ -307,9 +294,8 @@ let start process =
         (match operation with
          | Publication_read(id,group) ->
            let group=publication_group source id group in
-           if String.equal source "douban" || String.equal source "public-inbox" then
-             (if String.equal source "douban" then Douban_backend.Live.stream_thread douban id
-              else Public_inbox_backend.Live.stream_thread public_inbox id)
+           if String.equal source "public-inbox" then
+             Public_inbox_backend.Live.stream_thread public_inbox id
                ~emit_article:(fun a->observe emit source None [a.message];emit(Rss_result(Rss_backend.article_json a)))
                ~emit:(fun b->emit(Rss_result(`Assoc["kind",`String "thread";"thread",`String b.thread;
                  "messages",`List(List.map b.messages ~f:CS.message_json);"complete",`Bool b.complete])))

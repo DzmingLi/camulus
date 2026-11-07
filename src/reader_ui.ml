@@ -299,10 +299,10 @@ let render () =
     render_roots (List.filter messages ~f:(fun m -> not (truth (find (get "ef-reader--messages") (field "parent_id" m)))));
     render_roots messages);
   Reader_media.finish_render ();
-  set "header-line-format" (list [header_link "[收藏夹 · f]" "ef-reader-folders";s (Printf.sprintf "  m: choose folder  n: next unread%s — %d articles — %s"
-    (Option.value_map (capability (get "ef-reader--source")) ~default:"" ~f:(fun backend ->
-       String.concat (List.map backend.controls ~f:(fun control -> "  "^control.hint))))
-    (List.length messages) (if flag "ef-reader--complete" then "loaded" else "loading / partial"))]);
+  let controls=Option.value_map (capability(get "ef-reader--source")) ~default:[] ~f:(fun backend->
+    List.concat_map backend.controls ~f:(fun control->[s "  ";header_link ("["^control.hint^"]") control.command])) in
+  set "header-line-format" (list ([header_link "[收藏夹 · f]" "ef-reader-folders";s "  m: choose folder  n: next unread"] @ controls @
+    [s (Printf.sprintf " — %d articles — %s" (List.length messages) (if flag "ef-reader--complete" then "loaded" else "loading / partial"))]));
   (match !first_unread with
    | Some p when not (flag "ef-reader--positioned") -> goto p;set "ef-reader--positioned" (b true);
      List.iter windows ~f:(fun (w,_) -> run "set-window-start" [w;i p;b true])

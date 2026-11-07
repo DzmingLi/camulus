@@ -15,6 +15,8 @@ test: build
 	timeout 10s $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -l test/exit.el
 	timeout 30s $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -l test/reddit-integration.el
 	timeout 30s $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -l test/entries-integration.el
+	dune build --build-dir $(BUILD_ABS) test/douban_probe.so
+	timeout 30s $(EMACS) -Q --batch --module-assertions -L $(BUILD_ABS)/default/test -l test/douban-interaction.el
 	dune build --build-dir $(BUILD_ABS) test/webkit_probe.so
 	timeout 30s $(EMACS) -Q --batch --module-assertions -L $(BUILD_ABS)/default/test -l test/webkit-integration.el
 	timeout 30s $(EMACS) -Q --batch --module-assertions -L $(MODULE_DIR) -L lisp -l test/reader-presentation.el

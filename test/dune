@@ -43,3 +43,11 @@
  (libraries reader_emacs_backend ecaml)
  (preprocess (pps ppx_jane))
  (modes (native shared_object)))
+
+(test (name douban_test) (modules douban_test)
+ (libraries douban_backend rss_backend reader eio_posix uri))
+
+(executable (name douban_probe) (modules douban_probe)
+ (libraries reader_emacs_backend douban_emacs ecaml)
+ (preprocess (pps ppx_jane))
+ (modes (native shared_object)))

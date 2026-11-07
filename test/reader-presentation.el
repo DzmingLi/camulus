@@ -387,4 +387,22 @@
           (call-interactively command))
         (should called)))))
 
+(ert-deftest reader-douban-actions-are-clickable-and-paragraphs-stay-separated ()
+  (with-temp-buffer
+    (ef-reader-article-mode)
+    (setq ef-reader--source "douban")
+    (ef-reader--receive '((kind . "article")
+      (message . ((id . "topic:15") (author . "Author") (liked . t) (like-count . 7)
+                  (html . "<p>First paragraph<br><br>Second paragraph<br>Third line</p>")))))
+    (should (string-match-p "First paragraph\n[ \n]*Second paragraph\n" (buffer-string)))
+    (should (string-match-p "♥" (buffer-string)))
+    (dolist (case '(("[赞 · l]" . camulus-douban-like) ("[取消赞 · L]" . camulus-douban-unlike)))
+      (let* ((label (seq-find (lambda (part) (equal part (car case))) header-line-format))
+             (action (lookup-key (get-text-property 0 'local-map label) [header-line mouse-1]))
+             (last-input-event (list 'mouse-1 (list (selected-window) 'header-line '(0 . 0) 0))) called)
+        (should (commandp action))
+        (cl-letf (((symbol-function (cdr case)) (lambda () (interactive) (setq called t))))
+          (save-current-buffer (call-interactively action)))
+        (should called)))))
+
 (ert-run-tests-batch-and-exit)

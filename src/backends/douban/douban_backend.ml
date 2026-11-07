@@ -50,19 +50,60 @@ let status j=
  let id="status:"^numeric(str "id" j) in
  let html=status_html 0 j in
  R.Article.of_html (message ~id ~title:"" ~author:(str "name" (field "author" j)) ~created:(date(str "create_time" j)) ~html) html
+(* Douban's rich paragraphs use CSS pre-wrap; SHR otherwise collapses their
+   literal newlines. Preserve text-node breaks only inside paragraphs. *)
+let paragraph_breaks node =
+ let rec walk preserve = function
+ | Html.Text text when preserve ->
+   let text=String.split_on_char '\r' text |> String.concat "" in
+   let lines=String.split_on_char '\n' text in
+   List.concat(List.mapi(fun i line->(if i=0 then [] else [Html.Element("br",[],[])])@[Html.Text line])lines)
+ | Html.Text _ as node->[node]
+ | Html.Element(tag,attrs,children) as node ->
+   if List.mem tag ["pre";"code"] then [node] else
+   [Html.Element(tag,attrs,List.concat_map(walk(preserve || tag="p"))children)] in
+ match walk false node with [node]->node|_->assert false
+
+type reaction = {liked:bool;count:int option}
+let json_reaction j =
+ let liked=match field "liked" j with `Bool value->Some value|_->
+  match field "reaction_type" j with `Int n->Some(n=1)|_->None in
+ Option.map(fun liked->{liked;count=List.find_map(fun key->match field key j with `Int n when n>=0->Some n|_->None)["like_count";"vote_count";"reactions_count"]})liked
+let topic_reaction id html =
+ let _,number=root_parts id in
+ Html.find(fun n->Html.attr "data-object_id" n=number && Html.attr "data-reaction_type" n<>"")(Html.parse html)
+ |> Option.map(fun n->{liked=Html.attr "data-reaction_type" n="1";count=None})
+let reaction_fields = function
+ | None->[]
+ | Some r->["liked",`Bool r.liked;"like-count",(match r.count with None->`Null|Some n->`Int n)]
+let like_target id liked =
+ let kind,n=root_parts id in
+ match String.split_on_char '/' id with
+ | [_] when kind="status" -> "https://www.douban.com/j/status/"^(if liked then "like" else "unlike"),["sid",n],true
+ | [_] -> "https://m.douban.com/rexxar/api/v2/group/topic/"^n^"/react",["reaction_type",if liked then "1" else "0"],false
+ | [_;comment] when String.starts_with ~prefix:"comment:" comment ->
+   let cid=numeric(String.sub comment 8 (String.length comment-8)) in
+   let path=if kind="status" then "status/comment/"^cid else "group/topic/"^n^"/comment/"^cid in
+   "https://m.douban.com/rexxar/api/v2/"^path^"/react",["reaction_type",if liked then "1" else "0"],false
+ | _->invalid_arg "Invalid Douban like target"
 let topic id html=
  let tree=Html.parse html in
  let body=match Html.find(Html.has_class "topic-richtext")tree with Some n->n|None->failwith "Douban topic body missing; check login or changed page layout" in
  let pick classes=List.find_map(fun c->Html.find(Html.has_class c)tree)classes |> Option.map(fun n->String.trim(Html.text n)) |> Option.value ~default:"" in
  let title=pick["topic-title"] and author=pick["author-name";"from"] and created=date(pick["create-time"]) in
- let html=Html.render body in R.Article.of_html(message ~id ~title ~author ~created ~html)html
+ let html=Html.render(paragraph_breaks body) in R.Article.of_html(message ~id ~title ~author ~created ~html)html
 module Make(H:R.Http.S)=struct
  module Download=R.Make(H)
- type t={cookies:string->(string*string)list;cache:(string,D.article)Hashtbl.t}
+ type t={cookies:string->(string*string)list;post:R.Http.request->body:string->R.Http.response;cache:(string,D.article)Hashtbl.t;reactions:(string,reaction)Hashtbl.t}
  type nonrec group=group
  type nonrec cursor=cursor
  let source=source
- let create ~cookies ()={cookies;cache=Hashtbl.create 128}
+ let create ?(post=(fun _ ~body:_->failwith "Douban write transport is unavailable")) ~cookies ()={cookies;post;cache=Hashtbl.create 128;reactions=Hashtbl.create 128}
+ let reaction t id=Hashtbl.find_opt t.reactions id
+ let remember_reaction t id value=match value with Some r->Hashtbl.replace t.reactions id r|None->Hashtbl.remove t.reactions id
+ let message_json t (m:C.message)=match Reader.Content_state.message_json m with
+  | `Assoc fields->`Assoc(reaction_fields(reaction t m.id)@fields)|_->assert false
+ let article_json t (a:D.article)=`Assoc["kind",`String "article";"message",message_json t a.message;"attachments",D.attachments a]
  let allowed url=
   let u=Uri.of_string(R.Http.validate url) in
   Uri.scheme u=Some "https" && Uri.port u=None &&
@@ -88,8 +129,10 @@ module Make(H:R.Http.S)=struct
   let id=root_id id in let kind,n=root_parts id in
   let a=if kind="status" then
    let j=json t ("https://m.douban.com/rexxar/api/v2/status/"^n) in
-   status(match field "status" j with `Null->j|v->v)
-  else topic id (fst(request t (root_url id))) in
+   let j=match field "status" j with `Null->j|v->v in
+   remember_reaction t id (json_reaction j);status j
+  else let html=fst(request t (root_url id)) in
+   remember_reaction t id (topic_reaction id html);topic id html in
   if a.message.id<>id then failwith "Douban returned another discussion";remember t a
  let list t group ~after=
   let kind,n=parts group in
@@ -104,7 +147,7 @@ module Make(H:R.Http.S)=struct
     | `Null->None | s->
       let card=field "card" s in
       (match (if str "type" card="topic" then target(str "url" card) else None) with
-      | Some id->Some(read_root t id) | None->Some(remember t (status s))))items in
+      | Some id->Some(read_root t id) | None->let a=status s in remember_reaction t a.message.id (json_reaction s);Some(remember t a)))items in
    articles,(if field "total" j<>`Null then offset+List.length items<num "total" j else List.length items=20)
   | "replies" ->
    let cookies=t.cookies "https://www.douban.com/reply_notify/" in
@@ -167,7 +210,7 @@ module Make(H:R.Http.S)=struct
      let m=message ~id ~title:a.message.title ~author:(str "name"(field "author" c)) ~created:(date(str "create_time" c)) ~html in
      let m={m with parent_id=Some parent;url=a.message.url^"#comment_"^cid;unavailable=partial || field "is_deleted" c=`Bool true} in
      let article=R.Article.of_html m html in
-     if not partial then Hashtbl.replace seen id ();
+     if not partial then (Hashtbl.replace seen id ();remember_reaction t id (json_reaction c));
      ignore(remember t article);emit_article article;
      emit{C.thread=root;messages=[m];gaps=[];complete=false};
      if ref_comment<>`Null then collect(depth+1)fallback true ref_comment;
@@ -187,6 +230,41 @@ module Make(H:R.Http.S)=struct
  let read t _group id=match Hashtbl.find_opt t.cache id with Some a->a|None->
   if id=root_id id then read_root t id else begin stream_thread t id ~emit_article:(fun _->())~emit:(fun _->());
    match Hashtbl.find_opt t.cache id with Some a->a|None->failwith "Douban comment not found" end
+ let set_like t ~id ~liked =
+  let url,fields,is_status=like_target id liked in
+  let cookies=t.cookies url in
+  if not(List.mem_assoc "dbcl2" cookies) then failwith "Log in to Douban in the configured Firefox profile first";
+  let token value =
+   let value=String.trim value in
+   let value=if String.length value>=2 && value.[0]='"' && value.[String.length value-1]='"' then String.sub value 1 (String.length value-2) else value in
+   if value="" || String.length value>256 || String.exists(fun c->Char.code c<=32 || Char.code c>=127 || c=';' || c='"')value then None else Some value in
+  let ck=match Option.bind(List.assoc_opt "ck" cookies)token with Some ck->ck|None->
+   (* Firefox often keeps ck only in memory. Fetch a fresh CSRF token using
+      the same browser account; do not create a persistent Camulus session. *)
+   let bootstrap="https://www.douban.com/mine/" in
+   let r=H.request {R.Http.url=bootstrap;headers=["Cookie",Reader.Firefox_cookies.header(t.cookies bootstrap);"Referer","https://www.douban.com/";
+    "User-Agent","Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"];limit=2*1024*1024} in
+   if r.status<>200 then failwith "Douban CSRF bootstrap failed; check Firefox login";
+   let ck=List.find_map(fun(k,v)->
+    if String.lowercase_ascii k<>"set-cookie" then None else
+    let first=List.hd(String.split_on_char ';' v) |> String.trim in
+    if String.starts_with ~prefix:"ck=" first then token(String.sub first 3 (String.length first-3)) else None)r.headers in
+   (match ck with Some ck->ck|None->failwith "Douban did not return a CSRF token; log in again in Firefox") in
+  let headers=["Cookie",Reader.Firefox_cookies.header(("ck",ck)::List.remove_assoc "ck" cookies);
+   "User-Agent","Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0";
+   "Referer","https://www.douban.com/";"Origin","https://www.douban.com";
+   "Content-Type","application/x-www-form-urlencoded; charset=UTF-8";"X-CSRF-TOKEN",ck;"X-Requested-With","XMLHttpRequest"] in
+  let body=Uri.encoded_of_query(List.map(fun(k,v)->k,[v])(("ck",ck)::fields)) in
+  let r=try t.post {R.Http.url;headers;limit=1024*1024} ~body with R.Http.Transport_error _->
+    failwith "Douban like transfer failed or timed out; refresh to check the remote state" in
+  if r.status<>200 then failwith(Printf.sprintf "Douban like failed (HTTP %d); refresh to check the remote state" r.status);
+  let j=try Yojson.Safe.from_string r.body with _->failwith "Invalid Douban like response; refresh to check the remote state" in
+  if (field "code" j<>`Null && num "code" j<>0) || field "localized_message" j<>`Null || field "r" j=`Int 1 then
+   failwith "Douban rejected the like; check Firefox login or account verification";
+  let count=if is_status then match field "count" j with `Int n when n>=0->Some n|_->failwith "Douban did not confirm the like"
+   else (if field "reaction_type" j<>`Int(if liked then 1 else 0) then failwith "Douban did not confirm the requested reaction";
+     match json_reaction j with Some r->r.count|None->None) in
+  Hashtbl.replace t.reactions id {liked;count}
  let invalidate t id=Hashtbl.remove t.cache id
  let download ~limit url=Download.download_url ~limit url
  let archive_article _ a=R.Article.archive ~download a
@@ -199,4 +277,7 @@ module Threading : Reader.Backend.Threading with type t=Live.t = Live
 
 (* The host supplies its selected credential provider; the backend does not
    discover browser profiles or read browser databases. *)
-let create_live ~cookies () = Live.create ~cookies ()
+let create_live ~cookies () =
+ Live.create ~cookies ~post:(fun request ~body->
+  R.Curl_transport.perform ~configure:(fun easy->Curl.set_post easy true;Curl.set_postfields easy body) request) ()
+module Liking : Reader.Backend.Liking with type t=Live.t = Live

@@ -16,6 +16,7 @@ let () =
   let idle () = Option.is_none !runtime in
   Reddit_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
   Zhihu_emacs.install_protocol ();
+  Douban_emacs.install_protocol ();
   Maildir_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
   defun_nullary_nil (Symbol.intern "ef-discourse-clear-config") [%here]
     ~docstring:"Clear Discourse session configuration before startup."
@@ -39,13 +40,6 @@ let () =
     ~docstring:"Submit an operation described by an Emacs alist." (Returns Value.Type.int)
     (let open Defun.Let_syntax in let%map_open request=required "request" value in
      let j=Reader_backend.to_json request in request_discourse (Discourse.Decode.site (Discourse.Decode.str "site" j)) (Discourse.operation_of_json j));
-  defun (Symbol.intern "ef-browser-profile-configure") [%here]
-    ~docstring:"Configure the shared read-only Firefox cookie provider for opt-in backends."
-    (Returns Value.Type.unit)
-    (let open Defun.Let_syntax in
-     let%map_open path=required "profile" string in
-     ensure_ui ();if Option.is_some !runtime then failwith "Stop the runtime before changing browser profile";
-     firefox_profile := (if String.is_empty path then None else Some path));
   defun (Symbol.intern "camulus-rss-submit") [%here]
     ~docstring:"Submit an operation described by an Emacs alist." (Returns Value.Type.int)
     (let open Defun.Let_syntax in let%map_open request=required "request" value in
@@ -181,7 +175,7 @@ let () =
         ~read:(fun id group -> request_publication source (Publication_read(id,group)))
         ~attachment:(fun id group part destination -> request_publication source (Publication_attachment(id,group,part,destination))) () in
       publication Atlantic_emacs.install "atlantic";publication Janestreet_emacs.install "janestreet";
-      Zhihu_emacs.install ~submit:submit_work ();publication Douban_emacs.install "douban";
+      Zhihu_emacs.install ~submit:submit_work ();Douban_emacs.install ~submit:submit_work ();
       publication Netease_emacs.install "netease";publication Public_inbox_emacs.install "public-inbox";
       publication Blogger_emacs.install "blogger";publication Gcores_emacs.install "gcores");
   Reader_config.setup_variables ();

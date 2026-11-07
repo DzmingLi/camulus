@@ -38,7 +38,7 @@
 | Blogger | Atom 列表、打开时提取公开网页全文、图片归档 |
 | 机核 | 用户动态、文章正文、图库；尚无评论树、点赞或发帖 |
 | The Atlantic / Jane Street | 作者 feed 或文章列表、网页正文与图片 |
-| 知乎 / 豆瓣 | 作者或个人入口、正文与图片；豆瓣支持渐进评论树；两者均使用 Camulus 的[公共 Firefox Cookie 能力](docs/FIREFOX_COOKIES.md) |
+| 知乎 / 豆瓣 | 作者或个人入口、正文与图片；豆瓣支持渐进评论树及[广播、帖子和评论点赞](docs/DOUBAN.md)；两者均使用 Camulus 的[公共 Firefox Cookie 能力](docs/FIREFOX_COOKIES.md) |
 | 网易云 | 公开动态、图片与歌曲链接；不下载歌曲音源 |
 | Public Inbox | 原生 gzip / mboxrd / MIME 解析，以邮件回复关系重建讨论树 |
 

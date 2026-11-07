@@ -73,7 +73,6 @@ let register ~idle =
  define0 "ef-reader-start"(fun()->if idle()then(
   load();run "camulus-group-subscriptions-configure"[get "camulus-group-subscriptions-file"];
   run "ef-content-state-configure"[get "ef-reader-state-file"];
-  run "ef-browser-profile-configure"[s(text(get "ef-reader-firefox-profile"))];
   List.iter(all())~f:(fun backend->backend.start());
   List.iter["ef-reader--requests";"ef-reader--completions";"ef-reader--loads";"ef-reader--states";"ef-reader--reading"]~f:(fun n->run "clrhash"[get n]);
   run "ef-probe-session-start"[]))
