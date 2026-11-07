@@ -8,7 +8,8 @@ let install ~submit ~followed () =
     attachment=Some (fun ~source ~id ~group:_ ~part ~destination ->
       Value.of_int_exn (submit (Rss_backend.Attachment(Jsonfeed_backend.url_of_source source,id,part,destination))));
     start=(fun()->run "camulus-jsonfeed-subscriptions-configure"[get "camulus-jsonfeed-subscriptions-file"]);
-    events=["rss"];subscription_target=Some (fun ~source ~selected:_ -> Some(Jsonfeed_backend.url_of_source source));
+    events=["rss"];can_subscribe_group=(fun ~source ~group -> String.equal group (Jsonfeed_backend.url_of_source source));
+    subscription_target=Some (fun ~source ~selected:_ -> Some(Jsonfeed_backend.url_of_source source));
     browser=Some("JSON Feed","camulus-jsonfeed");followed=Some(fun () -> Value.of_int_exn (followed ())) };
   Defun.defun (Symbol.intern "camulus-jsonfeed") [%here] ~docstring:"Browse a JSON Feed without subscribing."
     ~interactive:(Prompt "JSON Feed URL: ") (Returns Value.Type.unit)

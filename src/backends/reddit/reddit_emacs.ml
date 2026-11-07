@@ -141,7 +141,7 @@ let install ~submit ~configured () =
   custom ~kind:Customization.Type.String "camulus-reddit-client-id" (s "5oagOpX2_NKVDej_iuZjFA") "Backend configuration option.";
   custom ~kind:Customization.Type.String "camulus-reddit-redirect-uri" (s "http://127.0.0.1:17973") "Backend configuration option.";
   register_settings "reddit"(string_settings["username","camulus-reddit-username";"token_file","camulus-reddit-token-file"]);
-  register_local_groups { (base ~name:"Reddit" ~matches:(String.is_prefix ~prefix:"reddit:") ~threaded:true
+  register_local_groups ~accepts:all_groups { (base ~name:"Reddit" ~matches:(String.is_prefix ~prefix:"reddit:") ~threaded:true
     ~read:(fun ~source:_ ~id ~thread_id ~group:_ ->
       Value.of_int_exn (submit (Reddit_backend.Thread (Option.value thread_id ~default:id))))) with
     start=(fun()->if truth(get "camulus-reddit-username")then run "camulus-reddit-configure"[get "camulus-reddit-username";get "camulus-reddit-token-file";get "camulus-reddit-client-id";get "camulus-reddit-redirect-uri"]);

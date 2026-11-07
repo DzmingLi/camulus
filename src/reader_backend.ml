@@ -33,6 +33,7 @@ type t = {
   browser : (string * string) option;
   entrances : unit -> entrance list;
   followed : (unit -> Value.t) option;
+  can_subscribe_group : source:string -> group:string -> bool;
   group_subscription : (source:string -> group:string -> setting:string option -> Value.t) option;
   subscription_target : (source:string -> selected:(unit -> Value.t) -> string option) option;
   topic_tracking : topic_tracking option;
@@ -52,7 +53,7 @@ let alist fields = Value.list (List.map fields ~f:(fun (k,v) -> call "cons" [Val
 let base ~name ~matches ~threaded ~read = {
   name;start=(fun()->());normalize=Fn.id;on_entry=(fun _->());matches;threaded;read;thread_contains_bodies=false;
   available=(fun _ -> true);attachment=None;controls=[];list_controls=[];article_marks=(fun _->"");row_title=(fun row->Value.funcallN(Value.intern "alist-get")[Value.intern "title";row]);browser=None;entrances=(fun () -> []);followed=None;
-  subscription_target=None;topic_tracking=None;group_subscription=None;delete=None;page=None;events=[];
+  subscription_target=None;topic_tracking=None;group_subscription=None;can_subscribe_group=(fun ~source:_ ~group:_ -> false);delete=None;page=None;events=[];
   reconcile=(fun ~source:_ ~existing:_ ~request:_ ~archived:_ message -> message)
 }
 
@@ -63,12 +64,21 @@ type local_group_operations = {
   subscribe_group : backend:string -> source:string -> group:string -> setting:string option -> int;
 }
 let local_group_operations = ref None
-let register_local_groups backend =
+(* Pure backend rules, copied before starting the worker. No Emacs values are
+   captured: both the UI and direct worker requests enforce the same eligibility. *)
+let local_group_rules : (string * (source:string -> group:string -> bool)) list ref = ref []
+let all_groups ~source:_ ~group:_ = true
+let register_local_groups ~accepts backend =
   let operations () = Option.value_exn !local_group_operations in
+  let matches=backend.matches in
+  let accepts ~source ~group=matches source && accepts ~source ~group in
+  local_group_rules := (backend.name,accepts)::List.Assoc.remove !local_group_rules backend.name ~equal:String.equal;
   register { backend with
+    can_subscribe_group=accepts;
     followed=Some(fun () -> Value.of_int_exn ((operations ()).followed_groups ~backend:backend.name));
-    group_subscription=Some(fun ~source ~group ~setting -> Value.of_int_exn (
-      (operations ()).subscribe_group ~backend:backend.name ~source ~group ~setting)) }
+    group_subscription=Some(fun ~source ~group ~setting ->
+      if not(accepts ~source ~group)then invalid_arg "This group is browse-only";
+      Value.of_int_exn ((operations ()).subscribe_group ~backend:backend.name ~source ~group ~setting)) }
 
 (* Conversion at the Emacs presentation boundary; no JSON string round trip. *)
 let rec of_json : Yojson.Safe.t -> Value.t = function

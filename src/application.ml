@@ -45,6 +45,10 @@ let start process =
   let notify_ui () = ignore (Reader.Host.notify fd : bool) in
   try
     let hosts=List.filter_map !Reader_backend.worker_factories ~f:(fun prepare -> prepare ~notify:notify_ui) in
+    let group_rules = !Reader_backend.local_group_rules in
+    let subscribable (target : Reader.Local_subscriptions.target) =
+      Option.value_map (List.Assoc.find group_rules target.backend ~equal:String.equal) ~default:false
+        ~f:(fun accepts -> accepts ~source:target.source ~group:target.group) in
     let extension ~net ~now ~sleep =
       let workers=List.map hosts ~f:(fun host -> host.Reader_backend.create ~net ~now ~sleep) in
       let worker source=List.find workers ~f:(fun w -> String.equal w.Reader_backend.source source) in
@@ -325,9 +329,10 @@ let start process =
         reply emit "entries" ["rows",`List(List.map (Rss_backend.followed rss) ~f:(fun url ->
           `Assoc["name",`String("RSS: "^url);"source",`String(Rss_backend.source_of_url url);"group",`String url]))]
       | Group_followed backend ->
-        reply emit "entries" ["rows",`List(List.map (Reader.Local_subscriptions.followed (groups ()) ~backend) ~f:(fun target ->
+        reply emit "entries" ["rows",`List(List.map (List.filter (Reader.Local_subscriptions.followed (groups ()) ~backend) ~f:subscribable) ~f:(fun target ->
           `Assoc["name",`String(target.source^" · "^target.group);"source",`String target.source;"group",`String target.group]))]
       | Group_subscription(target,setting) ->
+        if not(subscribable target)then invalid_arg "This backend does not offer a subscription for this group";
         Option.iter setting ~f:(fun setting -> Reader.Local_subscriptions.set (groups ()) target
           (match setting with "subscribed"->true | "unsubscribed"->false | _->invalid_arg "Invalid group subscription setting"));
         let subscribed=Reader.Local_subscriptions.get (groups ()) target in

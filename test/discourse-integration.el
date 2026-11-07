@@ -263,4 +263,32 @@
    (should (equal (mapcar (lambda (r) (alist-get 'id r)) camulus-tracking--rows) '("topic:8")))
    (should-not camulus-tracking--error)))
 
+(ert-deftest discourse-browsing-groups-cannot-be-locally-subscribed ()
+  (camulus-discourse-test-session
+   (let* ((latest `((name . "Forum") (source . ,source) (group . "latest")))
+          (previous (json-encode
+                     (vconcat (mapcar (lambda (group) `((backend . "Discourse") (source . ,source) (group . ,group)))
+                                      '("latest" "category:3" "topic:7" "replies" "watching"))))))
+     ;; Old full-site subscriptions must not re-enter Home after an upgrade.
+     (with-temp-file camulus-group-subscriptions-file (insert previous))
+     (let* ((id (camulus-group-followed source)))
+       (camulus-discourse-test-await id)
+       (let* ((event (cl-find-if (lambda (e) (and (eq (car e) 'content-state) (= (cadr e) id))) camulus-probe--events))
+              (rows (alist-get 'rows (nth 3 event))))
+         (should (equal (mapcar (lambda (row) (alist-get 'group row)) rows) '("replies" "watching")))))
+     (dolist (group '("latest" "category:3" "topic:7"))
+       (should-error (camulus-group-subscription-submit `((source . ,source) (group . ,group) (setting . "subscribed")))))
+     (with-temp-buffer
+       (camulus-reader-groups-mode)
+       (let ((inhibit-read-only t)) (insert (propertize "Forum" 'camulus-reader-entry latest)))
+       (goto-char (point-min))
+       (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) (ert-fail "Browse-only group offered a policy"))))
+         (should-error (camulus-reader-group-subscription) :type 'user-error)))
+     (camulus latest) (camulus-discourse-test-idle)
+     (should-not (eq (key-binding (kbd "S")) 'camulus-reader-group-subscription))
+     (should (eq (key-binding (kbd "s")) 'camulus-reader-subscription))
+     (with-temp-buffer
+       (insert-file-contents camulus-group-subscriptions-file)
+       (should (equal previous (buffer-string)))))))
+
 (ert-run-tests-batch-and-exit)

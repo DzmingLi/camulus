@@ -40,7 +40,7 @@ let install_protocol () =
     | _->None)::!payload_renderers
 
 let install ~submit () =
-  register_local_groups { (base ~name:"zhihu" ~matches:(String.equal "zhihu") ~threaded:false
+  register_local_groups ~accepts:all_groups { (base ~name:"zhihu" ~matches:(String.equal "zhihu") ~threaded:false
     ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_ -> i(submit ~service:false (Zhihu(Read id))))) with
     attachment=Some(fun ~source:_ ~id ~group:_ ~part ~destination ->i(submit ~service:true (Zhihu(Attachment(id,part,destination)))));
     events=["rss"] }

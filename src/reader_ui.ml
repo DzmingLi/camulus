@@ -69,6 +69,9 @@ let request ?(finished=nil) ?(receive=nil) fields = request_native (alist fields
 let request_ignore ?receive fields = ignore (request ?receive fields : Value.t)
 let state source id = find (get "camulus-reader--states") (list [source;id])
 let capability source = Reader_backend.find (str source)
+let can_subscribe_entry entry =
+  Option.exists (capability (field "source" entry)) ~f:(fun backend ->
+    backend.can_subscribe_group ~source:(text "source" entry) ~group:(text "group" entry))
 let single source = Option.exists (capability source) ~f:(fun backend -> not backend.threaded)
 let entry_key entry = list [field "source" entry;field "group" entry]
 let home_entry row =
@@ -390,7 +393,9 @@ let groups ?backend () =
       Point.insert "\n";insert_value (styled (str source) "bold");Point.insert "\n";
       List.iter entries ~f:(fun entry -> if Value.equal source (field "source" entry) then (
         let start=point () in Point.insert "  ";
-        button (text "name" entry) (fun () -> browse_entry entry);Point.insert ("  · "^text "group" entry^"\n");
+        button (text "name" entry) (fun () -> browse_entry entry);Point.insert ("  · "^text "group" entry);
+        if can_subscribe_entry entry then Point.insert "  [s: subscription settings]";
+        Point.insert "\n";
         properties start (point ()) [sym "camulus-reader-entry";entry]));
       Option.iter (Option.bind (capability source) ~f:(fun backend -> backend.topic_tracking)) ~f:(fun _ ->
         Point.insert "  ";button "远端追踪管理…" (fun () -> run "camulus-manage-subscriptions" [source]);Point.insert "\n"));
@@ -517,10 +522,12 @@ let reader entry =
     set "camulus-reader--entry" entry;set "camulus-reader--source" (field "source" entry);
     Option.iter (capability (field "source" entry)) ~f:(fun backend ->
       let map=call "copy-keymap" [call "current-local-map" []] in
+      run "define-key" [map;call "kbd" [s "S"];if can_subscribe_entry entry then sym "camulus-reader-group-subscription" else nil];
       List.iter backend.list_controls ~f:(fun control ->
         run "define-key" [map;call "kbd" [s control.key];sym control.command]);
       run "use-local-map" [map];
-      let hints=String.concat(List.map backend.list_controls ~f:(fun c->"  "^c.hint))in
+      let hints=(if can_subscribe_entry entry then "  S: group subscription settings" else "")^
+        String.concat(List.map backend.list_controls ~f:(fun c->"  "^c.hint))in
       if not(String.is_empty hints)then set "header-line-format" (list[get "header-line-format";s hints]));
     run "camulus-reader--load-list" [])
 let subscriptions_render () =
@@ -541,7 +548,7 @@ let subscriptions_render () =
     let pending=number (get "camulus-reader-subscriptions--pending") in
     let errors=values (get "camulus-reader-subscriptions--errors") in
     if pending>0 then Point.insert (Printf.sprintf "\nReading subscriptions from %d backends…\n" pending)
-    else if List.is_empty entries && List.is_empty errors then Point.insert "No subscriptions. Use B to browse and s to follow a group.\n";
+    else if List.is_empty entries && List.is_empty errors then Point.insert "No subscriptions. Use B to browse groups; supported entries show subscription settings.\n";
     if not(List.is_empty errors) then (
       Point.insert "\nSome subscriptions could not be read:\n";
       List.iter errors ~f:(fun error -> Point.insert ("  "^str(call "car"[error])^": "^str(call "cdr"[error])^"\n")));
@@ -754,6 +761,7 @@ let group_subscription () =
   let entry=if derived "camulus-reader-groups-mode" then property (point ()) "camulus-reader-entry"
     else if flag "camulus-reader--home" then home_entry (selected ()) else get "camulus-reader--entry" in
   if not(truth entry) then user_error "Select or open a registered group";
+  if not(can_subscribe_entry entry)then user_error "This group is browse-only; its backend does not offer group subscription settings";
   let source=field "source" entry and group=field "group" entry in
   match capability source with
   | Some backend -> (match backend.group_subscription with
@@ -915,14 +923,14 @@ let install_modes () =
   List.iter ["done";"total"] ~f:(fun name -> local_default ("camulus-reader-home--"^name) (i 0));
   mode "camulus-reader-feed-mode" "tabulated-list-mode" "Feed"
     (Some ["New",3,false;"Source",24,true;"Author",20,true;"Thread",70,true])
-    "RET: read  d: delete  m: choose folder  g: refresh  n: more  /: search  s: follow settings  S: follow group  G: entries  C: config  f: folders" ignore;
+    "RET: read  d: delete  m: choose folder  g: refresh  n: more  /: search  s: follow settings  G: entries  C: config  f: folders" ignore;
   mode "camulus-reader-folder-mode" "tabulated-list-mode" "Favorites"
     (Some ["Kind",8,false;"Source",24,true;"Title",80,true])
     "RET: read saved copy  m: add folder  d: remove entry  D: remove folder  f: folders  g: reload  h: home" ignore;
   mode "camulus-reader-folders-mode" "special-mode" "Favorite folders" None
     "RET / click: open folder  TAB: next folder  g: refresh  h: home" ignore;
   mode "camulus-reader-groups-mode" "special-mode" "Reader groups" None
-    "Groups · RET / click: browse  TAB: next entry  T: remote tracking  h: home  g: reload  U: subscriptions  s: follow group  B: all groups  C: edit groups" ignore;
+    "Groups · RET / click: browse  TAB: next entry  T: remote tracking  h: home  g: reload  U: subscriptions  B: all groups  C: edit groups" ignore;
   mode "camulus-subscriptions-mode" "camulus-reader-groups-mode" "Subscriptions" None
     "Subscriptions · RET / click: browse  s: change subscription  T: remote tracking  g: refresh  B: all groups  h: home" ignore;
   mode "camulus-reader-article-mode" "special-mode" "Reader thread" None "Loading…" (fun () ->

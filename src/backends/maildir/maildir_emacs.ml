@@ -180,7 +180,7 @@ let install ~submit ~configured () =
       | `Int n when n>=0 -> ["camulus-mail-sync-interval",i n]
       | _ -> failwith "maildir.sync_interval must be nonnegative seconds" in
     strings@lists@command@interval);
-  register_local_groups { (base ~name:"Maildir" ~matches:(String.is_prefix ~prefix:"maildir:") ~threaded:true
+  register_local_groups ~accepts:all_groups { (base ~name:"Maildir" ~matches:(String.is_prefix ~prefix:"maildir:") ~threaded:true
     ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_ -> Value.of_int_exn (submit (Maildir_backend.Thread id)))) with
     start=(fun()->if truth(get "camulus-mail-sender")then(
       run "camulus-mail-configure"[get "camulus-mail-root";get "camulus-mail-muhome";get "camulus-mail-sender";

@@ -30,7 +30,8 @@ let install ~submit ~followed () =
     ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Value.of_int_exn (submit (Rss_backend.Read(String.drop_prefix source 4,id))))) with
     attachment=Some (fun ~source ~id ~group ~part ~destination -> ignore group; Value.of_int_exn (submit (Rss_backend.Attachment(String.drop_prefix source 4,id,part,destination))));
     start=(fun()->run "camulus-rss-subscriptions-configure"[get "camulus-reader-rss-subscriptions-file"]);
-    events=["rss"];subscription_target=Some (fun ~source ~selected:_ -> Some (String.drop_prefix source 4));
+    events=["rss"];can_subscribe_group=(fun ~source ~group -> String.equal group (String.drop_prefix source 4));
+    subscription_target=Some (fun ~source ~selected:_ -> Some (String.drop_prefix source 4));
     browser=Some ("RSS / Atom", "camulus-reader-rss");followed=Some (fun () -> Value.of_int_exn (followed ())) };
   ignore (Major_mode.define_derived_mode (Symbol.intern "camulus-reader-rss-mode") [%here]
     ~docstring:"Browse one RSS or Atom feed." ~mode_line:"RSS / Atom"

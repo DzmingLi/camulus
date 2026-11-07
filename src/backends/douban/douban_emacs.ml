@@ -78,7 +78,7 @@ let install ~submit () =
   message "正在提交豆瓣点赞操作…" [] in
  define0 ~interactive:true "camulus-douban-like" (fun()->like true);
  define0 ~interactive:true "camulus-douban-unlike" (fun()->like false);
- register_local_groups { (base ~name:"douban" ~matches:(String.equal "douban") ~threaded:true
+ register_local_groups ~accepts:all_groups { (base ~name:"douban" ~matches:(String.equal "douban") ~threaded:true
   ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_->i(submit ~service:false (Douban(Read id))))) with
   attachment=Some(fun ~source:_ ~id ~group:_ ~part ~destination->i(submit ~service:true (Douban(Attachment(id,part,destination)))));
   controls=[{key="l";hint="赞 · l";command="camulus-douban-like"};{key="L";hint="取消赞 · L";command="camulus-douban-unlike"}];
