@@ -1,0 +1,5 @@
+(library (name github_backend) (modules (:standard \ github_emacs forge))
+ (libraries reader eio eio.unix uri yojson ptime unix))
+(library (name github_emacs) (modules github_emacs forge)
+ (libraries reader_emacs_backend ecaml github_backend)
+ (preprocess (pps ppx_jane)))

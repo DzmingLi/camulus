@@ -298,3 +298,9 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 保存只确认提交时的 buffer 修改版本。若等待落盘期间又有编辑，旧保存结果不会清除新修改；会继续保存新版本。保存失败后停止自动重试，手动保存、关闭或发送可以重新尝试保存。关闭失败会保留编辑 buffer。
 
 发送先持久保存草稿，并在等待保存时预留发送状态、将 buffer 设为只读，避免事件处理期间重复提交。后端确认发送成功后，即使本地清理未完成，也将会话置为已发送并阻止重发。失败时恢复编辑；不自动重试发送。不确定远端结果的持久防重仍由后端处理。
+
+## GitHub 与本地仓库
+
+[GitHub 后端](GITHUB.md) 使用原生 node ID 作为话题和评论身份。GitHub 的会话通知是后端提供的首页来源；浏览仓库组不会订阅整个仓库。远端话题追踪通过公共可选订阅接口调用。
+
+`backends/github/github_backend.ml` 的 HTTP 与回复树运行在 worker；`github_emacs.ml` 负责 Ecaml 命令和公共 Writing 接入。`backends/github/forge.ml` 只在 Emacs 主线程调用 Forge/Magit。它复用 Forge 的 repository/worktree 关系，不复制 Forge 数据库，也不在后台直接操作 Emacs 对象。定位本地代码使用 review 的确切 base/head commit，避免 diff 和当前 checkout 不一致。

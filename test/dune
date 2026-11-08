@@ -1,0 +1,2 @@
+(test (name github_test) (modules github_test) (libraries github_backend reader yojson uri str))
+(executable (name github_live) (modules github_live) (libraries github_backend reader eio_posix))

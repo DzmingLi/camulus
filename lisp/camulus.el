@@ -5,6 +5,7 @@
 ;;;###autoload (autoload 'camulus-subscriptions "camulus" "List current Camulus subscription sources." t)
 ;;;###autoload (autoload 'camulus-manage-subscriptions "camulus" "Manage a backend's remote topic tracking." t)
 ;;;###autoload (autoload 'camulus-mail-sync "camulus" "Synchronize and index Camulus mail now." t)
+;;;###autoload (autoload 'camulus-github-repository "camulus" "Open the current local repository's GitHub topics in Camulus." t)
 ;;;###autoload (autoload 'camulus-firefox-cookies-get "camulus" "Return Firefox cookies for an HTTPS URL as a string alist." nil)
 (require 'camulus_native)
 (provide 'camulus)

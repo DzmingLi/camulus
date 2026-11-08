@@ -32,6 +32,7 @@
 | --- | --- |
 | Mu | mu 本地索引、回复树、MIME 附件、自动保存草稿、纯 OCaml SMTP 发送、移动到 Archive；同步仍使用外部 mbsync |
 | Reddit | OAuth、subreddit、回复及提及、渐进回复树、投票；回复/发帖编辑界面未完成 |
+| [GitHub / Forge](docs/GITHUB.md) | Issues、PR、Discussions、会话通知、远端话题订阅、回复及 PR review；复用 Forge 认证与本地 worktree 关联 |
 | Discourse | 最新讨论、分类、远端通知、会话追踪管理、渐进回复树、点赞与追踪设置；回复/发帖已有后端接口，编辑界面待接入 |
 | RSS / Atom | Syndic 格式解析、后端订阅列表、正文与 enclosure 附件归档 |
 | JSON Feed 1.1 | 自动跟随 `next_url` 加载全部列表、逐批显示、正文与附件归档 |
@@ -41,7 +42,7 @@
 | 网易云 | 公开动态、图片与歌曲链接；不下载歌曲音源 |
 | Public Inbox | 原生 gzip / mboxrd / MIME 解析，以邮件回复关系重建讨论树 |
 
-这些后端不依赖旧 Gnus 后端。Mastodon、GitHub / Forgejo 后端尚未实现。
+这些后端不依赖旧 Gnus 后端。Mastodon、Forgejo 后端尚未实现。
 
 ## 使用 Nix 安装
 

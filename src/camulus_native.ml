@@ -18,6 +18,7 @@ let () =
   Zhihu_emacs.install_protocol ();
   Douban_emacs.install_protocol ();
   Mu_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
+  Github_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
   Discourse_emacs.install_protocol ~ensure_ui ~idle ~submit:submit_work;
   Rss_emacs.install_protocol ();
   Jsonfeed_emacs.install_protocol ();
@@ -44,6 +45,7 @@ let () =
     (fun () ->
       let configured source=List.mem (configured_sources ()) source ~equal:String.equal in
       Reddit_emacs.install ~submit:request_reddit ~configured ();
+      Github_emacs.install ~submit:submit_work ();
       Discourse_emacs.install ~submit:submit_work ();
       Rss_emacs.install ~submit:submit_work ();
       Jsonfeed_emacs.install ~submit:submit_work ();

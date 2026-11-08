@@ -155,6 +155,7 @@ let rows_for_activities db ~dismissals ~events ~groups =
     ((time event.(3),revision),`Assoc["source",`String(s event.(1));"id",`String(s event.(2));
       "thread_id",(if s m.(3)="" then `Null else `String(s m.(3)));
       "title",`String(s m.(4));"author",`String(s m.(5));"unread",`Bool unread;
+      "url",`String(s m.(6));
       "favorite",`Bool(Hashtbl.mem saved key);
       "conversation_id",`String(snd key);"occurred",`Float(time event.(3));
       "groups",`List(List.map (fun s -> `String s) (groups root key));
@@ -246,8 +247,8 @@ let remove_folder db path =
   ignore(folder_parts path);
   transaction db (fun () -> run db "DELETE FROM folders WHERE path=?" [text path];prune db)
 let favorites db ~folder =
-  query db "SELECT f.source,f.kind,f.id,i.title FROM favorites f LEFT JOIN items i ON i.source=f.source AND i.id=f.id WHERE folder=? ORDER BY f.source,f.id,f.kind" [text folder]
-  |> List.map(fun r -> `Assoc["source",`String(s r.(0));"target",`String(s r.(1));"id",`String(s r.(2));"title",`String(s r.(3));"favorite",`Bool true]) |> fun xs -> `List xs
+  query db "SELECT f.source,f.kind,f.id,i.title,i.url FROM favorites f LEFT JOIN items i ON i.source=f.source AND i.id=f.id WHERE folder=? ORDER BY f.source,f.id,f.kind" [text folder]
+  |> List.map(fun r -> `Assoc["source",`String(s r.(0));"target",`String(s r.(1));"id",`String(s r.(2));"title",`String(s r.(3));"url",`String(s r.(4));"favorite",`Bool true]) |> fun xs -> `List xs
 let load_archive db ~source ~target ~id =
   let root,_=components db in let members=memberships db in
   query db "SELECT id,payload FROM archives WHERE source=?" [text source]
