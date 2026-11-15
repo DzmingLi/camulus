@@ -48,6 +48,7 @@ type operation = List of group * cursor option
   | Trash of string * string * bool
   | Sync of string list
 type result = Page of M.page | Thread_batch of M.thread_batch | Article of article
+  | Progress of string
   | Saved of string | Sent of receipt
   | Draft of saved_draft | Drafts of saved_draft list | Archived of move_result | Trashed of move_result
   | Draft_sent of string * bool | Synced
@@ -279,7 +280,12 @@ let list_drafts t group =
   Sys.readdir(Filename.concat dir "cur") |> Array.to_list |> List.sort String.compare |>
   List.filter(fun name -> not(String.starts_with ~prefix:"." name)) |>
   List.map(fun name -> draft_info t (folder^"/cur/"^name) true)
-let move_to t group id whole_thread folder = with_mutation t @@ fun () ->
+let move_to ?(progress=ignore) t group id whole_thread folder =
+  (* The UI remains responsive while this fiber waits. Sync holds the same lock
+     across mbsync and indexing, so a move must report that it is queued. *)
+  progress "Waiting for mail access; synchronization or another move may be running…";
+  with_mutation t @@ fun () ->
+  progress ("Preparing move to "^folder^"…");
   if not(Store.valid_group group) then error "Invalid Maildir group";
   if Filename.basename group="Drafts" then error "Drafts must stay in Drafts while being edited";
   let destination=special_folder t group folder in
@@ -299,7 +305,8 @@ let move_to t group id whole_thread folder = with_mutation t @@ fun () ->
       if r.status<>0 then error "Cannot update mu index; another mu process may hold its write lock"
     end;
     let moved=ref [] and failed=ref 0 in
-    List.iter(fun (h:header) ->
+    List.iteri(fun index (h:header) ->
+      progress (Printf.sprintf "Moving mail to %s (%d/%d)…" destination (index+1) (List.length hs));
       ignore(checked_path t h);
       let r=t.run [t.config.mu;"move";"--change-name";"--muhome";t.config.muhome;"--";h.path;destination] in
       if r.status=0 then moved:=h.message.id::!moved else incr failed) hs;
@@ -307,9 +314,10 @@ let move_to t group id whole_thread folder = with_mutation t @@ fun () ->
     {destination;moved=List.rev !moved;failed= !failed}
   end
 let archive t group id whole_thread = move_to t group id whole_thread "Archive"
-let trash t group id whole_thread =
+let trash_with_progress ~progress t group id whole_thread =
   if Filename.basename group="Trash" then error "Already in Trash; d does not permanently delete mail";
-  move_to t group id whole_thread "Trash"
+  move_to ~progress t group id whole_thread "Trash"
+let trash t group id whole_thread = trash_with_progress ~progress:ignore t group id whole_thread
 let prepare_internal ?message_id ?(references=[]) t d =
   if d.to_=[] then error "Supply at least one recipient";
   List.iter(fun s -> ignore(address s)) (d.to_@d.cc);
@@ -413,6 +421,7 @@ let draft_json ~include_source d =
            "subject",`String subject;"indexed",`Bool d.indexed] @
           if include_source then ["source",`String d.source_text] else [])
 let result_json = function
+  | Progress message -> `Assoc["kind",`String "progress";"message",`String message]
   | Page p -> `Assoc["kind",`String "page";"messages",`List(List.map message_json p.messages);
     "after",(match p.after with Some s -> `String s | None -> `Null)]
   | Thread_batch b -> `Assoc["kind",`String "thread";"thread",`String b.thread;"messages",`List(List.map message_json b.messages);"complete",`Bool b.complete]
@@ -437,7 +446,7 @@ let execute t op ~emit = match op with
   | Draft_save(key,rev,src) -> emit(Draft(save_draft t key rev src))
   | Draft_list g -> emit(Drafts(list_drafts t g))
   | Archive(g,id,whole) -> emit(Archived(archive t g id whole))
-  | Trash(g,id,whole) -> emit(Trashed(trash t g id whole))
+  | Trash(g,id,whole) -> emit(Trashed(trash_with_progress ~progress:(fun message->emit(Progress message)) t g id whole))
   | Sync command -> sync t command;emit Synced
 
   | Draft_send(key,rev) -> let id,cleaned=send_draft t key rev in emit(Draft_sent(id,cleaned))

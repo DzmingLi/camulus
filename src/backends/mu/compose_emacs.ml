@@ -4,13 +4,35 @@ open Reader_backend
 let actions : (int, (Value.t->unit) * (Value.t->Value.t->unit) option) Hashtbl.t=Hashtbl.create(module Int)
 let action request receive finish=
  let id=integer(call "camulus-mail-submit"[request])in Hashtbl.set actions ~key:id ~data:(receive,finish)
+let pending_trash = Hash_set.create(module String)
+let clear_pending_trash () = Hash_set.clear pending_trash
 let trash ~entry ~row ~refresh =
  let group=field "group"entry and id=field "id"row in
  if not(truth group && truth id)then user_error "Select mail from a mail group to move to Trash";
- action(alist["op",s "trash";"group",group;"id",id;"thread",sym "t"])
-  (fun data->
-   refresh();
-   message "Moved %d messages to %s; %d failed"[call "length"[field "moved"data];field "destination"data;field "failed"data])None
+ let identity=List.find_map ["conversation_id";"thread_id";"id"] ~f:(fun key->
+  let value=field key row in if truth value then Some(text value)else None) |> Option.value_exn in
+ let key=String.concat ~sep:"\000" [text(field "source"row);text group;identity] in
+ if Hash_set.mem pending_trash key then message "This conversation is already queued for Trash; wait for the result" []
+ else (
+  Hash_set.add pending_trash key;
+  let result=ref None in
+  try
+   action(alist["op",s "trash";"group",group;"id",id;"thread",sym "t"])
+    (fun data->match text(field "kind"data)with
+     | "progress"->message "%s"[field "message"data]
+     | "trashed"->result:=Some data
+     | _->())
+    (Some(fun state reason->
+     Hash_set.remove pending_trash key;
+     if not(Value.eq state(sym "completed"))then
+      message "Mail was not fully moved to Trash: %s. Press g to check the current folder"[reason]
+     else match !result with
+      | None->message "No Trash result received; press g to check the folder before retrying"[]
+      | Some data->
+       message "Moved %d messages to %s; %d failed"[call "length"[field "moved"data];field "destination"data;field "failed"data];
+       (try refresh()with ex->message "Mail move completed, but the list could not refresh: %s. Press g"[s(Exn.to_string ex)])));
+   message "Queued move to Trash; waiting for mail access if synchronization is running…"[]
+  with ex->Hash_set.remove pending_trash key;raise ex)
 let current ()=Buffer.to_value(Current_buffer.get())
 let group ()=let v=get "camulus-mail--group"in if truth v then v else field "group"(get "camulus-reader--entry")
 let selected ()=field "id"(call "camulus-reader--selected"[])

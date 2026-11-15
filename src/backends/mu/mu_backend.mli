@@ -27,7 +27,7 @@ type operation = List of group * cursor option
   | Trash of string * string * bool
   | Sync of string list
 type result = Page of Reader.Content.page | Thread_batch of Reader.Content.thread_batch
-  | Article of article | Saved of string | Sent of receipt
+  | Article of article | Progress of string | Saved of string | Sent of receipt
   | Draft of saved_draft | Drafts of saved_draft list | Archived of move_result | Trashed of move_result
   | Draft_sent of string * bool | Synced
 type process_result = Process.response = { status : int; stdout : string }

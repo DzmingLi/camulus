@@ -22,7 +22,7 @@ let prepare ~notify =
   Option.map !mail_config ~f:(fun config ->
     let bridge=Mu_backend.Process.create ~notify () in
     process_bridge:=Some bridge;
-    {drain=drain_processes;close=(fun () -> process_bridge:=None);
+    {drain=drain_processes;close=(fun () -> process_bridge:=None;Compose_emacs.clear_pending_trash ());
      create=(fun ~net ~now ~sleep ~groups:_ ->
        let run=Mu_backend.Process.run bridge ~now ~sleep in
        let submit ~profile ~sender ~recipients message =
