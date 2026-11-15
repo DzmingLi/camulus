@@ -87,7 +87,21 @@ let home_row row = vector [s (if truth (field "unread" row) then "*" else "");
   (if Float.(timestamp (field "occurred" row) > 0.) then format_time "%m-%d %H:%M" (field "occurred" row) else s "");
   or_ (field "name" (home_entry row)) (field "source" row); field "author" row;field "title" row]
 
+type pending_delete = { source:string; group:string; identity:string; token:unit ref }
+let pending_deletes = Hashtbl.create(module String)
+let row_identity row = str(or_ (field "conversation_id" row) (or_ (field "thread_id" row) (field "id" row)))
+let hidden_by_delete row =
+  derived "camulus-reader-feed-mode" && Hashtbl.exists pending_deletes ~f:(fun pending ->
+    String.equal pending.source (text "source" row) && String.equal pending.identity (row_identity row) &&
+    (if flag "camulus-reader--home" then member (s pending.group) (values(field "groups" row))
+     else String.equal pending.group (text "group" (get "camulus-reader--entry"))))
+
 let set_rows rows =
+  (* Keep the latest authoritative rows separately. Pending backend operations
+     hide only their presentation; neither read state nor dismissals are changed.
+     Every cache/refresh result goes through this filter, including late results. *)
+  set "camulus-reader--all-rows" rows;
+  let rows=list(List.filter (values rows) ~f:(fun row->not(hidden_by_delete row))) in
   (* A removed ID cannot be restored by tabulated-list-print. Remember the
      displayed neighbours as well, so asynchronous refreshes keep our place. *)
   let old_ids=List.map (values (get "tabulated-list-entries")) ~f:(fun entry -> call "car" [entry]) in
@@ -133,6 +147,14 @@ let set_rows rows =
     run "set-window-point" [window;restore point_anchor];
     run "set-window-start" [window;restore start_anchor;b true]);
   goto (number (restore saved));run "move-to-column" [column]
+
+let render_delete_masks () =
+  List.iter (Buffer.all_live ()) ~f:(fun target->in_buffer target (fun ()->
+    if derived "camulus-reader-feed-mode" then
+      let rows=if flag "camulus-reader--all-rows" then get "camulus-reader--all-rows"
+        else if flag "camulus-reader--rows" then list(hash_values(get "camulus-reader--rows")) else nil in
+      set_rows rows))
+let cancel_deletions () = Hashtbl.clear pending_deletes;render_delete_masks ()
 
 let selected () =
   if derived "camulus-reader-article-mode" then (
@@ -683,12 +705,33 @@ let delete () =
     match Option.bind (capability (field "source" row)) ~f:(fun backend -> backend.delete) with
     | Some delete ->
       let entry=if flag "camulus-reader--home" then home_entry row else get "camulus-reader--entry" in
-      let refresh () =
-        let finished=callback_unit(fun event ->
-          if Value.eq (call "nth"[i 2;event]) (sym "completed") then reload_lists ()
-          else message "Backend action completed, but refreshing the group failed; press g to retry") in
-        ignore(request ~finished (CS.Refresh(text "source" row,text "group" entry,None)) : Value.t) in
-      delete ~entry ~row ~refresh
+      let source=text "source" row and group=text "group" entry and identity=row_identity row in
+      let key=String.concat ~sep:"\000" [source;group;identity] in
+      if Hashtbl.mem pending_deletes key then message "This item is already being removed" else (
+        let token=ref () in
+        Hashtbl.set pending_deletes ~key ~data:{source;group;identity;token};
+        let active ()=Option.exists(Hashtbl.find pending_deletes key) ~f:(fun p->phys_equal p.token token) in
+        let rollback reason=if active () then (
+          Hashtbl.remove pending_deletes key;render_delete_masks ();
+          message ("Removal did not complete; item restored: "^reason)) in
+        let complete = function
+          | Error reason->rollback reason
+          | Ok ()->if active () then (
+            (* Keep the mask until the source cache reflects the move. Then force
+               new view tokens, so older in-flight reads cannot resurrect it. *)
+            let finished=callback_unit(fun event->if active () then (
+              if Value.eq(call "nth"[i 2;event])(sym "completed") then (
+                Hashtbl.remove pending_deletes key;
+                List.iter(Buffer.all_live ()) ~f:(fun target->in_buffer target (fun ()->
+                  let relevant entry=String.equal source (text "source" entry) && String.equal group (text "group" entry) in
+                  if derived "camulus-reader-feed-mode" &&
+                    (if flag "camulus-reader--home" then List.exists(values(get "camulus-reader-home--entries")) ~f:relevant
+                     else relevant(get "camulus-reader--entry")) then load_list false false)))
+              else rollback "backend action finished, but refreshing failed; press g to check")) in
+            try ignore(request ~finished (CS.Refresh(source,group,None)):Value.t)
+            with ex->rollback(Exn.to_string ex)) in
+        try render_delete_masks ();delete ~entry ~row ~complete
+        with ex->rollback(Exn.to_string ex);raise ex)
     | None ->
       let source=text "source" row and id=text "id" row and revision=number (field "revision" row) in
       request_ignore (if flag "camulus-reader--home" then CS.Dismiss_timeline(source,id,revision)
@@ -958,7 +1001,7 @@ let install_modes () =
 
 let setup_variables () =
  List.iter["camulus-reader--requests";"camulus-reader--completions";"camulus-reader--loads";"camulus-reader--states";"camulus-reader--reading"]~f:(fun n->Reader_backend.variable n(call "make-hash-table"[sym ":test";sym "equal"]));
- List.iter["entry";"home";"cursor";"list-token";"list-request";"rows";"folder";"source";"title";"messages";"attachments";"loaded";"complete";"archive";"active";"positioned";"view-token";"visibility-timer"]~f:(fun n->let name="camulus-reader--"^n in Reader_backend.variable name nil;run "make-variable-buffer-local"[sym name]);
+ List.iter["entry";"home";"cursor";"list-token";"list-request";"rows";"all-rows";"folder";"source";"title";"messages";"attachments";"loaded";"complete";"archive";"active";"positioned";"view-token";"visibility-timer"]~f:(fun n->let name="camulus-reader--"^n in Reader_backend.variable name nil;run "make-variable-buffer-local"[sym name]);
  Reader_backend.variable "camulus-reader-reply-indent"(i 4);
  run "custom-declare-group"[sym "camulus";nil;s "Read feeds and discussions.";sym ":group";sym "applications"];
  let read_attributes color=Value.list[sym ":inherit";sym "shadow";sym ":foreground";s color;sym ":weight";sym "normal"]in

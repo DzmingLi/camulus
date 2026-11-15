@@ -38,7 +38,8 @@ let () =
   defun_nullary (Symbol.intern "camulus-probe-status") [%here] ~docstring:"Read worker lifecycle."
     (Returns Value.Type.string) status;
   Reader_ui.register ();
-  Runtime_ui.install ~on_start:(Mu_emacs.start_sync ~submit:request_mail) ~on_stop:Mu_emacs.stop_sync
+  Runtime_ui.install ~on_start:(Mu_emacs.start_sync ~submit:request_mail)
+    ~on_stop:(fun ()->Mu_emacs.stop_sync ();Reader_ui.cancel_deletions ())
     ~on_event:(fun event -> if Current_buffer.variable_is_defined (Symbol.intern "camulus-reader--requests") then Reader_ui.event event);
   defun_nullary_nil (Symbol.intern "camulus-reader-backends-install") [%here]
     ~docstring:"Register the linked backends' optional Emacs capabilities."

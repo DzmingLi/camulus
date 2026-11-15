@@ -217,9 +217,10 @@ let install ~submit () =
   browser=Some("GitHub","camulus-github");
   controls=[{key="F";hint="F: Forge";command="camulus-github-forge-topic"};{key="M";hint="M: Magit";command="camulus-github-magit"};{key="r";hint="r: reply";command="camulus-github-reply"};{key="v";hint="v: PR review";command="camulus-github-review"}];
   list_controls=[{key="F";hint="F: Forge";command="camulus-github-forge-topic"};{key="M";hint="M: Magit";command="camulus-github-magit"};{key="v";hint="v: PR review";command="camulus-github-review"};{key="D";hint="D: drafts";command="camulus-github-drafts"}];
-  delete=Some(fun ~entry ~row ~refresh->
+  delete=Some(fun ~entry ~row ~complete->
    if not(String.equal(text(field "group"entry))"notifications")then user_error "Done applies to GitHub notifications; browse-only topics are not deleted";
-   ignore(request ~done_:(fun ok->if ok then refresh())(Done(text(field "id"row)))ignore:int)) };
+   ignore(request ~done_:(fun ok->complete(if ok then Ok ()else Error "GitHub could not mark the notification Done"))
+     (Done(text(field "id"row)))ignore:int)) };
  define0 ~interactive:true "camulus-github"(fun()->
   let entries=List.filter(values(get "camulus-groups"))~f:(fun e->String.equal(text(field "source"e))G.source)in
   if List.is_empty entries then user_error "Register a GitHub group with C / camulus-groups first";

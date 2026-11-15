@@ -28,7 +28,9 @@ type t = {
   attachment : (source:string -> id:string -> group:string option -> part:int -> destination:string -> Value.t) option;
   controls : control list;
   list_controls : control list;
-  delete : (entry:Value.t -> row:Value.t -> refresh:(unit -> unit) -> unit) option;
+  (* Completion acknowledges the backend operation, not merely queueing it.
+     The reader owns optimistic hiding and rollback of list rows. *)
+  delete : (entry:Value.t -> row:Value.t -> complete:((unit, string) Result.t -> unit) -> unit) option;
   article_marks : Value.t -> string;
   row_title : Value.t -> Value.t;
   browser : (string * string) option;
