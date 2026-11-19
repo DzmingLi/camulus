@@ -370,8 +370,6 @@ let open_article () =
   let saved=derived "camulus-reader-folder-mode" in
   let entry=if flag "camulus-reader--home" then home_entry row else get "camulus-reader--entry" in
   let backend=capability source in
-  if not saved && not (Option.exists backend ~f:(fun backend -> backend.available (str source))) then
-    user_error "Configure this source before opening live content";
   let target=Buffer.find_or_create ~name:"*Reader thread*" in
   in_buffer target (fun () ->
     if flag "camulus-reader--active" then run "camulus-probe-cancel" [get "camulus-reader--active"];
@@ -384,10 +382,16 @@ let open_article () =
     set "camulus-reader--view-token" (token ());set "camulus-reader--entry" entry;
     writable (fun () -> Current_buffer.erase ();Point.insert "Loading…");
     let active=if saved then load_archive target source id (field "target" row)
-      else let backend=Option.value_exn backend in
-        backend.read ~source:(str source) ~id:(str id)
-          ~thread_id:(optional_string (field "thread_id" row))
-          ~group:(optional_string (field "group" entry)) in
+      else
+        let work=Option.bind backend ~f:(fun backend ->
+          if not(backend.available(str source)) then None else
+          Some(backend.read ~source:(str source) ~id:(str id)
+            ~thread_id:(optional_string (field "thread_id" row))
+            ~group:(optional_string (field "group" entry)))) in
+        let threaded=Option.value_map backend ~default:(not(single source)) ~f:(fun backend->backend.threaded) in
+        i(Runtime_ui.read_content ~source:(str source) ~id:(str id)
+          ~target:(if threaded then CS.Thread else CS.Article)
+          ~thread_contains_bodies:(Option.exists backend ~f:(fun backend->backend.thread_contains_bodies)) work) in
     set "camulus-reader--active" active;
     if not saved then put (get "camulus-reader--loads") active (bv target));
   let window=call "display-buffer-in-direction" [bv target;alist ["direction",sym "right";"window-width",call "string-to-number" [s "0.6"]]] in
@@ -870,6 +874,14 @@ let receive data =
   let reconcile ~existing m = Option.value_map backend ~default:m ~f:(fun backend ->
     backend.reconcile ~source:(str source) ~existing ~request:(get "camulus-reader--active") ~archived:(flag "camulus-reader--archive") m) in
   match text "kind" data with
+  | "cached-content" ->
+    List.iter (values(field "articles" data)) ~f:(fun article ->
+      let m=reconcile ~existing:nil (field "message" article) in
+      let id=field "id" m in
+      put (get "camulus-reader--messages") id m;
+      put (get "camulus-reader--loaded") id (b true);
+      put (get "camulus-reader--attachments") id (field "attachments" article));
+    set "camulus-reader--complete" (field "complete" data);render ()
   | "page" ->
     set_rows (list (List.map (values (field "messages" data)) ~f:(fun m -> alist [
          "source",source;"target",s (if single source then "article" else "thread");"id",field "id" m;
@@ -879,6 +891,12 @@ let receive data =
       let id=field "id" m in
       let existing=find (get "camulus-reader--messages") id in
       let m=if truth existing then reconcile ~existing m else m in
+      let m=if truth existing && truth(find (get "camulus-reader--loaded") id) &&
+          not(truth(field "unavailable" m)) &&
+          not(Option.exists backend ~f:(fun backend -> backend.thread_contains_bodies)) then
+        List.fold ["body";"html"] ~init:m ~f:(fun m name ->
+          cons (cons (sym name) (field name existing)) (call "assq-delete-all" [sym name;m]))
+        else m in
       put (get "camulus-reader--messages") id m;
       if Option.exists backend ~f:(fun backend -> backend.thread_contains_bodies) then put (get "camulus-reader--loaded") id (b true));
     set "camulus-reader--complete" (field "complete" data);render ()
@@ -906,6 +924,11 @@ let event event =
          if derived "camulus-reader-article-mode" && Value.equal source (get "camulus-reader--source") && count (get "camulus-reader--messages") > 0 then render ()))
      | "changed" -> reload_lists ()
      | "saved" -> message ("Saved: "^str (or_ (field "folder" data) (field "path" data)))
+     | "cached-content" ->
+       let value=find (get "camulus-reader--loads") id in
+       if truth value then let target=Buffer.of_value_exn value in
+         if alive target then in_buffer target (fun () ->
+           if Value.eq id (get "camulus-reader--active") then receive data)
      | _ -> ());
     let callback=find (get "camulus-reader--requests") id in
     if truth callback then ignore (Value.funcallN callback [data] : Value.t)

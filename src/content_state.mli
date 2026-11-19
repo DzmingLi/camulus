@@ -19,6 +19,11 @@ val favorites : t -> folder:string -> Yojson.Safe.t
 val memberships : t -> (string * target * string * string) list
 val remove_favorite : t -> source:string -> target:target -> id:string -> folder:string -> unit
 val load_archive : t -> source:string -> target:target -> id:string -> Yojson.Safe.t
+(* Persist a complete article presentation (message plus attachment metadata).
+    This does not mark it read, favorite it, or download its external resources. *)
+val cache_article : t -> source:string -> Yojson.Safe.t -> unit
+val cache_thread : t -> source:string -> id:string -> bool -> unit
+val cached_content : t -> source:string -> target:target -> id:string -> Yojson.Safe.t list * bool
 val raw_archive : t -> source:string -> id:string -> string
 val message_json : Content.message -> Yojson.Safe.t
 

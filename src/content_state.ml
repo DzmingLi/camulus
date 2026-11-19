@@ -38,7 +38,7 @@ let with_db path f =
   Q.busy_timeout db 2000;
   exec db "PRAGMA foreign_keys=ON";
   let version = match query db "PRAGMA user_version" [] with [r] -> n r.(0) | _ -> -1 in
-  if version < 0 || version > 4 then failwith "Unsupported content-state schema version";
+  if version < 0 || version > 5 then failwith "Unsupported content-state schema version";
   if version = 0 then transaction db (fun () ->
     exec db "CREATE TABLE IF NOT EXISTS items(source TEXT NOT NULL,id TEXT NOT NULL,parent TEXT,thread TEXT,title TEXT NOT NULL,author TEXT NOT NULL,url TEXT NOT NULL,created REAL NOT NULL,is_read INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(source,id));
 CREATE TABLE IF NOT EXISTS item_links(source TEXT NOT NULL,child TEXT NOT NULL,ancestor TEXT NOT NULL,PRIMARY KEY(source,child,ancestor));
@@ -76,6 +76,13 @@ PRAGMA user_version=3");
        The next group refresh replaces these with its exact source timestamp. *)
     exec db "UPDATE activities SET occurred=coalesce((SELECT i.created FROM items i WHERE i.source=activities.source AND i.id=activities.id),0);
 PRAGMA user_version=4");
+  if version < 5 then transaction db (fun () ->
+    (* Ordinary reads share body storage with archives, but only an explicit
+       archive guarantees that every resource has been downloaded. *)
+    exec db "ALTER TABLE archives ADD COLUMN resources_complete INTEGER NOT NULL DEFAULT 1;
+CREATE TABLE cached_threads(source TEXT NOT NULL,id TEXT NOT NULL,complete INTEGER NOT NULL,PRIMARY KEY(source,id));
+INSERT INTO cached_threads SELECT DISTINCT source,id,1 FROM favorites WHERE kind='thread';
+PRAGMA user_version=5");
   f db
 let validate s = if s="" || String.contains s '\000' then invalid_arg "Empty or invalid state identity"
 let observe ?(replace=false) db ~source ~group messages =
@@ -219,7 +226,7 @@ let write_files db source a =
     [text source;text a.message.id;int part;Q.Data.BLOB data]) a.files
 let write_archive db source a =
   let payload=`Assoc["message",message_json a.message;"attachments",a.attachments] |> Yojson.Safe.to_string in
-  run db "INSERT INTO archives VALUES(?,?,?,?) ON CONFLICT(source,id) DO UPDATE SET payload=excluded.payload,raw=excluded.raw"
+  run db "INSERT INTO archives(source,id,payload,raw,resources_complete) VALUES(?,?,?,?,1) ON CONFLICT(source,id) DO UPDATE SET payload=excluded.payload,raw=excluded.raw,resources_complete=1"
     [text source;text a.message.id;text payload;(match a.raw with None -> Q.Data.NULL | Some raw -> Q.Data.BLOB raw)];
   write_files db source a
 let attachment_archive db ~source ~id ~part =
@@ -236,25 +243,51 @@ let memberships db = query db "SELECT source,kind,id,folder FROM favorites ORDER
   |> List.map(fun r -> s r.(0),(if s r.(1)="thread" then Thread else Article),s r.(2),s r.(3))
 let covered root memberships source id = List.exists(fun (src,target,anchor,_) -> src=source &&
   (match target with Article -> anchor=id | Thread -> root(src,anchor)=root(source,id))) memberships
-let prune db =
-  let root,_=components db in let members=memberships db in
-  query db "SELECT source,id FROM archives" [] |> List.iter(fun r ->
-    let source=s r.(0) and id=s r.(1) in if not(covered root members source id) then
-    run db "DELETE FROM archives WHERE source=? AND id=?" [text source;text id])
 let remove_favorite db ~source ~target ~id ~folder = transaction db (fun () ->
-  run db "DELETE FROM favorites WHERE folder=? AND source=? AND kind=? AND id=?" [text folder;text source;text(kind target);text id];prune db)
+  run db "DELETE FROM favorites WHERE folder=? AND source=? AND kind=? AND id=?" [text folder;text source;text(kind target);text id])
 let remove_folder db path =
   ignore(folder_parts path);
-  transaction db (fun () -> run db "DELETE FROM folders WHERE path=?" [text path];prune db)
+  transaction db (fun () -> run db "DELETE FROM folders WHERE path=?" [text path])
 let favorites db ~folder =
   query db "SELECT f.source,f.kind,f.id,i.title,i.url FROM favorites f LEFT JOIN items i ON i.source=f.source AND i.id=f.id WHERE folder=? ORDER BY f.source,f.id,f.kind" [text folder]
   |> List.map(fun r -> `Assoc["source",`String(s r.(0));"target",`String(s r.(1));"id",`String(s r.(2));"title",`String(s r.(3));"url",`String(s r.(4));"favorite",`Bool true]) |> fun xs -> `List xs
+let stored_content db ~source ~target ~id =
+  match target with
+  | Article -> query db "SELECT id,payload,resources_complete FROM archives WHERE source=? AND id=?" [text source;text id]
+  | Thread ->
+    let root,_=components db in
+    (* Filter identities before loading payloads. A persistent cache may hold
+       years of unrelated bodies from the same source. *)
+    query db "SELECT id FROM archives WHERE source=? ORDER BY id" [text source]
+    |> List.filter(fun r -> root(source,s r.(0))=root(source,id))
+    |> List.concat_map(fun r -> query db "SELECT id,payload,resources_complete FROM archives WHERE source=? AND id=?" [text source;r.(0)])
 let load_archive db ~source ~target ~id =
   let root,_=components db in let members=memberships db in
-  query db "SELECT id,payload FROM archives WHERE source=?" [text source]
-  |> List.filter(fun r -> covered root members source (s r.(0)) &&
-    (match target with Article -> s r.(0)=id | Thread -> root(source,s r.(0))=root(source,id)))
+  stored_content db ~source ~target ~id
+  |> List.filter(fun r -> n r.(2)=1 && covered root members source (s r.(0)))
   |> List.map(fun r -> Yojson.Safe.from_string(s r.(1))) |> fun xs -> `List xs
+let cache_article db ~source article =
+  let open Yojson.Safe.Util in
+  let id=article |> member "message" |> member "id" |> to_string in
+  validate source;validate id;
+  (* Metadata-only thread batches must never enter this function. Preserve
+     resource-complete archive payloads and their resource part numbers. *)
+  run db "INSERT INTO archives(source,id,payload,raw,resources_complete) VALUES(?,?,?,NULL,0) ON CONFLICT(source,id) DO UPDATE SET payload=excluded.payload WHERE archives.resources_complete=0"
+    [text source;text id;text(Yojson.Safe.to_string article)]
+let cache_thread db ~source ~id complete =
+  run db "INSERT INTO cached_threads VALUES(?,?,?) ON CONFLICT(source,id) DO UPDATE SET complete=excluded.complete"
+    [text source;text id;int(if complete then 1 else 0)]
+let cached_content db ~source ~target ~id =
+  let articles=stored_content db ~source ~target ~id
+    |> List.map(fun r -> Yojson.Safe.from_string(s r.(1))) in
+  let complete=match target with
+    | Article -> articles<>[]
+    | Thread ->
+      let root,_=components db in
+      List.exists(fun (src,target,anchor,_) -> src=source && target=Thread && root(src,anchor)=root(source,id)) (memberships db) ||
+      List.exists(fun r -> n r.(1)=1 && root(source,s r.(0))=root(source,id))
+        (query db "SELECT id,complete FROM cached_threads WHERE source=?" [text source]) in
+  articles,complete
 let raw_archive db ~source ~id =
   match query db "SELECT raw FROM archives WHERE source=? AND id=?" [text source;text id] with
   | [r] when r.(0)<>Q.Data.NULL -> s r.(0)
@@ -278,7 +311,7 @@ let copy_favorite db ~source ~target ~id ~folder =
   let parts=folder_parts folder in
   transaction db (fun () ->
     let available=match target with
-      | Article -> query db "SELECT 1 FROM archives WHERE source=? AND id=?" [text source;text id]<>[]
+      | Article -> query db "SELECT 1 FROM archives WHERE source=? AND id=? AND resources_complete=1" [text source;text id]<>[]
       | Thread -> query db "SELECT 1 FROM favorites WHERE source=? AND kind='thread' AND id=?" [text source;text id]<>[] in
     if not available then false else begin
       ignore(List.fold_left(fun parent name ->

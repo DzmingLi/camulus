@@ -158,7 +158,7 @@ let install ~submit ~configured ~request_state () =
   define0 ~interactive:true "camulus-mail-sync" (fun () ->
     run "camulus-reader-start" [];sync ~submit ~manual:true ());
   register_local_groups ~option:"camulus-mu-subscriptions" ~source:(fun _->"maildir:"^text(get "camulus-mail-root")) ~accepts:all_groups { (base ~name:"Mu" ~matches:(String.is_prefix ~prefix:"maildir:") ~threaded:true
-    ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_ -> Value.of_int_exn (submit (Mu_backend.Thread id)))) with
+    ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_ -> Mail(Mu_backend.Thread id))) with
     start=(fun()->if truth(get "camulus-mail-sender")then(
       run "camulus-mail-configure"[get "camulus-mail-root";get "camulus-mail-muhome";get "camulus-mail-sender";
        (let mu=call "executable-find"[s "mu"]in if truth mu then mu else s "mu");get "camulus-mail-account"];

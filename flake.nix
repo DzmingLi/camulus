@@ -44,6 +44,7 @@
           export XDG_STATE_HOME="$TMPDIR/state"
           export XDG_CACHE_HOME="$TMPDIR/cache"
           mkdir -p "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME"
+          ${editor}/bin/emacs --batch --module-assertions -l ${./test/content-cache-integration.el}
           ${editor}/bin/emacs --batch --module-assertions -l ${./test/github-integration.el}
           ${editor}/bin/emacs --batch --module-assertions -l ${./test/github-forge.el}
           touch "$out"

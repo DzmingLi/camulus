@@ -78,7 +78,7 @@ let install ~submit () =
  define0 ~interactive:true "camulus-douban-like" (fun()->like true);
  define0 ~interactive:true "camulus-douban-unlike" (fun()->like false);
  register_local_groups ~option:"camulus-douban-subscriptions" ~source:(fun _->"douban") ~accepts:all_groups { (base ~name:"douban" ~matches:(String.equal "douban") ~threaded:true
-  ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_->i(submit (Douban(Read id))))) with
+  ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_->Douban(Read id))) with
   attachment=Some(fun ~source:_ ~id ~group:_ ~part ~destination->i(submit (Douban(Attachment(id,part,destination)))));
   controls=[{key="l";hint="赞 · l";command="camulus-douban-like"};{key="L";hint="取消赞 · L";command="camulus-douban-unlike"}];
   article_marks=(fun item->if truth(field "like-count" item) then " · "^text(call "number-to-string"[field "like-count" item])^" 赞" else "");

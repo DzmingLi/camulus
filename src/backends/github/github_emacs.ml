@@ -207,7 +207,7 @@ let install ~submit () =
     if not ok then message "GitHub: %s"[call "nth"[i 3;event]];f ok));nil);
  hook "camulus-probe-event-hook" "camulus-github--event";
  register { (base ~name:"GitHub" ~matches:(String.equal G.source) ~threaded:true
-   ~read:(fun ~source:_ ~id ~thread_id ~group:_->i(request(Thread(Option.value thread_id~default:id))ignore))) with
+   ~read:(fun ~source:_ ~id ~thread_id ~group:_->Github(Thread(Option.value thread_id~default:id)))) with
   start=setup;thread_contains_bodies=true;events=["github"];
   normalize=(fun row->ignore(G.group_of_string(text(field "group"row)):G.group);row);
   followed=Some(fun()->if truth(get "camulus-github-notifications")then

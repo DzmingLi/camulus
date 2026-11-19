@@ -130,7 +130,7 @@ let install_protocol ~ensure_ui ~idle ~submit =
      submit_operation ~submit (Reddit_backend.operation_of_json (Reader_backend.to_json request)));
   ()
 
-let install ~submit ~configured () =
+let install ~submit:_ ~configured () =
   Interaction_emacs.install ();
   custom ~kind:Customization.Type.(Option {doc_for_none="Unconfigured";t=String}) "camulus-reddit-username" Value.nil "Backend configuration option.";
   custom ~kind:Customization.Type.File "camulus-reddit-token-file" (call "expand-file-name" [s "~/News/nnreddit/refresh-token"]) "Backend configuration option.";
@@ -138,7 +138,7 @@ let install ~submit ~configured () =
   custom ~kind:Customization.Type.String "camulus-reddit-redirect-uri" (s "http://127.0.0.1:17973") "Backend configuration option.";
   register_local_groups ~option:"camulus-reddit-subscriptions" ~source:(fun _->"reddit:"^text(get "camulus-reddit-username")) ~accepts:all_groups { (base ~name:"Reddit" ~matches:(String.is_prefix ~prefix:"reddit:") ~threaded:true
     ~read:(fun ~source:_ ~id ~thread_id ~group:_ ->
-      Value.of_int_exn (submit (Reddit_backend.Thread (Option.value thread_id ~default:id))))) with
+      Reddit(Reddit_backend.Thread (Option.value thread_id ~default:id)))) with
     start=(fun()->if truth(get "camulus-reddit-username")then run "camulus-reddit-configure"[get "camulus-reddit-username";get "camulus-reddit-token-file";get "camulus-reddit-client-id";get "camulus-reddit-redirect-uri"]);
     controls=Interaction_emacs.controls;list_controls=Interaction_emacs.controls;
     article_marks=(fun m->"  ["^Interaction_emacs.vote_label m^"]");

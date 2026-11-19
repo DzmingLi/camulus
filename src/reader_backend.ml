@@ -24,7 +24,8 @@ type t = {
   threaded : bool;
   thread_contains_bodies : bool;
   available : string -> bool;
-  read : source:string -> id:string -> thread_id:string option -> group:string option -> Value.t;
+  (* Describe a read; the common runtime serves/persists bodies before dispatch. *)
+  read : source:string -> id:string -> thread_id:string option -> group:string option -> Reader.Protocol.work;
   attachment : (source:string -> id:string -> group:string option -> part:int -> destination:string -> Value.t) option;
   controls : control list;
   list_controls : control list;
@@ -172,3 +173,7 @@ type Reader.Protocol.work += Subscription of string * string * string option
 type Reader.Protocol.payload += Presentation of string * Yojson.Safe.t
 let reply emit kind fields =
   emit (Presentation ("content-state", `Assoc (("kind", `String kind) :: fields)))
+let render_payload = function
+  | Presentation(name,data) -> name,data
+  | payload -> List.find_map !payload_renderers ~f:(fun render -> render payload)
+    |> Option.value_exn ~message:"Unknown backend event"

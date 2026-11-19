@@ -6,6 +6,10 @@ module Runtime = Reader.Runtime
 module Protocol = Reader.Protocol
 module CS = Reader.Content_state
 type Protocol.work += Local of CS.operation
+type Protocol.work += Read_content of {
+  source : string; id : string; target : CS.target;
+  thread_contains_bodies : bool; work : Protocol.work option;
+}
 external open_channel : Value.t -> Os.file_descr = "ecaml_probe_open_channel"
 
 let owner_thread = Host_thread.id (Host_thread.self ())
@@ -128,10 +132,11 @@ let start_runtime process =
           fetch after
         | Refresh_archives ->
           let errors=ref [] in
-          (* Refresh each saved target once, then update every existing folder copy. *)
+          (* Single-message bodies are retained as fetched. Only saved threads
+             need another fetch for replies; update every folder copy together. *)
           let done_=Stdlib.Hashtbl.create 32 in
           List.iter (storage CS.memberships) ~f:(fun(source,target,id,_) ->
-            if not(Stdlib.Hashtbl.mem done_ (source,target,id)) then begin
+            if Poly.equal target CS.Thread && not(Stdlib.Hashtbl.mem done_ (source,target,id)) then begin
               Stdlib.Hashtbl.add done_ (source,target,id) ();
               try
                 let articles=archived ~refresh:true source target id in
@@ -140,12 +145,42 @@ let start_runtime process =
             end);
           reply emit "archives-refreshed" ["errors",`List(List.map !errors ~f:(fun s -> `String s))]
       in
-      fun work ~emit -> match work with
-      | Local operation -> state operation emit
-      | work ->
+      let execute work emit =
         if not(List.exists workers ~f:(fun worker ->
           worker.execute work ~observe:(fun ~source messages -> observe emit source None messages) ~emit)) then
-          failwith "Unknown backend task"
+          failwith "Unknown backend task" in
+      fun work ~emit -> match work with
+      | Local operation -> state operation emit
+      | Read_content {source;id;target;thread_contains_bodies;work} ->
+        let articles,complete=storage(fun db -> CS.cached_content db ~source ~target ~id) in
+        if not(List.is_empty articles) then begin
+          let ids=List.map articles ~f:(fun article -> Yojson.Safe.Util.(article |> member "message" |> member "id" |> to_string)) in
+          reply emit "states" ["data",storage(fun db -> CS.snapshots db ~source ids)];
+          reply emit "cached-content" ["articles",`List articles;"complete",`Bool complete]
+        end;
+        (* Standalone bodies are immutable local reads once fetched. A thread
+           instead shows its saved messages immediately, then refreshes. If the
+           refresh fails, the emitted cache remains visible and durable. *)
+        if Poly.equal target CS.Thread || List.is_empty articles then (
+          match work with
+          | None -> if List.is_empty articles then failwith "Configure this source before fetching uncached content"
+          | Some work -> execute work (fun payload ->
+            let _,data=Reader_backend.render_payload payload in
+            let open Yojson.Safe.Util in
+            (match data |> member "kind" with
+             | `String "article" -> storage(fun db -> CS.cache_article db ~source data)
+             | `String "thread" ->
+               let messages=data |> member "messages" |> to_list in
+               storage(fun db ->
+                 List.iter messages ~f:(fun message ->
+                   (* Some backends publish headers before the full article.
+                      Never replace a cached body with one of those headers. *)
+                   if thread_contains_bodies || Poly.equal (member "unavailable" message) (`Bool true) then
+                     CS.cache_article db ~source (`Assoc["message",message;"attachments",`List []]));
+                 CS.cache_thread db ~source ~id (Poly.equal (member "complete" data) (`Bool true)))
+             | _ -> ());
+            emit payload))
+      | work -> execute work emit
     in
     let t = Runtime.create ~extension ~notify_ui () in
     backend_hosts := hosts;
@@ -160,16 +195,16 @@ let submit_work work =
   next_id := id;
   id
 
+let read_content ~source ~id ~target ~thread_contains_bodies work =
+  submit_work (Read_content {source;id;target;thread_contains_bodies;work})
+
 let event_value =
   let int = Value.of_int_exn in
   let sym = Value.intern in
   function
   | Protocol.Ready domain -> Value.list [sym "ready"; int domain]
-  | Data (r,Reader_backend.Presentation (name,data)) ->
-    Value.list [sym name;int r.id;Reader_backend.of_json data]
   | Data (r,payload) ->
-    let name,data=List.find_map !Reader_backend.payload_renderers ~f:(fun render -> render payload)
-      |> Option.value_exn ~message:"Unknown backend event" in
+    let name,data=Reader_backend.render_payload payload in
     Value.list [sym name;int r.id;Reader_backend.of_json data]
   | Finished (r, outcome) ->
     let state, message = match outcome with

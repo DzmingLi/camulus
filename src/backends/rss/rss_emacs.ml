@@ -66,7 +66,7 @@ type Protocol.work += Publication_read of string * string * string option
 let publication_backend ~submit ~source ~threaded =
   { (base ~name:source ~matches:(String.equal source) ~threaded
       ~read:(fun ~source:_ ~id ~thread_id:_ ~group ->
-        i(submit (Publication_read(source,id,group))))) with
+        Publication_read(source,id,group))) with
     attachment=Some(fun ~source:_ ~id ~group ~part ~destination ->
       i(submit (Publication_attachment(source,id,group,part,destination))));
     events=["rss"] }
@@ -105,7 +105,7 @@ let install ~submit () =
        "source",s (R.source_of_url url);"group",s url]]);
   register_local_groups ~option:"camulus-rss-subscriptions" ~source:R.source_of_url
     ~accepts:(fun ~source ~group->String.equal (R.url_of_source source) group) { (base ~name:"RSS / Atom" ~matches:(String.is_prefix ~prefix:"rss:") ~threaded:false
-    ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Value.of_int_exn (submit (Read(String.drop_prefix source 4,id))))) with
+    ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Connection.Request(Read(String.drop_prefix source 4,id)))) with
     attachment=Some (fun ~source ~id ~group ~part ~destination -> ignore group; Value.of_int_exn (submit (Attachment(String.drop_prefix source 4,id,part,destination))));
     events=["rss"];
     browser=Some ("RSS / Atom", "camulus-reader-rss") }

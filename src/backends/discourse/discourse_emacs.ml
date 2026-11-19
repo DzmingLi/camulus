@@ -77,7 +77,7 @@ let install ~submit () =
   let submit=request_discourse ~submit in
   Interaction_emacs.install ();
   register { (base ~name:"Discourse" ~matches:(String.is_prefix ~prefix:"discourse:") ~threaded:true
-    ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Value.of_int_exn (submit (String.drop_prefix source 10) (Discourse_backend.Thread id)))) with
+    ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Discourse(String.drop_prefix source 10,Discourse_backend.Thread id))) with
     start=Interaction_emacs.setup;
     followed=Some(fun () ->
       Interaction_emacs.registered_sites ()
