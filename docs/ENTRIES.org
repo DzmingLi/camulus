@@ -1,0 +1,64 @@
+#+title: 浏览入口与订阅配置
+
+浏览入口与订阅分开配置。=camulus-groups= 为组声明名称和来源，供首页后端按钮与组目录浏览；它不会自动把组加入主页。
+
+按同步设计，刷新订阅源会把新内容和更新写入本地收件箱。文章保存正文，讨论保存主题正文及完整回复树，打开时直接从 SQLite 阅读。刷新普通 group 获取浏览列表，打开条目时按需读取正文和回复。订阅和 group 可以指向同一批内容，并共享已读和收藏。[[file:hacking.org][同步设计与实现进度]]
+
+打开分组时才检查其字段并规范化来源，原始配置不会被改写。启动不再全量校验分组或要求名称唯一；按名称选择同名分组时使用第一项，组目录中的按钮仍各自打开对应分组。
+
+#+begin_src elisp
+(setopt camulus-groups
+        '(((name . "OCaml") (source . "reddit:alice") (group . "ocaml"))
+          ((name . "Blog") (source . "rss:https://example.org/feed.xml")
+           (group . "https://example.org/feed.xml"))
+          ((name . "Forum") (source . "discourse:https://forum.example.org")
+           (group . "latest"))))
+#+end_src
+
+本地订阅由各后端的 =defcustom= 选项声明。订阅列表只保存组标识；后端负责把它转换成来源和浏览请求。修改选项后刷新主页即可，不需要重启后台 worker，也不再读取或写入 JSON 订阅文件。
+
+#+begin_src elisp
+(setopt camulus-rss-subscriptions '("https://example.org/feed.xml")
+        camulus-jsonfeed-subscriptions '("https://example.org/feed.json")
+        camulus-reddit-subscriptions '("ocaml" "emacs")
+        camulus-mu-subscriptions '("/work/Inbox")
+        camulus-theatlantic-subscriptions '("author.ian-bogost")
+        camulus-janestreet-subscriptions '("posts")
+        camulus-blogger-subscriptions '("posts.example.blogspot.com")
+        camulus-zhihu-subscriptions '("answers.example-user")
+        camulus-douban-subscriptions '("timeline.12345")
+        camulus-netease-subscriptions '("events.12345")
+        camulus-public-inbox-subscriptions
+        '("https://list.example.org/list/message-id/"))
+#+end_src
+
+列表默认为 =nil=。已注册但没有列入订阅的组仍可浏览；订阅来源也可以不单独注册，届时使用后端提供的默认名称。Mu 的来源由 =camulus-mail-root= 决定，Reddit 的来源由当前后端身份决定，其他后端处理自己的 URL 和组标识。
+
+首页或组目录的 =s= 对本地订阅打开当前后端的 Customize 选项。通过 Customize 保存，或在自己的 Emacs / Nix 配置中维护 =setopt=；阅读器不会另外写一份订阅状态。=U= 列出各后端当前提供的订阅来源，=g= 重新读取选项。
+
+Discourse 使用服务器的会话通知和追踪机制。已注册且已认证的站点提供通知时间线，=T= 打开远端会话追踪面板；阅读讨论时的 =s= 修改远端通知级别。全站、分类等浏览组没有本地订阅开关。取消一个话题的追踪通过服务器接口完成。
+
+Discourse 启动时从已注册分组发现有效站点并读取认证信息，不再将它们写回站点配置。无效的论坛 URL 在打开对应分组时报错。
+
+优先级由 =camulus-subscription-priorities=、=camulus-default-subscription-priority= 和 =camulus-home-priorities= 配置。级别可以是任意整数，包括负数，数值越小越优先。它只决定主页展示哪些订阅来源，不修改订阅列表或远端追踪。配置在筛选或显示优先级时读取；错误的优先级配置不会阻止浏览无关入口。
+
+阅读与写入状态仍独立持久保存：已读、移除、收藏文件夹、归档正文和附件属于内容状态；Mu 草稿属于邮件后端。更改订阅或移除浏览入口不会删除这些内容。
+
+普通来源的主页 =d= 移除当前已显示的进展，新更新仍可出现；组内 =d= 只影响该入口。邮件的 =d= 由 Mu 移动到相应账户的 Trash；收藏夹中的 =d= 取消当前收藏归属。
+
+后端扩展通过 =Reader_backend.register_local_groups= 显式提供选项名、组到来源的转换及可接受组规则。这个 helper 只在 Emacs owner thread 读取 Customize 选项、返回即时发现结果；不引入本地订阅 worker、JSON 存储或公共订阅数据库。远端会话追踪使用独立的可选能力。
+
+* 后端一览
+| 后端                                | 当前范围                                                                                                                                                               |
+|-------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Mu                                  | mu 本地索引、回复树、MIME 附件、自动保存草稿、纯 OCaml SMTP 发送、移动到 Archive；同步仍使用外部 mbsync                                                                |
+| Reddit                              | OAuth、subreddit、回复及提及、渐进回复树、投票；支持撰写新的文字帖                                                                                                     |
+| [[file:GITHUB.org][GitHub / Forge]] | Issues、PR、Discussions、会话通知、远端话题订阅、回复及 PR review；复用 Forge 认证与本地 worktree 关联                                                                 |
+| Discourse                           | 最新讨论、分类、远端通知、会话追踪管理、渐进回复树、点赞与追踪设置；支持撰写新话题                                                                                     |
+| RSS / Atom                          | Syndic 格式解析、后端订阅列表、正文与 enclosure 附件归档                                                                                                               |
+| JSON Feed 1.1                       | 自动跟随 =next_url= 加载全部列表、逐批显示、正文与附件归档                                                                                                             |
+| Blogger                             | 不指定每批数量，自动加载全部 Atom 列表、打开时提取公开网页全文、图片归档                                                                                               |
+| The Atlantic / Jane Street          | 作者 feed 或文章列表、网页正文与图片                                                                                                                                   |
+| 知乎 / 豆瓣                         | 作者或个人入口、正文与图片；豆瓣支持渐进评论树及[[file:DOUBAN.org][广播、帖子和评论点赞]]；两者均使用 Camulus 的[[file:FIREFOX_COOKIES.org][公共 Firefox Cookie 能力]] |
+| 网易云                              | 公开动态、图片与歌曲链接；不下载歌曲音源                                                                                                                               |
+| Public Inbox                        | 原生 gzip / mboxrd / MIME 解析，以邮件回复关系重建讨论树                                                                                                               |

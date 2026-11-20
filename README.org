@@ -1,0 +1,49 @@
+#+title: Camulus
+
+Camulus 是 Emacs 的统一阅读器，把邮件、论坛讨论和个人订阅放进同一个阅读界面。
+
+支持 *x86_64 Linux 上的 Emacs 31*。
+
+* 核心抽象
+** 后端
+后端接入一种服务或数据格式，提供浏览和阅读能力。一个后端可以提供多个 group 和订阅源。
+
+** Group
+Group 是主动浏览的入口。刷新 group 拉取列表，打开其中一项时才按需加载正文和回复。用 =camulus-groups= 注册入口后，可从首页的后端按钮或组目录进入。
+
+** 订阅源
+订阅源为个人收件箱提供文章和讨论的新进展，可以来自一个选定的 group，也可以来自个人通知流。订阅同步负责把正文和完整回复树保存到本地，随后打开条目即可读取。当前部分讨论仍在打开时加载完整回复树。[[file:docs/ENTRIES.org][浏览入口与订阅配置]]
+
+* 阅读与内容管理
+- =M-x camulus= 打开统一时间线；组目录提供配置好的浏览入口。声明入口不等于订阅，订阅由后端可选能力管理。
+- =RET= 在右侧打开文章或完整回复树，并转移焦点。树默认展开，同级回复按时间正序排列，定位第一条已加载的未读内容；渐进加载保留阅读位置。
+- 已读只表示正文进入过可见区域，不会从列表移除。=d= 移除时间线里当前已处理的进展，保留订阅；后续新进展可以再次出现。
+- 远端刷新把新条目和更新合并到本地组列表。旧条目即使滚出远端的最新页面，也继续留在组里。
+- =+= 选择或创建收藏夹。收藏会持久保存正文和归档资源。支持嵌套文件夹、同一内容加入多个文件夹，以及分别收藏整条讨论和单独一楼。首页、组目录及阅读界面都可按 =f= 或点击顶部 =[收藏夹 · f]= 打开收藏夹目录，再点击文件夹浏览已保存内容。收藏可离线阅读。
+- 普通列表中的收藏条目显示为红色。
+- 阅读界面内嵌显示正文图片，支持 [[file:docs/WEBKIT.org][内联视频]] 和 Olivetti 排版。
+
+各界面的绑定和按键来源见 [[file:docs/transfer-from-gnus-and-mu4e.org][快捷键与迁移指南]]。
+
+* 使用 Nix 安装
+也可直接加入自己的 Nix flake：
+
+#+begin_src nix
+inputs.camulus.url = "github:DzmingLi/camulus";
+inputs.camulus.inputs.nixpkgs.follows = "nixpkgs";
+
+# 在已有的 emacsWithPackages 调用中：
+emacsWithPackages (epkgs: [
+  (inputs.camulus.lib.mkEmacsPackage epkgs)
+])
+#+end_src
+
+* 配置
+使用 =M-x customize-group RET camulus= 管理组选项和后端设置。也可以直接在 Emacs 配置中设置。
+
+用 =camulus-groups= 声明浏览入口，首页按 =B= 打开组目录。首页按 =U= 查看订阅源；各来源的配置方式、可用入口和订阅优先级见 [[file:docs/ENTRIES.org][浏览入口与订阅配置]]。
+
+默认状态数据库为 =~/.local/state/camulus/state.sqlite3=，遵循 =XDG_STATE_HOME=。已读、收件箱进展、收藏归属和正文归档分别持久保存。阅读时可以先展示本地内容，收藏条目可离线打开。
+
+* 许可
+项目默认采用 [[file:LICENSE][AGPL-3.0-or-later]]。组件许可与第三方声明见 [[file:NOTICE]]。

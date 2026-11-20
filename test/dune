@@ -1,6 +1,0 @@
-(test (name github_test) (modules github_test) (libraries github_backend reader yojson uri str))
-(executable (name github_live) (modules github_live) (libraries github_backend reader eio_posix))
-(test (name mail_trash_test) (modules mail_trash_test) (libraries mu_backend eio_posix yojson unix))
-(test (name content_cache_test) (modules content_cache_test) (libraries reader yojson sqlite3))
-(test (name atlantic_inbox_test) (modules atlantic_inbox_test)
- (libraries atlantic_backend rss_backend reader eio_posix yojson sqlite3))

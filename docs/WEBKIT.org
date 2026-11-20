@@ -1,6 +1,6 @@
-# 内联视频
+#+title: 内联视频
 
-正文中的视频由 `reader_media.ml` 管理。Nix 的 `emacs-camulus` 包自动引入 `emacs-webkit`；图形环境下按需加载 `webkit-module`，终端或模块不可用时显示外部播放链接。直接安装原生模块时，需要将 emacs-webkit 加入 Emacs 的 load-path。
+正文中的视频由 =reader_media.ml= 管理。Nix 的 =emacs-camulus= 包自动引入 =emacs-webkit=；图形环境下按需加载 =webkit-module=，终端或模块不可用时显示外部播放链接。直接安装原生模块时，需要将 emacs-webkit 加入 Emacs 的 load-path。
 
 播放器附着在正文的占位字符上，随窗口滚动、尺寸和 frame 变化调整位置。重绘保留仍在使用的播放器和播放进度，移除内容或关闭 buffer 时释放资源。
 

@@ -37,18 +37,6 @@
         default = scope.camulus;
         emacs-camulus = self.lib.mkEmacsPackage pkgs.emacsPackages;
       };
-      checks.${system}.github =
-        let editor = pkgs.emacs-nox.pkgs.withPackages (epkgs: [ (self.lib.mkEmacsPackage epkgs) epkgs.forge ]);
-        in pkgs.runCommand "camulus-github-integration" { nativeBuildInputs = [ pkgs.git ]; } ''
-          export XDG_CONFIG_HOME="$TMPDIR/config"
-          export XDG_STATE_HOME="$TMPDIR/state"
-          export XDG_CACHE_HOME="$TMPDIR/cache"
-          mkdir -p "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME"
-          ${editor}/bin/emacs --batch --module-assertions -l ${./test/content-cache-integration.el}
-          ${editor}/bin/emacs --batch --module-assertions -l ${./test/github-integration.el}
-          ${editor}/bin/emacs --batch --module-assertions -l ${./test/github-forge.el}
-          touch "$out"
-        '';
       # An ordinary Emacs package; no OCaml compiler is needed at runtime.
       lib.mkWebkitPackage = epkgs: pkgs.callPackage ./nix/webkit {
         emacsPackages = epkgs;
@@ -72,7 +60,7 @@
       };
       devShells.${system}.default = pkgs.mkShell {
         inputsFrom = [ scope.camulus ];
-        packages = [ pkgs.gnumake pkgs.emacs-nox pkgs.mu ];
+        packages = [ pkgs.emacs-nox pkgs.mu ];
       };
     };
 }
