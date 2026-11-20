@@ -3,7 +3,7 @@ open! Ecaml
 open Reader_backend
 module B = Janestreet_backend
 let prepare ~notify:_ =
-  Some {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ->
+  Some {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ~revisions:_ ->
     let backend=B.Live.create () and source="janestreet" in
     Rss_emacs.publication_worker ~source
       ~group:(fun _id requested -> match requested with Some group -> group | None -> "posts")

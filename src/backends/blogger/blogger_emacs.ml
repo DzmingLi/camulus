@@ -3,7 +3,7 @@ open! Ecaml
 open Reader_backend
 module B = Blogger_backend
 let prepare ~notify:_ =
-  Some {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now:_ ~sleep:_ ~groups ->
+  Some {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now:_ ~sleep:_ ~groups ~revisions:_ ->
     let backend=B.Live.create () and source="blogger" in
     Rss_emacs.publication_worker ~all_pages:true ~source
       ~group:(fun id requested -> match requested with Some group -> group | None -> groups ~source ~id |> List.hd |> Option.value_exn ~message:"Open this source group before reading its article")

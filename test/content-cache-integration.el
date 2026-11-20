@@ -128,4 +128,56 @@
       (camulus-probe-session-stop)
       (delete-directory directory t))))
 
+(ert-deftest remote-refresh-merges-and-retains-absent-rows ()
+  (let* ((directory (make-temp-file "camulus-merge-feed" t))
+         (camulus-state-file (expand-file-name "state.sqlite3" directory))
+         (items '(("older" . "Older article") ("repeat" . "Initial title")))
+         (server
+          (make-network-process
+           :name "camulus-merge-http" :server t :host "127.0.0.1" :service t :noquery t
+           :filter
+           (lambda (process bytes)
+             (let ((request (concat (process-get process 'request) bytes)))
+               (process-put process 'request request)
+               (when (and (not (process-get process 'sent)) (string-match-p "\r\n\r\n" request))
+                 (process-put process 'sent t)
+                 (let ((body
+                        (concat "<rss version=\"2.0\"><channel><title>Fixture</title><link>https://example.test/</link><description>Feed</description>"
+                                (mapconcat (lambda (item)
+                                             (format "<item><guid isPermaLink=\"false\">%s</guid><title>%s</title></item>"
+                                                     (car item) (cdr item)))
+                                           items "")
+                                "</channel></rss>")))
+                   (process-send-string process
+                    (format "HTTP/1.1 200 OK\r\nContent-Type: application/rss+xml\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s"
+                            (string-bytes body) body))
+                   (process-send-eof process)))))))
+         (url (format "http://127.0.0.1:%d/feed" (process-contact server :service)))
+         (source (concat "rss:" url)))
+    (unwind-protect
+        (progn
+          (camulus `((name . "Fixture") (source . ,source) (group . ,url)))
+          (camulus-cache-test-await #'camulus-cache-test-idle)
+          (camulus-reader--load-list t)
+          (camulus-cache-test-await #'camulus-cache-test-idle)
+          (should (= 2 (length camulus-reader--all-rows)))
+          (setq items '(("recent" . "Recent article") ("repeat" . "Updated title")))
+          (camulus-reader--load-list t)
+          (camulus-cache-test-await #'camulus-cache-test-idle)
+          (let ((rows camulus-reader--all-rows))
+            (should (equal (sort (mapcar (lambda (row) (alist-get 'id row)) rows) #'string<)
+                           '("older" "recent" "repeat")))
+            (should (equal "Updated title"
+                           (alist-get 'title (cl-find "repeat" rows :test #'equal :key
+                                                      (lambda (row) (alist-get 'id row)))))))
+          (camulus-probe-session-stop)
+          (delete-process server)
+          (camulus-reader-start)
+          (camulus-reader--load-list nil)
+          (camulus-cache-test-await #'camulus-cache-test-idle)
+          (should (= 3 (length camulus-reader--all-rows))))
+      (camulus-probe-session-stop)
+      (when (process-live-p server) (delete-process server))
+      (delete-directory directory t))))
+
 (ert-run-tests-batch-and-exit)

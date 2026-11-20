@@ -6,6 +6,7 @@ open! Ecaml
 
 type control = { key : string; hint : string; command : string }
 type entrance = { label : string; open_ : unit -> unit }
+type removal = Refresh_membership | Dismiss_notification
 type composer = {
   email : bool;
   in_group : Value.t -> (unit -> unit) option;
@@ -37,7 +38,7 @@ type t = {
   composer : composer option;
   (* Completion acknowledges the backend operation, not merely queueing it.
      The reader owns optimistic hiding and rollback of list rows. *)
-  delete : (entry:Value.t -> row:Value.t -> complete:((unit, string) Result.t -> unit) -> unit) option;
+  delete : (entry:Value.t -> row:Value.t -> complete:((removal, string) Result.t -> unit) -> unit) option;
   article_marks : Value.t -> string;
   row_title : Value.t -> Value.t;
   browser : (string * string) option;
@@ -158,12 +159,17 @@ let register_local_groups ~option ~source ~accepts backend =
 type worker = {
   matches_source : string -> bool;
   all_pages : bool;
+  (* Local directory listings can authoritatively replace the view's
+     membership. Remote pages supply observations to merge into it. *)
+  refresh_membership : [ `Merge | `Replace ];
   page : source:string -> string -> after:string option -> Reader.Content.page;
   archive : source:string -> refresh:bool -> Reader.Content_state.target -> string -> native_thread:(string -> string) -> add:(Reader.Content_state.archived -> unit) -> bool;
   execute : Reader.Protocol.work -> observe:(source:string -> Reader.Content.message list -> unit) -> emit:(Reader.Protocol.payload -> unit) -> bool;
 }
 type host = {
-  create : net:Eio_unix.Net.t -> now:(unit -> float) -> sleep:(float -> unit) -> groups:(source:string -> id:string -> string list) -> worker;
+  create : net:Eio_unix.Net.t -> now:(unit -> float) -> sleep:(float -> unit) ->
+    groups:(source:string -> id:string -> string list) ->
+    revisions:(source:string -> group:string -> id:string -> through:int -> string list) -> worker;
   drain : unit -> Value.t list;
   close : unit -> unit;
 }

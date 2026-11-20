@@ -5,15 +5,15 @@ module G=Github_backend
 module P=Reader.Protocol
 module CS=Reader.Content_state
 let credentials=ref(G.config "")
-type operation = Thread of string | Done of string | Reply of G.draft
+type operation = Thread of string | Done of string * int | Reply of G.draft
  | Review of string | Submit_review of G.review | Resolve of string * bool | Review_reply of string * string
  | Tracking of string * string option
  type P.work += Github of operation
 let prepare ~notify:_ =
  let config= !credentials in
- Some {drain=(fun()->[]);close=(fun()->());create=(fun ~net:_ ~now ~sleep:_ ~groups:_ ->
+ Some {drain=(fun()->[]);close=(fun()->());create=(fun ~net:_ ~now ~sleep:_ ~groups:_ ~revisions ->
   let t=G.Live.create ~now config in
-  {matches_source=String.equal G.source;all_pages=false;
+  {matches_source=String.equal G.source;all_pages=false;refresh_membership=`Merge;
    page=(fun ~source:_ group ~after->let group=G.group_of_string group in G.Live.list t group ~after);
    archive=(fun ~source:_ ~refresh:_ target id ~native_thread ~add ->
     match target with CS.Article->add(G.Live.archive_article t (G.Live.read t id));true
@@ -32,7 +32,10 @@ let prepare ~notify:_ =
       (match op with
        | Thread id->G.Live.thread t id ~emit:(fun b->observe ~source:G.source b.messages;
           result "thread" ["thread",`String b.thread;"messages",`List(List.map b.messages ~f:CS.message_json);"complete",`Bool b.complete])
-       | Done id->G.Live.done_ t id;result "done" []
+       | Done(id,through)->
+         let notification_ids=revisions ~source:G.source ~group:"notifications" ~id ~through
+           |> List.filter_map ~f:(fun revision -> Option.map (String.lsplit2 revision ~on:':') ~f:fst) in
+         G.Live.done_ ~notification_ids t id;result "done" []
        | Reply draft->let m=G.Live.send t draft in observe ~source:G.source [m];result "sent" []
        | Review id->result "review" ["data",G.Live.review_snapshot t id]
        | Submit_review review->result "sent" ["review",G.Live.submit_review t review]
@@ -219,8 +222,8 @@ let install ~submit () =
   list_controls=[{key="F";hint="F: Forge";command="camulus-github-forge-topic"};{key="M";hint="M: Magit";command="camulus-github-magit"};{key="v";hint="v: PR review";command="camulus-github-review"};{key="D";hint="D: drafts";command="camulus-github-drafts"}];
   delete=Some(fun ~entry ~row ~complete->
    if not(String.equal(text(field "group"entry))"notifications")then user_error "Done applies to GitHub notifications; browse-only topics are not deleted";
-   ignore(request ~done_:(fun ok->complete(if ok then Ok ()else Error "GitHub could not mark the notification Done"))
-     (Done(text(field "id"row)))ignore:int)) };
+   ignore(request ~done_:(fun ok->complete(if ok then Ok Dismiss_notification else Error "GitHub could not mark the notification Done"))
+     (Done(text(field "id"row),integer(field "revision"row)))ignore:int)) };
  define0 ~interactive:true "camulus-github"(fun()->
   let entries=List.filter(values(get "camulus-groups"))~f:(fun e->String.equal(text(field "source"e))G.source)in
   if List.is_empty entries then user_error "Register a GitHub group with C / camulus-groups first";

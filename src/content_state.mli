@@ -11,6 +11,8 @@ val mark_read : t -> source:string -> string list -> bool -> unit
 val feed : t -> source:string -> group:string -> Yojson.Safe.t
 val timeline : t -> entries:(string * string) list -> Yojson.Safe.t
 val dismiss_timeline : t -> source:string -> id:string -> through:int -> unit
+val dismiss_notification : t -> source:string -> group:string -> id:string -> through:int -> unit
+val revisions : t -> source:string -> group:string -> id:string -> through:int -> string list
 val dismiss : t -> source:string -> group:string -> id:string -> through:int -> unit
 val folders : t -> string list
 val remove_folder : t -> string -> unit
@@ -32,6 +34,7 @@ type operation =
   | Feed of string * string
   | Timeline of (string * string) list
   | Dismiss_timeline of string * string * int
+  | Dismiss_notification of string * string * string * int
   | Refresh of string * string * string option | Refresh_archives
   | Dismiss of string * string * string * int
   | Folders | Remove_folder of string | Favorites of string

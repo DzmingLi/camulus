@@ -73,6 +73,10 @@ let ()=
   expect(fun r->check(r.H.meth=Delete && Uri.path(Uri.of_string r.url)="/notifications/threads/123") "Remote Done";response ~status:205 `Null);
   B.done_ b m.id;
   raises(fun()->B.done_ b m.id));
+ run "Done can use persisted notification identities without listing" (fun b->
+  expect(fun r->check(r.H.meth=Delete && Uri.path(Uri.of_string r.url)="/notifications/threads/123") "Remote Done from stored identity";
+   response ~status:205 `Null);
+  B.done_ ~notification_ids:["123";"123"] b "I_1");
  run "reply subscription and errors never retry writes" (fun b->
   fixed "node(id:$id)" (obj["node",topic()]);
   query "addComment" (fun j->check(G.str "body"(G.field "variables"j)="Reply") "Reply body";

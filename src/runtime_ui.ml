@@ -56,7 +56,9 @@ let start_runtime process =
           reply emit "states" ["data",data]
         end in
       let workers=List.map hosts ~f:(fun host -> host.Reader_backend.create ~net ~now ~sleep
-        ~groups:(fun ~source ~id -> storage(fun db -> CS.groups_for_item db ~source ~id))) in
+        ~groups:(fun ~source ~id -> storage(fun db -> CS.groups_for_item db ~source ~id))
+        ~revisions:(fun ~source ~group ~id ~through ->
+          storage(fun db -> CS.revisions db ~source ~group ~id ~through))) in
       let worker source=List.find workers ~f:(fun w -> w.Reader_backend.matches_source source)
         |> Option.value_exn ~message:"Source is not configured" in
       let archived ~refresh source target id =
@@ -80,6 +82,8 @@ let start_runtime process =
         | Timeline entries -> reply emit "feed" ["rows",storage(fun db -> CS.timeline db ~entries)]
         | Dismiss_timeline(source,id,through) -> storage(fun db -> CS.dismiss_timeline db ~source ~id ~through);changed()
         | Dismiss(source,group,id,through) -> storage(fun db -> CS.dismiss db ~source ~group ~id ~through);changed()
+        | Dismiss_notification(source,group,id,through) ->
+          storage(fun db -> CS.dismiss_notification db ~source ~group ~id ~through);changed()
         | Folders -> reply emit "folders" ["rows",`List(List.map (storage CS.folders) ~f:(fun s -> `String s))]
         | Remove_folder folder -> storage(fun db -> CS.remove_folder db folder);changed()
         | Favorites folder -> reply emit "favorites" ["folder",`String folder;"rows",storage(fun db -> CS.favorites db ~folder)]
@@ -117,7 +121,10 @@ let start_runtime process =
             let page=backend.page ~source group ~after in
             let result=storage(fun db ->
               if Atomic.get version <> epoch then None else begin
-                CS.observe ~replace:(Option.is_none after) db ~source
+                let replace=match backend.refresh_membership with
+                  | `Merge -> false
+                  | `Replace -> Option.is_none after in
+                CS.observe ~replace db ~source
                   ~group:(Some group) page.messages;
                 let states=CS.snapshots db ~source (List.map page.messages ~f:(fun m -> m.Reader.Content.id)) in
                 let rows=CS.feed db ~source ~group in

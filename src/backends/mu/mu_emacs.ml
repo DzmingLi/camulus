@@ -23,14 +23,14 @@ let prepare ~notify =
     let bridge=Mu_backend.Process.create ~notify () in
     process_bridge:=Some bridge;
     {drain=drain_processes;close=(fun () -> process_bridge:=None);
-     create=(fun ~net ~now ~sleep ~groups:_ ->
+     create=(fun ~net ~now ~sleep ~groups:_ ~revisions:_ ->
        let run=Mu_backend.Process.run bridge ~now ~sleep in
        let submit ~profile ~sender ~recipients message =
          let smtp=List.Assoc.find config.Mu_backend.smtp_profiles profile ~equal:String.equal
            |> Option.value_exn ~message:"Configure an SMTP profile before sending" in
          Mu_backend.Smtp.send ~net ~sleep smtp ~sender ~recipients message in
        let backend=Mu_backend.create ~config ~run ~submit in
-       {matches_source=String.equal ("maildir:"^config.root);all_pages=false;
+       {matches_source=String.equal ("maildir:"^config.root);all_pages=false;refresh_membership=`Replace;
         page=(fun ~source:_ group ~after -> Mu_backend.list backend group ~after);
         archive=(fun ~source:_ ~refresh:_ target id ~native_thread:_ ~add ->
           let capture (a:Mu_backend.article) =
@@ -170,6 +170,8 @@ let install ~submit ~configured ~request_state () =
     attachment=Some (fun ~source:_ ~id ~group:_ ~part ~destination -> Value.of_int_exn (submit (Mu_backend.Attachment(id,part,destination))));
     events=["mail"];available=configured;
     composer=Some(Compose_emacs.composer ~configured);
-    delete=Some Compose_emacs.trash;
+    delete=Some(fun ~entry ~row ~complete ->
+      Compose_emacs.trash ~entry ~row ~complete:(fun result ->
+        complete(Result.map result ~f:(fun () -> Refresh_membership))));
     controls=[{key="A";hint="A: attachments";command="camulus-mail-attachments"};{key="r";hint="r: reply";command="camulus-mail-reply"};{key="C-c C-a";hint="C-c C-a: archive";command="camulus-mail-archive"}];
     list_controls=[{key="r";hint="r: reply";command="camulus-mail-reply"};{key="C-c C-a";hint="C-c C-a: archive";command="camulus-mail-archive"};{key="D";hint="D: drafts";command="camulus-mail-drafts"}] }

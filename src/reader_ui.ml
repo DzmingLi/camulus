@@ -720,8 +720,8 @@ let delete () =
           message ("Removal did not complete; item restored: "^reason)) in
         let complete = function
           | Error reason->rollback reason
-          | Ok ()->if active () then (
-            (* Keep the mask until the source cache reflects the move. Then force
+          | Ok removal->if active () then (
+            (* Keep the mask until the new membership or dismissal is stored. Then force
                new view tokens, so older in-flight reads cannot resurrect it. *)
             let finished=callback_unit(fun event->if active () then (
               if Value.eq(call "nth"[i 2;event])(sym "completed") then (
@@ -731,8 +731,12 @@ let delete () =
                   if derived "camulus-reader-feed-mode" &&
                     (if flag "camulus-reader--home" then List.exists(values(get "camulus-reader-home--entries")) ~f:relevant
                      else relevant(get "camulus-reader--entry")) then load_list false false)))
-              else rollback "backend action finished, but refreshing failed; press g to check")) in
-            try ignore(request ~finished (CS.Refresh(source,group,None)):Value.t)
+              else rollback "backend action finished, but updating the local list failed")) in
+            let operation=match removal with
+              | Reader_backend.Refresh_membership -> CS.Refresh(source,group,None)
+              | Reader_backend.Dismiss_notification ->
+                CS.Dismiss_notification(source,group,text "id" row,number(field "revision" row)) in
+            try ignore(request ~finished operation:Value.t)
             with ex->rollback(Exn.to_string ex)) in
         try render_delete_masks ();delete ~entry ~row ~complete
         with ex->rollback(Exn.to_string ex);raise ex)

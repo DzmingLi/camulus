@@ -79,7 +79,23 @@ let migration_preserves_archives () = with_database(fun path ->
   check (S.copy_favorite db ~source:"fixture" ~target:S.Article ~id:"one" ~folder:"copy") "Migration lost complete-resource status";
   check (S.raw_archive db ~source:"fixture" ~id:"one"="old MIME") "Migration lost MIME";
   check (S.attachment_archive db ~source:"fixture" ~id:"one" ~part:0=Some "old resource") "Migration lost resource"))
+let dismissed_notification_stays_hidden_until_new_activity () = with_database(fun path ->
+ S.with_db path(fun db ->
+  let source="github" and group="notifications" in
+  let notification={ (message "topic" "body") with activity=Some "123:old" } in
+  let observe message=S.observe db ~source ~group:(Some group) [message] in
+  let rows ()=S.timeline db ~entries:[source,group] |> Yojson.Safe.Util.to_list in
+  observe notification;
+  let through=List.hd(rows ()) |> field "revision" |> Yojson.Safe.Util.to_int in
+  check (S.revisions db ~source ~group ~id:"topic" ~through=["123:old"]) "Stored receipt missing";
+  S.dismiss_notification db ~source ~group ~id:"topic" ~through;
+  observe notification;
+  check (rows ()=[] && S.feed db ~source ~group=`List []) "Refresh revived a completed notification";
+  observe {notification with activity=Some "123:new"};
+  check (List.length(rows ())=1) "Done hid later activity on the same topic"))
+
 let () =
  persist_and_keep_state_separate ();favorite_resources_and_removal ();
  threads_and_sources ();migration_preserves_archives ();
+ dismissed_notification_stays_hidden_until_new_activity ();
  print_endline "Persistent content cache tests passed"

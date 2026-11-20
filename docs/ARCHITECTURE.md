@@ -128,7 +128,7 @@ sequenceDiagram
     U->>U: 检查视图有效性并更新 buffer
 ```
 
-以组刷新为例，`Reader_ui.load_list` 提交 `Content_state.Refresh`。`runtime_ui.ml` 的状态处理调用匹配的 worker，拿到 `Content.page` 后写入入口快照，再返回列表行和已读、收藏状态。`reader_ui.ml` 更新对应 buffer。
+以组刷新为例，`Reader_ui.load_list` 提交 `Content_state.Refresh`。`runtime_ui.ml` 调用匹配的 worker，按其成员策略写入 `Content.page`，再返回列表行和已读、收藏状态。`reader_ui.ml` 更新对应 buffer。远端分页合并到已有组成员，缺席条目仍保留。Mu 的本地 Maildir 查询从第一页重建成员，后续页追加。
 
 后端的 `read` 能力返回专属任务描述，由公共运行时统一提交。运行时先读取持久缓存：单篇文章命中后不再访问远端；线程先回放缓存，再执行后端刷新，并在完整正文到达时立即落盘。后端可以逐批返回正文和回复树；仅包含标题的批次不会覆盖已缓存正文。用户关闭或切换视图后，即使响应已经在路上，Emacs 界面仍需要判断它是否属于当前视图，不能仅凭“请求成功”更新屏幕。
 

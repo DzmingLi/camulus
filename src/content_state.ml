@@ -180,6 +180,15 @@ let feed db ~source ~group =
 let timeline_scope = "\001reader-home"
 let dismiss_timeline db ~source ~id ~through =
   dismiss db ~source ~group:timeline_scope ~id ~through
+let dismiss_notification db ~source ~group ~id ~through =
+  transaction db (fun () ->
+    dismiss db ~source ~group ~id ~through;
+    dismiss_timeline db ~source ~id ~through)
+
+let revisions db ~source ~group ~id ~through =
+  query db "SELECT revision FROM activities WHERE source=? AND grp=? AND id=? AND seq<=? AND seq>coalesce((SELECT through_seq FROM dismissals WHERE source=? AND grp=? AND id=?),0)"
+    [text source;text group;text id;int through;text source;text group;text id]
+  |> List.map(fun row -> s row.(0))
 
 let timeline db ~entries =
   let eligible=Hashtbl.create 128 and origins=Hashtbl.create 128 in
@@ -298,6 +307,7 @@ type operation =
   | Feed of string * string
   | Timeline of (string * string) list
   | Dismiss_timeline of string * string * int
+  | Dismiss_notification of string * string * string * int
   | Refresh of string * string * string option | Refresh_archives
   | Dismiss of string * string * string * int
   | Folders | Remove_folder of string | Favorites of string

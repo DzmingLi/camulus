@@ -26,9 +26,9 @@ module Connect (F:Feed) = struct
   type Protocol.work += Request of operation
   let request ~submit operation = submit (Request operation)
   let prepare ~notify:_ =
-    Some {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ->
+    Some {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ~revisions:_ ->
       let backend=F.create () in
-      {matches_source=F.is_source;all_pages=F.all_pages;
+      {matches_source=F.is_source;all_pages=F.all_pages;refresh_membership=`Merge;
        page=(fun ~source group ~after ->
          if not(String.equal (F.url_of_source source) group) then invalid_arg "Feed source and entry URL differ";
          F.list backend group ~after);
@@ -72,7 +72,7 @@ let publication_backend ~submit ~source ~threaded =
     events=["rss"] }
 let publication_worker ?(all_pages=false) ~source ~group ~page ~read ~archive ~attachment ~refresh
     ?thread () =
-  {matches_source=String.equal source;all_pages;
+  {matches_source=String.equal source;all_pages;refresh_membership=`Merge;
    page=(fun ~source:_ group ~after -> page group ~after);
    archive=(fun ~source:_ ~refresh:reload target id ~native_thread:_ ~add ->
      let group=group id None in

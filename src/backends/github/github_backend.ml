@@ -249,8 +249,10 @@ module Make(H:Http.S) = struct
   let parent=Option.value parent ~default:rid in
   message ?parent:(if rid=id then None else Some(if parent=id then rid else parent)) ~thread:rid ~title:(str "title" root) j
  let archive_article _ message = {CS.message;attachments=`List [];raw=None;files=[]}
- let done_ t id =
-  let ids=Option.value(Hashtbl.find_opt t.notification_ids id)~default:[] in
+ let done_ ?notification_ids t id =
+  let ids=match notification_ids with
+    | Some (_::_ as ids) -> List.sort_uniq String.compare ids
+    | _ -> Option.value(Hashtbl.find_opt t.notification_ids id)~default:[] in
   if ids=[] then failwith "Refresh GitHub notifications before marking this topic Done";
   List.iter(fun id ->
    if not(String.for_all(function '0'..'9'->true|_->false)id) || id="" then failwith "Invalid notification identity";

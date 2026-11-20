@@ -54,9 +54,9 @@ let update_votes ~barrier event =
 let prepare ~notify:_ =
   Option.map !reddit_config ~f:(fun config ->
     Voting.clear votes;
-    {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now ~sleep ~groups:_ ->
+    {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now ~sleep ~groups:_ ~revisions:_ ->
       let backend=Reddit_backend.Live.create ~config ~now ~sleep in
-      {matches_source=String.equal ("reddit:"^config.username);all_pages=false;
+      {matches_source=String.equal ("reddit:"^config.username);all_pages=false;refresh_membership=`Merge;
        page=(fun ~source:_ group ~after ->
          let group=if String.equal group "notifications" then Reddit_backend.Notifications
            else if String.is_prefix group ~prefix:"post:" then Reddit_backend.Post(String.drop_prefix group 5)
