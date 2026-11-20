@@ -28,6 +28,47 @@ let transaction db f =
 let rec directory path =
   if Sys.file_exists path then (if not (Sys.is_directory path) then failwith "State parent is not a directory")
   else (directory (Filename.dirname path); try Unix.mkdir path 0o700 with Unix.Unix_error(Unix.EEXIST,_,_) -> ())
+let rss_source = String.starts_with ~prefix:"rss:"
+let article_path db ~source ~id =
+  let database = match query db "PRAGMA database_list" [] with [r] -> s r.(2) | _ -> assert false in
+  let identity = Yojson.Safe.to_string (`List [`String source;`String id]) in
+  Filename.concat (database ^ ".rss") (Digest.to_hex (Digest.string identity) ^ ".json")
+let article_bytes path =
+  try Some (In_channel.with_open_bin path In_channel.input_all)
+  with Sys_error _ when not (Sys.file_exists path) -> None
+let write_article_file path article =
+  let bytes = Yojson.Safe.pretty_to_string article ^ "\n" in
+  if article_bytes path <> Some bytes then begin
+    let dir = Filename.dirname path in
+    directory dir;
+    let temp, out = Filename.open_temp_file ~temp_dir:dir ".article-" ".tmp" in
+    Fun.protect ~finally:(fun () ->
+      close_out_noerr out;
+      if Sys.file_exists temp then Sys.remove temp) @@ fun () ->
+    output_string out bytes;
+    flush out;
+    Unix.fsync (Unix.descr_of_out_channel out);
+    close_out out;
+    Unix.rename temp path
+  end
+let read_article db ~source row =
+  if rss_source source then
+    article_bytes (article_path db ~source ~id:(s row.(0))) |> Option.map Yojson.Safe.from_string
+  else Some (Yojson.Safe.from_string (s row.(1)))
+(* Archive blobs are indexed by enclosure part number. Store a manifest digest
+   with the blobs so a file replacement cannot expose stale bytes after a crash. *)
+let resource_manifest article =
+  Yojson.Safe.Util.member "attachments" article |> Yojson.Safe.to_string
+  |> Digest.string |> Digest.to_hex
+let resources_complete row article =
+  n row.(2)=1 && s row.(1)=resource_manifest article
+let rss_deleted db ~source ~id =
+  rss_source source &&
+  query db "SELECT 1 FROM rss_deletions WHERE source=? AND id=?" [text source;text id] <> []
+let finish_rss_delete db ~source ~id =
+  (try Unix.unlink (article_path db ~source ~id)
+   with Unix.Unix_error (Unix.ENOENT,_,_) -> ());
+  run db "UPDATE rss_deletions SET pending=0 WHERE source=? AND id=?" [text source;text id]
 let with_db path f =
   if Filename.is_relative path then invalid_arg "State database path must be absolute";
   directory (Filename.dirname path);
@@ -38,7 +79,7 @@ let with_db path f =
   Q.busy_timeout db 2000;
   exec db "PRAGMA foreign_keys=ON";
   let version = match query db "PRAGMA user_version" [] with [r] -> n r.(0) | _ -> -1 in
-  if version < 0 || version > 5 then failwith "Unsupported content-state schema version";
+  if version < 0 || version > 6 then failwith "Unsupported content-state schema version";
   if version = 0 then transaction db (fun () ->
     exec db "CREATE TABLE IF NOT EXISTS items(source TEXT NOT NULL,id TEXT NOT NULL,parent TEXT,thread TEXT,title TEXT NOT NULL,author TEXT NOT NULL,url TEXT NOT NULL,created REAL NOT NULL,is_read INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(source,id));
 CREATE TABLE IF NOT EXISTS item_links(source TEXT NOT NULL,child TEXT NOT NULL,ancestor TEXT NOT NULL,PRIMARY KEY(source,child,ancestor));
@@ -83,6 +124,22 @@ PRAGMA user_version=4");
 CREATE TABLE cached_threads(source TEXT NOT NULL,id TEXT NOT NULL,complete INTEGER NOT NULL,PRIMARY KEY(source,id));
 INSERT INTO cached_threads SELECT DISTINCT source,id,1 FROM favorites WHERE kind='thread';
 PRAGMA user_version=5");
+  if version < 6 then transaction db (fun () ->
+    exec db "CREATE TABLE rss_deletions(source TEXT NOT NULL,id TEXT NOT NULL,pending INTEGER NOT NULL,PRIMARY KEY(source,id));
+CREATE INDEX rss_deletions_pending ON rss_deletions(pending) WHERE pending=1;";
+    List.iter (fun row ->
+      let source=s row.(0) and id=s row.(1) in
+      (* Keep the old payload readable until the replacement file is in place. *)
+      let article=Yojson.Safe.from_string (s row.(2)) in
+      write_article_file (article_path db ~source ~id) article;
+      run db "UPDATE archives SET payload=? WHERE source=? AND id=?"
+        [text (resource_manifest article);text source;text id])
+      (query db "SELECT source,id,payload FROM archives WHERE source GLOB 'rss:*'" []);
+    exec db "PRAGMA user_version=6");
+  List.iter (fun row ->
+    try finish_rss_delete db ~source:(s row.(0)) ~id:(s row.(1))
+    with Unix.Unix_error _ -> ())
+    (query db "SELECT source,id FROM rss_deletions WHERE pending=1" []);
   f db
 let validate s = if s="" || String.contains s '\000' then invalid_arg "Empty or invalid state identity"
 let observe ?(replace=false) db ~source ~group messages =
@@ -92,22 +149,24 @@ let observe ?(replace=false) db ~source ~group messages =
       run db "DELETE FROM entry_members WHERE source=? AND grp=?" [text source;text group] | _ -> ());
     List.iter (fun (m:M.message) ->
       validate m.id;
-      run db "INSERT INTO items(source,id,parent,thread,title,author,url,created) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(source,id) DO UPDATE SET parent=coalesce(excluded.parent,items.parent),thread=coalesce(excluded.thread,items.thread),title=excluded.title,author=excluded.author,url=excluded.url,created=excluded.created"
-        [text source;text m.id;opt m.parent_id;opt m.thread_id;text m.title;text m.author;text m.url;Q.Data.FLOAT m.created];
-      List.iter(fun ancestor -> run db "INSERT OR IGNORE INTO item_links VALUES(?,?,?)" [text source;text m.id;text ancestor]) m.references;
-      Option.iter (fun group ->
-        validate group;
-        run db "INSERT OR IGNORE INTO entry_members VALUES(?,?,?)" [text source;text group;text m.id];
-        (* The backend's activity token is an opaque revision key, not a time.
-           A repeated (source, group, message ID, token) keeps its local sequence,
-           so refreshing an already dismissed update cannot resurrect it. A new
-           token creates another sequence that can fall beyond the dismissal
-           boundary. With no token, the message ID identifies its only activity.
-           Display order uses m.created (source time), never this sequence or
-           the time at which we fetched the message. *)
-        run db "INSERT INTO activities(source,grp,id,revision,occurred) VALUES(?,?,?,?,?) ON CONFLICT(source,grp,id,revision) DO UPDATE SET occurred=excluded.occurred"
-          [text source;text group;text m.id;text (Option.value m.activity ~default:m.id);Q.Data.FLOAT m.created]
-      ) group) messages)
+      if not (rss_deleted db ~source ~id:m.id) then begin
+        run db "INSERT INTO items(source,id,parent,thread,title,author,url,created) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(source,id) DO UPDATE SET parent=coalesce(excluded.parent,items.parent),thread=coalesce(excluded.thread,items.thread),title=excluded.title,author=excluded.author,url=excluded.url,created=excluded.created"
+          [text source;text m.id;opt m.parent_id;opt m.thread_id;text m.title;text m.author;text m.url;Q.Data.FLOAT m.created];
+        List.iter(fun ancestor -> run db "INSERT OR IGNORE INTO item_links VALUES(?,?,?)" [text source;text m.id;text ancestor]) m.references;
+        Option.iter (fun group ->
+          validate group;
+          run db "INSERT OR IGNORE INTO entry_members VALUES(?,?,?)" [text source;text group;text m.id];
+          (* The backend's activity token is an opaque revision key, not a time.
+             A repeated (source, group, message ID, token) keeps its local sequence,
+             so refreshing an already dismissed update cannot resurrect it. A new
+             token creates another sequence that can fall beyond the dismissal
+             boundary. With no token, the message ID identifies its only activity.
+             Display order uses m.created (source time), never this sequence or
+             the time at which we fetched the message. *)
+          run db "INSERT INTO activities(source,grp,id,revision,occurred) VALUES(?,?,?,?,?) ON CONFLICT(source,grp,id,revision) DO UPDATE SET occurred=excluded.occurred"
+            [text source;text group;text m.id;text (Option.value m.activity ~default:m.id);Q.Data.FLOAT m.created]
+        ) group
+      end) messages)
 let mark_read db ~source ids value =
   transaction db (fun () -> List.iter (fun id ->
     run db "UPDATE items SET is_read=? WHERE source=? AND id=?" [int(if value then 1 else 0);text source;text id]) ids)
@@ -233,12 +292,47 @@ let write_files db source a =
   run db "DELETE FROM archive_files WHERE source=? AND id=?" [text source;text a.message.id];
   List.iter(fun (part,data) -> run db "INSERT INTO archive_files VALUES(?,?,?,?)"
     [text source;text a.message.id;int part;Q.Data.BLOB data]) a.files
+let stored_article db ~source ~id =
+  query db "SELECT id,payload,resources_complete FROM archives WHERE source=? AND id=?" [text source;text id]
+let local_article db ~source ~id =
+  if rss_deleted db ~source ~id then failwith "Article was deleted";
+  match stored_article db ~source ~id with
+  | [row] -> read_article db ~source row
+  | _ -> None
+let delete_rss_article db ~source ~id =
+  if not (rss_source source) then invalid_arg "Expected an RSS article";
+  validate source;validate id;
+  transaction db (fun () ->
+    let args=[text source;text id] in
+    run db "INSERT OR IGNORE INTO rss_deletions VALUES(?,?,1)" args;
+    List.iter (fun table -> run db ("DELETE FROM " ^ table ^ " WHERE source=? AND id=?") args)
+      ["archives";"favorites";"entry_members";"activities";"dismissals";"items"]);
+  finish_rss_delete db ~source ~id
 let write_archive db source a =
-  let payload=`Assoc["message",message_json a.message;"attachments",a.attachments] |> Yojson.Safe.to_string in
+  let id=a.message.id in
+  let article=`Assoc["message",message_json a.message;"attachments",a.attachments] in
+  let payload=
+    if rss_source source then begin
+      let article=match local_article db ~source ~id with
+        | Some current ->
+          if Yojson.Safe.Util.member "attachments" current <> a.attachments then
+            failwith "Article enclosures changed during archiving; try again";
+          current
+        | None -> article in
+      write_article_file (article_path db ~source ~id) article;
+      resource_manifest article
+    end else Yojson.Safe.to_string article in
   run db "INSERT INTO archives(source,id,payload,raw,resources_complete) VALUES(?,?,?,?,1) ON CONFLICT(source,id) DO UPDATE SET payload=excluded.payload,raw=excluded.raw,resources_complete=1"
-    [text source;text a.message.id;text payload;(match a.raw with None -> Q.Data.NULL | Some raw -> Q.Data.BLOB raw)];
+    [text source;text id;text payload;(match a.raw with None -> Q.Data.NULL | Some raw -> Q.Data.BLOB raw)];
   write_files db source a
+let archived_resources_match db ~source ~id =
+  match stored_article db ~source ~id with
+  | [row] -> (match read_article db ~source row with
+      | Some article -> resources_complete row article
+      | None -> false)
+  | _ -> false
 let attachment_archive db ~source ~id ~part =
+  if rss_source source && not (archived_resources_match db ~source ~id) then None else
   match query db "SELECT data FROM archive_files WHERE source=? AND id=? AND part=?" [text source;text id;int part] with
   | [r] -> Some(s r.(0)) | _ -> None
 let save_archive db ~source ~target ~id ~folder articles =
@@ -262,7 +356,7 @@ let favorites db ~folder =
   |> List.map(fun r -> `Assoc["source",`String(s r.(0));"target",`String(s r.(1));"id",`String(s r.(2));"title",`String(s r.(3));"url",`String(s r.(4));"favorite",`Bool true]) |> fun xs -> `List xs
 let stored_content db ~source ~target ~id =
   match target with
-  | Article -> query db "SELECT id,payload,resources_complete FROM archives WHERE source=? AND id=?" [text source;text id]
+  | Article -> stored_article db ~source ~id
   | Thread ->
     let root,_=components db in
     (* Filter identities before loading payloads. A persistent cache may hold
@@ -273,22 +367,51 @@ let stored_content db ~source ~target ~id =
 let load_archive db ~source ~target ~id =
   let root,_=components db in let members=memberships db in
   stored_content db ~source ~target ~id
-  |> List.filter(fun r -> n r.(2)=1 && covered root members source (s r.(0)))
-  |> List.map(fun r -> Yojson.Safe.from_string(s r.(1))) |> fun xs -> `List xs
-let cache_article db ~source article =
+  |> List.filter(fun r -> (n r.(2)=1 || rss_source source) && covered root members source (s r.(0)))
+  |> List.filter_map(fun r ->
+    Option.map (fun article ->
+      if not (rss_source source) || resources_complete r article then article else
+      let open Yojson.Safe.Util in
+      let attachments=member "attachments" article |> to_list
+        |> List.map (fun part -> `Assoc (("download_from_source",`Bool true) :: to_assoc part)) in
+      `Assoc (("attachments",`List attachments) :: List.remove_assoc "attachments" (to_assoc article)))
+      (read_article db ~source r)) |> fun xs -> `List xs
+let store_article ~refresh db ~source article =
   let open Yojson.Safe.Util in
   let id=article |> member "message" |> member "id" |> to_string in
   validate source;validate id;
-  (* Metadata-only thread batches must never enter this function. Preserve
-     resource-complete archive payloads and their resource part numbers. *)
-  run db "INSERT INTO archives(source,id,payload,raw,resources_complete) VALUES(?,?,?,NULL,0) ON CONFLICT(source,id) DO UPDATE SET payload=excluded.payload WHERE archives.resources_complete=0"
-    [text source;text id;text(Yojson.Safe.to_string article)]
+  if rss_source source then begin
+    if rss_deleted db ~source ~id then failwith "Article was deleted";
+    if refresh || Option.is_none (local_article db ~source ~id) then begin
+      let manifest=resource_manifest article in
+      let preserve_resources=match stored_article db ~source ~id with
+        | [row] -> n row.(2)=1 && s row.(1)=manifest
+        | _ -> false in
+      if not preserve_resources then
+        run db "DELETE FROM archive_files WHERE source=? AND id=?" [text source;text id];
+      write_article_file (article_path db ~source ~id) article;
+      run db "INSERT INTO archives(source,id,payload,raw,resources_complete) VALUES(?,?,?,NULL,?) ON CONFLICT(source,id) DO UPDATE SET payload=excluded.payload,resources_complete=excluded.resources_complete WHERE archives.payload<>excluded.payload OR archives.resources_complete<>excluded.resources_complete"
+        [text source;text id;text manifest;int(if preserve_resources then 1 else 0)]
+    end
+  end else
+    (* Metadata-only thread batches must never enter this function. Preserve
+       resource-complete archive payloads and their resource part numbers. *)
+    run db "INSERT INTO archives(source,id,payload,raw,resources_complete) VALUES(?,?,?,NULL,0) ON CONFLICT(source,id) DO UPDATE SET payload=excluded.payload WHERE archives.resources_complete=0"
+      [text source;text id;text(Yojson.Safe.to_string article)]
+let cache_article db ~source article =
+  if rss_source source then transaction db (fun () -> store_article ~refresh:false db ~source article)
+  else store_article ~refresh:false db ~source article
+let cache_page_articles db ~source articles =
+  transaction db (fun () ->
+    List.iter (fun article ->
+      let id=Yojson.Safe.Util.(article |> member "message" |> member "id" |> to_string) in
+      if not (rss_deleted db ~source ~id) then store_article ~refresh:true db ~source article) articles)
 let cache_thread db ~source ~id complete =
   run db "INSERT INTO cached_threads VALUES(?,?,?) ON CONFLICT(source,id) DO UPDATE SET complete=excluded.complete"
     [text source;text id;int(if complete then 1 else 0)]
 let cached_content db ~source ~target ~id =
-  let articles=stored_content db ~source ~target ~id
-    |> List.map(fun r -> Yojson.Safe.from_string(s r.(1))) in
+  if rss_deleted db ~source ~id then failwith "Article was deleted";
+  let articles=stored_content db ~source ~target ~id |> List.filter_map (read_article db ~source) in
   let complete=match target with
     | Article -> articles<>[]
     | Thread ->
@@ -310,6 +433,7 @@ type operation =
   | Dismiss_notification of string * string * string * int
   | Refresh of string * string * string option | Refresh_archives
   | Dismiss of string * string * string * int
+  | Delete_rss_article of string * string
   | Folders | Remove_folder of string | Favorites of string
   | Favorite of string * target * string * string
   | Unfavorite of string * target * string * string
@@ -321,6 +445,7 @@ let copy_favorite db ~source ~target ~id ~folder =
   let parts=folder_parts folder in
   transaction db (fun () ->
     let available=match target with
+      | Article when rss_source source -> archived_resources_match db ~source ~id
       | Article -> query db "SELECT 1 FROM archives WHERE source=? AND id=? AND resources_complete=1" [text source;text id]<>[]
       | Thread -> query db "SELECT 1 FROM favorites WHERE source=? AND kind='thread' AND id=?" [text source;text id]<>[] in
     if not available then false else begin

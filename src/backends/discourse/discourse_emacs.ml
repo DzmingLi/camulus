@@ -10,7 +10,7 @@ let request_discourse ~submit site operation =
   submit (Discourse(site,operation))
 let prepare ~notify:_ =
   let configs= !discourse_configs in
-  Some {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ~revisions:_ ->
+  Some {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ~revisions:_ ~article:_ ->
     let forums=Stdlib.Hashtbl.create 8 in
     List.iter configs ~f:(fun config -> Stdlib.Hashtbl.replace forums config.Discourse.site (Discourse.Live.create config));
     let forum site=match Stdlib.Hashtbl.find_opt forums site with
@@ -19,7 +19,7 @@ let prepare ~notify:_ =
     {matches_source=Discourse.is_source;all_pages=false;refresh_membership=`Merge;
      page=(fun ~source group ~after ->
        let backend=forum(Discourse.site_of_source source) and group=Discourse.group_of_string group in
-       Discourse.Live.list backend group ~after);
+       Discourse.Live.list backend group ~after,[]);
      archive=(fun ~source ~refresh:_ target id ~native_thread:_ ~add ->
        let backend=forum(Discourse.site_of_source source) in
        match target with

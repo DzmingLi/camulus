@@ -4,6 +4,8 @@ open Reader_backend
 module Connection = Rss_emacs.Connect(struct
   include Jsonfeed_backend.Live
   let all_pages=true
+  let local_articles=false
+  let page t url ~after = list t url ~after,[]
   let is_source=Jsonfeed_backend.is_source
   let source_of_url=Jsonfeed_backend.source_of_url
   let url_of_source=Jsonfeed_backend.url_of_source

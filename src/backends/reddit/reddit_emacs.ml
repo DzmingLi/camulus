@@ -54,14 +54,14 @@ let update_votes ~barrier event =
 let prepare ~notify:_ =
   Option.map !reddit_config ~f:(fun config ->
     Voting.clear votes;
-    {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now ~sleep ~groups:_ ~revisions:_ ->
+    {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now ~sleep ~groups:_ ~revisions:_ ~article:_ ->
       let backend=Reddit_backend.Live.create ~config ~now ~sleep in
       {matches_source=String.equal ("reddit:"^config.username);all_pages=false;refresh_membership=`Merge;
        page=(fun ~source:_ group ~after ->
          let group=if String.equal group "notifications" then Reddit_backend.Notifications
            else if String.is_prefix group ~prefix:"post:" then Reddit_backend.Post(String.drop_prefix group 5)
            else Reddit_backend.Subreddit group in
-         Reddit_backend.Live.list backend group ~after);
+         Reddit_backend.Live.list backend group ~after,[]);
        archive=(fun ~source:_ ~refresh:_ target id ~native_thread ~add ->
          let root=if String.is_prefix id ~prefix:"t3_" then id else native_thread id in
          let complete=ref false in

@@ -17,10 +17,10 @@ let redraw () =
 let prepare ~notify:_ =
  let browser=firefox_cookie_provider () in
  Some {drain=(fun()->[]);close=(fun()->Hashtbl.clear pending;Hashtbl.clear confirmed);
-  create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ~revisions:_ ->
+  create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ~revisions:_ ~article:_ ->
    let backend=D.create_live ~cookies:(Reader.Credentials.Firefox.get browser) () in
    {matches_source=String.equal ("douban");all_pages=false;refresh_membership=`Merge;
-    page=(fun ~source:_ group ~after->D.Live.list backend group ~after);
+    page=(fun ~source:_ group ~after->D.Live.list backend group ~after,[]);
     archive=(fun ~source:_ ~refresh:_ target id ~native_thread:_ ~add->
      match target with
      | C.Article->D.Live.invalidate backend id;add(D.Live.archive backend "" id);true

@@ -318,7 +318,8 @@ let render () =
           List.iter (values (find (get "camulus-reader--attachments") id)) ~f:(fun a ->
             run "insert-text-button" [s (Printf.sprintf "[Save %s · %d bytes]" (text "name" a) (number (field "size" a)));
               sym "action";sym "camulus-reader--attachment";sym "follow-link";b true;sym "source";get "camulus-reader--source";
-              sym "message-id";id;sym "part";field "part" a;sym "filename";field "name" a;sym "archived";get "camulus-reader--archive"];
+              sym "message-id";id;sym "part";field "part" a;sym "filename";field "name" a;sym "archived";
+              b (flag "camulus-reader--archive" && not (truth (field "download_from_source" a)))];
             Point.insert "\n");
           );
           Point.insert "\n";
@@ -734,6 +735,10 @@ let delete () =
               else rollback "backend action finished, but updating the local list failed")) in
             let operation=match removal with
               | Reader_backend.Refresh_membership -> CS.Refresh(source,group,None)
+              | Delete_inbox_article ->
+                let id=text "id" row in
+                if flag "camulus-reader--home" then CS.Delete_rss_article(source,id)
+                else CS.Dismiss(source,group,id,number(field "revision" row))
               | Reader_backend.Dismiss_notification ->
                 CS.Dismiss_notification(source,group,text "id" row,number(field "revision" row)) in
             try ignore(request ~finished operation:Value.t)

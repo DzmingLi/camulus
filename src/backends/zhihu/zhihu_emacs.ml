@@ -5,7 +5,7 @@ module Z=Zhihu_backend
 let prepare ~notify:_ =
   let browser=firefox_cookie_provider () in
   Some {drain=(fun()->[]);close=(fun()->());
-    create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ~revisions:_ ->
+    create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ~revisions:_ ~article:_ ->
       let backend=Z.create_live ~cookies:(Reader.Credentials.Firefox.get browser) () in
       Rss_emacs.publication_worker ~source:"zhihu" ~group:(fun _ _ -> "")
         ~page:(fun group ~after -> Z.Live.list backend group ~after)

@@ -58,7 +58,8 @@ let start_runtime process =
       let workers=List.map hosts ~f:(fun host -> host.Reader_backend.create ~net ~now ~sleep
         ~groups:(fun ~source ~id -> storage(fun db -> CS.groups_for_item db ~source ~id))
         ~revisions:(fun ~source ~group ~id ~through ->
-          storage(fun db -> CS.revisions db ~source ~group ~id ~through))) in
+          storage(fun db -> CS.revisions db ~source ~group ~id ~through))
+        ~article:(fun ~source ~id -> storage(fun db -> CS.local_article db ~source ~id))) in
       let worker source=List.find workers ~f:(fun w -> w.Reader_backend.matches_source source)
         |> Option.value_exn ~message:"Source is not configured" in
       let archived ~refresh source target id =
@@ -82,6 +83,7 @@ let start_runtime process =
         | Timeline entries -> reply emit "feed" ["rows",storage(fun db -> CS.timeline db ~entries)]
         | Dismiss_timeline(source,id,through) -> storage(fun db -> CS.dismiss_timeline db ~source ~id ~through);changed()
         | Dismiss(source,group,id,through) -> storage(fun db -> CS.dismiss db ~source ~group ~id ~through);changed()
+        | Delete_rss_article(source,id) -> storage(fun db -> CS.delete_rss_article db ~source ~id);changed()
         | Dismiss_notification(source,group,id,through) ->
           storage(fun db -> CS.dismiss_notification db ~source ~group ~id ~through);changed()
         | Folders -> reply emit "folders" ["rows",`List(List.map (storage CS.folders) ~f:(fun s -> `String s))]
@@ -118,12 +120,13 @@ let start_runtime process =
           let epoch=Atomic.fetch_and_add version 1 + 1 in
           let backend=worker source in
           let rec fetch after =
-            let page=backend.page ~source group ~after in
+            let page,articles=backend.page ~source group ~after in
             let result=storage(fun db ->
               if Atomic.get version <> epoch then None else begin
                 let replace=match backend.refresh_membership with
                   | `Merge -> false
                   | `Replace -> Option.is_none after in
+                if not (List.is_empty articles) then CS.cache_page_articles db ~source articles;
                 CS.observe ~replace db ~source
                   ~group:(Some group) page.messages;
                 let states=CS.snapshots db ~source (List.map page.messages ~f:(fun m -> m.Reader.Content.id)) in
@@ -165,7 +168,7 @@ let start_runtime process =
           reply emit "states" ["data",storage(fun db -> CS.snapshots db ~source ids)];
           reply emit "cached-content" ["articles",`List articles;"complete",`Bool complete]
         end;
-        (* Standalone bodies are immutable local reads once fetched. A thread
+        (* Standalone bodies are served from local storage. A thread
            instead shows its saved messages immediately, then refreshes. If the
            refresh fails, the emitted cache remains visible and durable. *)
         if Poly.equal target CS.Thread || List.is_empty articles then (

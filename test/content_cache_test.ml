@@ -72,13 +72,47 @@ let migration_preserves_archives () = with_database(fun path ->
   S.save_archive db ~source:"fixture" ~target:S.Article ~id:"one" ~folder:"saved"
    [{message=m;attachments=`List [];raw=Some "old MIME";files=[0,"old resource"]}]);
  let db=Sqlite3.db_open path in
- check (Sqlite3.exec db "DROP TABLE cached_threads; ALTER TABLE archives DROP COLUMN resources_complete; PRAGMA user_version=4"=Sqlite3.Rc.OK) "Could not prepare v4 fixture";
+ check (Sqlite3.exec db "DROP TABLE rss_deletions; DROP TABLE cached_threads; ALTER TABLE archives DROP COLUMN resources_complete; PRAGMA user_version=4"=Sqlite3.Rc.OK) "Could not prepare v4 fixture";
  ignore(Sqlite3.db_close db);
  S.with_db path(fun db ->
   check (snd(cached db "one")) "Migration lost old body";
   check (S.copy_favorite db ~source:"fixture" ~target:S.Article ~id:"one" ~folder:"copy") "Migration lost complete-resource status";
   check (S.raw_archive db ~source:"fixture" ~id:"one"="old MIME") "Migration lost MIME";
   check (S.attachment_archive db ~source:"fixture" ~id:"one" ~part:0=Some "old resource") "Migration lost resource"))
+let migrate_rss_article () = with_database(fun path ->
+ let source="rss:https://example.test/feed" and id="one" in
+ let message=message id "Existing RSS body" in
+ S.with_db path(fun db ->
+  S.observe db ~source ~group:(Some "feed") [message];
+  S.mark_read db ~source [id] true);
+ let feed_dir=path^".rss" in
+ Fun.protect ~finally:(fun () ->
+   if Sys.file_exists feed_dir then begin
+     Array.iter (fun name -> Sys.remove(Filename.concat feed_dir name)) (Sys.readdir feed_dir);
+     Sys.rmdir feed_dir
+   end) @@ fun () ->
+ let db=Sqlite3.db_open path in
+ check (Sqlite3.exec db "DROP TABLE rss_deletions; PRAGMA user_version=5"=Sqlite3.Rc.OK)
+   "Could not prepare v5 fixture";
+ let insert sql values =
+   let stmt=Sqlite3.prepare db sql in
+   Fun.protect ~finally:(fun () -> ignore(Sqlite3.finalize stmt)) @@ fun () ->
+   check (Sqlite3.bind_values stmt (List.map (fun value -> Sqlite3.Data.TEXT value) values)=Sqlite3.Rc.OK
+     && Sqlite3.step stmt=Sqlite3.Rc.DONE) "Could not insert v5 fixture data" in
+ insert "INSERT INTO archives(source,id,payload,resources_complete) VALUES(?,?,?,1)"
+   [source;id;Yojson.Safe.to_string (article message)];
+ insert "INSERT INTO folders VALUES(?,'')" ["saved"];
+ insert "INSERT INTO favorites VALUES('saved',?,'article',?)" [source;id];
+ ignore(Sqlite3.db_close db);
+ S.with_db path(fun db ->
+  check (Array.length(Sys.readdir feed_dir)=1) "Migration did not create one file";
+  check (List.map body (fst(cached db ~source id))=[`String "Existing RSS body"])
+    "Migration lost RSS body";
+  let state=S.snapshots db ~source [id] |> field "items" |> Yojson.Safe.Util.to_list |> List.hd in
+  check (field "read" state=`Bool true && field "favorite" state=`Bool true)
+    "Migration changed local reading or favorites state";
+  check (S.copy_favorite db ~source ~target:S.Article ~id ~folder:"copy")
+    "Migration lost RSS archive completeness"))
 let dismissed_notification_stays_hidden_until_new_activity () = with_database(fun path ->
  S.with_db path(fun db ->
   let source="github" and group="notifications" in
@@ -96,6 +130,6 @@ let dismissed_notification_stays_hidden_until_new_activity () = with_database(fu
 
 let () =
  persist_and_keep_state_separate ();favorite_resources_and_removal ();
- threads_and_sources ();migration_preserves_archives ();
+ threads_and_sources ();migration_preserves_archives ();migrate_rss_article ();
  dismissed_notification_stays_hidden_until_new_activity ();
  print_endline "Persistent content cache tests passed"

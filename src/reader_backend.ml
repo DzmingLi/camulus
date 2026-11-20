@@ -6,7 +6,7 @@ open! Ecaml
 
 type control = { key : string; hint : string; command : string }
 type entrance = { label : string; open_ : unit -> unit }
-type removal = Refresh_membership | Dismiss_notification
+type removal = Refresh_membership | Dismiss_notification | Delete_inbox_article
 type composer = {
   email : bool;
   in_group : Value.t -> (unit -> unit) option;
@@ -162,14 +162,16 @@ type worker = {
   (* Local directory listings can authoritatively replace the view's
      membership. Remote pages supply observations to merge into it. *)
   refresh_membership : [ `Merge | `Replace ];
-  page : source:string -> string -> after:string option -> Reader.Content.page;
+  (* A page can also supply complete, locally retained article presentations. *)
+  page : source:string -> string -> after:string option -> Reader.Content.page * Yojson.Safe.t list;
   archive : source:string -> refresh:bool -> Reader.Content_state.target -> string -> native_thread:(string -> string) -> add:(Reader.Content_state.archived -> unit) -> bool;
   execute : Reader.Protocol.work -> observe:(source:string -> Reader.Content.message list -> unit) -> emit:(Reader.Protocol.payload -> unit) -> bool;
 }
 type host = {
   create : net:Eio_unix.Net.t -> now:(unit -> float) -> sleep:(float -> unit) ->
     groups:(source:string -> id:string -> string list) ->
-    revisions:(source:string -> group:string -> id:string -> through:int -> string list) -> worker;
+    revisions:(source:string -> group:string -> id:string -> through:int -> string list) ->
+    article:(source:string -> id:string -> Yojson.Safe.t option) -> worker;
   drain : unit -> Value.t list;
   close : unit -> unit;
 }

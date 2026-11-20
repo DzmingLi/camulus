@@ -11,10 +11,10 @@ type operation = Thread of string | Done of string * int | Reply of G.draft
  type P.work += Github of operation
 let prepare ~notify:_ =
  let config= !credentials in
- Some {drain=(fun()->[]);close=(fun()->());create=(fun ~net:_ ~now ~sleep:_ ~groups:_ ~revisions ->
+ Some {drain=(fun()->[]);close=(fun()->());create=(fun ~net:_ ~now ~sleep:_ ~groups:_ ~revisions ~article:_ ->
   let t=G.Live.create ~now config in
   {matches_source=String.equal G.source;all_pages=false;refresh_membership=`Merge;
-   page=(fun ~source:_ group ~after->let group=G.group_of_string group in G.Live.list t group ~after);
+   page=(fun ~source:_ group ~after->let group=G.group_of_string group in G.Live.list t group ~after,[]);
    archive=(fun ~source:_ ~refresh:_ target id ~native_thread ~add ->
     match target with CS.Article->add(G.Live.archive_article t (G.Live.read t id));true
     | CS.Thread ->let complete=ref false in G.Live.thread t (native_thread id) ~emit:(fun b->

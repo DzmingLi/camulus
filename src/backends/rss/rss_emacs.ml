@@ -16,34 +16,49 @@ module type Feed = sig
   val source_of_url : string -> string
   val url_of_source : string -> string
   val create : unit -> t
-  val list : t -> string -> after:string option -> Reader.Content.page
+  val page : t -> string -> after:string option -> Reader.Content.page * Yojson.Safe.t list
   val read : t -> string -> string -> R.Decode.article
   val archive : t -> string -> string -> CS.archived
   val attachment : t -> string -> string -> int -> string -> unit
   val refresh : t -> string -> Reader.Content.page
+  val local_articles : bool
 end
+let article_presentation ~local (article:R.Decode.article) =
+  let json=R.article_json article in
+  match local,article.message.activity,json with
+  | true,Some revision,`Assoc fields -> `Assoc (("revision",`String revision)::fields)
+  | _ -> json
+
 module Connect (F:Feed) = struct
   type Protocol.work += Request of operation
   let request ~submit operation = submit (Request operation)
   let prepare ~notify:_ =
-    Some {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ~revisions:_ ->
+    Some {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ~revisions:_ ~article ->
       let backend=F.create () in
+      let cached url id =
+        if F.local_articles then Option.map (article ~source:(F.source_of_url url) ~id) ~f:R.article_of_json
+        else None in
       {matches_source=F.is_source;all_pages=F.all_pages;refresh_membership=`Merge;
        page=(fun ~source group ~after ->
          if not(String.equal (F.url_of_source source) group) then invalid_arg "Feed source and entry URL differ";
-         F.list backend group ~after);
+         F.page backend group ~after);
        archive=(fun ~source ~refresh target id ~native_thread:_ ~add ->
          if Poly.equal target CS.Thread then failwith "Feed articles do not have threads";
          let url=F.url_of_source source in
          if refresh then ignore(F.refresh backend url : Reader.Content.page);
-         add(F.archive backend url id);true);
+         add(match cached url id with
+             | Some article -> R.Article.archive ~download:R.Live.download_url article
+             | None -> F.archive backend url id);
+         true);
        execute=(fun work ~observe ~emit -> match work with
          | Request (Read(url,id)) ->
            let article=F.read backend url id in
            observe ~source:(F.source_of_url url) [article.message];
-           emit(Presentation("rss",R.article_json article));true
+           emit(Presentation("rss",article_presentation ~local:F.local_articles article));true
          | Request (Attachment(url,id,part,destination)) ->
-           F.attachment backend url id part destination;
+           (match cached url id with
+            | Some article -> R.Article.attachment ~download:R.Live.download_url article part destination
+            | None -> F.attachment backend url id part destination);
            reply emit "saved" ["path",`String destination];true
          | _ -> false)})}
   let install_protocol () = worker_factories := prepare :: !worker_factories
@@ -52,6 +67,11 @@ module Connection = Connect(struct
   include R.Live
   let create ()=R.Live.create ()
   let all_pages=false
+  let local_articles=true
+  let page t url ~after =
+    let articles=list_articles t url ~after in
+    {Reader.Content.messages=List.map articles ~f:(fun article -> article.R.Decode.message);after=None},
+    List.map articles ~f:(article_presentation ~local:true)
   let is_source=R.is_source
   let source_of_url=R.source_of_url
   let url_of_source=R.url_of_source
@@ -73,7 +93,7 @@ let publication_backend ~submit ~source ~threaded =
 let publication_worker ?(all_pages=false) ~source ~group ~page ~read ~archive ~attachment ~refresh
     ?thread () =
   {matches_source=String.equal source;all_pages;refresh_membership=`Merge;
-   page=(fun ~source:_ group ~after -> page group ~after);
+   page=(fun ~source:_ group ~after -> page group ~after,[]);
    archive=(fun ~source:_ ~refresh:reload target id ~native_thread:_ ~add ->
      let group=group id None in
      if reload then refresh group id;
@@ -108,4 +128,5 @@ let install ~submit () =
     ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Connection.Request(Read(String.drop_prefix source 4,id)))) with
     attachment=Some (fun ~source ~id ~group ~part ~destination -> ignore group; Value.of_int_exn (submit (Attachment(String.drop_prefix source 4,id,part,destination))));
     events=["rss"];
+    delete=Some (fun ~entry:_ ~row:_ ~complete -> complete (Ok Delete_inbox_article));
     browser=Some ("RSS / Atom", "camulus-reader-rss") }

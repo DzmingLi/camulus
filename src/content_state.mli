@@ -24,6 +24,9 @@ val load_archive : t -> source:string -> target:target -> id:string -> Yojson.Sa
 (* Persist a complete article presentation (message plus attachment metadata).
     This does not mark it read, favorite it, or download its external resources. *)
 val cache_article : t -> source:string -> Yojson.Safe.t -> unit
+val cache_page_articles : t -> source:string -> Yojson.Safe.t list -> unit
+val local_article : t -> source:string -> id:string -> Yojson.Safe.t option
+val delete_rss_article : t -> source:string -> id:string -> unit
 val cache_thread : t -> source:string -> id:string -> bool -> unit
 val cached_content : t -> source:string -> target:target -> id:string -> Yojson.Safe.t list * bool
 val raw_archive : t -> source:string -> id:string -> string
@@ -37,6 +40,7 @@ type operation =
   | Dismiss_notification of string * string * string * int
   | Refresh of string * string * string option | Refresh_archives
   | Dismiss of string * string * string * int
+  | Delete_rss_article of string * string
   | Folders | Remove_folder of string | Favorites of string
   | Favorite of string * target * string * string
   | Unfavorite of string * target * string * string

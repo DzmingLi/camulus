@@ -23,7 +23,7 @@ let prepare ~notify =
     let bridge=Mu_backend.Process.create ~notify () in
     process_bridge:=Some bridge;
     {drain=drain_processes;close=(fun () -> process_bridge:=None);
-     create=(fun ~net ~now ~sleep ~groups:_ ~revisions:_ ->
+     create=(fun ~net ~now ~sleep ~groups:_ ~revisions:_ ~article:_ ->
        let run=Mu_backend.Process.run bridge ~now ~sleep in
        let submit ~profile ~sender ~recipients message =
          let smtp=List.Assoc.find config.Mu_backend.smtp_profiles profile ~equal:String.equal
@@ -31,7 +31,7 @@ let prepare ~notify =
          Mu_backend.Smtp.send ~net ~sleep smtp ~sender ~recipients message in
        let backend=Mu_backend.create ~config ~run ~submit in
        {matches_source=String.equal ("maildir:"^config.root);all_pages=false;refresh_membership=`Replace;
-        page=(fun ~source:_ group ~after -> Mu_backend.list backend group ~after);
+        page=(fun ~source:_ group ~after -> Mu_backend.list backend group ~after,[]);
         archive=(fun ~source:_ ~refresh:_ target id ~native_thread:_ ~add ->
           let capture (a:Mu_backend.article) =
             let attachments=`List(List.map a.attachments ~f:Mu_backend.attachment_json) in

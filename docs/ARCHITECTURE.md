@@ -19,7 +19,7 @@ src/
   protocol.ml                任务、事件、取消和所有权
   runtime.ml                 后台 domain 与 Eio 调度
   runtime_ui.ml              Emacs 会话宿主、结果收发、通用状态操作
-  content_state.ml            SQLite 内容状态与归档
+  content_state.ml            内容状态、RSS 本地文件与归档
   http.ml                    公共 HTTP 类型、URL 策略与 ocurl 执行
   html.ml                    Lambda Soup DOM 上的阅读正文清理与媒体提取
   credentials.ml             凭据文件读写与 Firefox Cookie 提供器
@@ -217,7 +217,8 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 | `activities` | 同一内容的不同进展及发现序号 |
 | `dismissals` | 列表已经移除到哪个进展 |
 | `folders` 与 `favorites` | 嵌套文件夹及收藏关系 |
-| `archives` 与 `archive_files` | 所有已加载正文的持久缓存；归档还保存原始 MIME 和媒体字节 |
+| `archives` 与 `archive_files` | 正文缓存与归档资源。RSS 正文位于独立文件，SQLite 保存 enclosure 归档索引 |
+| `rss_deletions` | 收件箱中永久删除的 RSS 来源和条目 ID |
 | `cached_threads` | 已缓存线程的最近加载完整性 |
 
 ### 已读与移除相互独立

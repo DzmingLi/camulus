@@ -14,6 +14,22 @@ type group = string
 type cursor = string
 type article = Decode.article
 let article_json a = `Assoc["kind",`String "article";"message",Reader.Content_state.message_json a.Decode.message;"attachments",Decode.attachments a]
+let article_of_json article =
+  let open Yojson.Safe.Util in
+  let message=member "message" article in
+  let field key=member key message in
+  let string key=to_string (field key) in
+  let optional key=to_string_option (field key) in
+  let message={C.id=string "id";title=string "title";author=string "author";
+    body=string "body";html=optional "html";url=string "url";link_url=optional "link_url";
+    created=to_number (field "created");thread_id=None;parent_id=None;references=[];
+    unavailable=false;score=0;my_vote=No_vote;activity=None} in
+  let enclosures=member "attachments" article |> to_list |> List.map (fun field ->
+    let get name=member name field in
+    {Decode.part=to_int (get "part");url=to_string (get "url");name=to_string (get "name");
+     size=to_int (get "size");mime=to_string (get "mime")}) in
+  {Decode.message;enclosures}
+
 module Make (H:Http.S) = struct
   type 'a cached = { endpoint:string; etag:string option; modified:string option; value:'a }
   type 'a cache = { cache:(string,'a cached) Hashtbl.t; lock:Eio.Mutex.t; decode:url:string -> string -> 'a }
@@ -58,9 +74,10 @@ module Make (H:Http.S) = struct
   let fetch_cached t url = locked t (fun () ->
     let cached=load t url in cached.endpoint,cached.value)
   let page articles = {C.messages=List.map(fun a -> a.Decode.message) articles;after=None}
-  let list t url ~after =
+  let list_articles t url ~after =
     if after<>None then invalid_arg "RSS has no pagination cursor";
-    locked t (fun () -> page (load t url).value)
+    locked t (fun () -> (load t url).value)
+  let list t url ~after = page (list_articles t url ~after)
   let read t url id = locked t (fun () ->
     let cached=match Hashtbl.find_opt t.cache url with Some c -> c | None -> load t url in
     match List.find_opt(fun a -> a.Decode.message.id=id) cached.value with

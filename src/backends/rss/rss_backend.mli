@@ -13,6 +13,7 @@ type group = string
 type cursor = string
 type article = Decode.article
 val article_json : article -> Yojson.Safe.t
+val article_of_json : Yojson.Safe.t -> article
 module Make (_:Http.S) : sig
   type 'a cache
   type t
@@ -23,6 +24,7 @@ module Make (_:Http.S) : sig
   val create_cache : decode:(url:string -> string -> 'a) -> unit -> 'a cache
   val fetch_cached : 'a cache -> string -> string * 'a
   val download_url : string -> string
+  val list_articles : t -> group -> after:cursor option -> article list
   val read : t -> group -> string -> article
   val archive : t -> group -> string -> Reader.Content_state.archived
   val attachment : t -> group -> string -> int -> string -> unit
