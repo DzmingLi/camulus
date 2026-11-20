@@ -6,7 +6,7 @@ exception User_cancelled
 exception Shutdown
 
 type handler = work -> emit:(payload -> unit) -> unit
-type extension = net:Eio_unix.Net.t -> now:(unit -> float) -> sleep:(float -> unit) -> handler
+type extension = sw:Eio.Switch.t -> net:Eio_unix.Net.t -> now:(unit -> float) -> sleep:(float -> unit) -> handler
 
 type t = {
   commands : command Queue.t;
@@ -45,10 +45,8 @@ let worker t () =
     Eio_posix.run ~manage_signals:false @@ fun env ->
     let clock = Eio.Stdenv.mono_clock env in
     let epoch = Eio.Time.Mono.now clock in
-    let handle = t.extension ~net:(Eio.Stdenv.net env) ~now:(fun () -> Mtime.Span.to_float_ns (Mtime.span epoch (Eio.Time.Mono.now clock)) /. 1e9)
-      ~sleep:(Eio.Time.Mono.sleep clock) in
     let jobs = Hashtbl.create 32 in
-    let start_job sw request =
+    let start_job ~sw ~handle request =
       if Hashtbl.mem jobs request.id then
         publish t (Finished (request, Failed "duplicate request id"))
       else if Hashtbl.length jobs >= 32 then
@@ -73,9 +71,11 @@ let worker t () =
           Hashtbl.remove jobs request.id)
       end
     in
-    Atomic.set t.lifecycle Running;
-    publish t (Ready (Domain.self () :> int));
     (try Eio.Switch.run @@ fun sw ->
+      let now () = Mtime.Span.to_float_ns (Mtime.span epoch (Eio.Time.Mono.now clock)) /. 1e9 in
+      let handle = t.extension ~sw ~net:(Eio.Stdenv.net env) ~now ~sleep:(Eio.Time.Mono.sleep clock) in
+      Atomic.set t.lifecycle Running;
+      publish t (Ready (Domain.self () :> int));
       while not (Atomic.get t.stop_requested) do
         Eio_unix.await_readable t.command_read;
         drain t.command_read;
@@ -84,7 +84,7 @@ let worker t () =
           if budget = 0 then (Eio.Fiber.yield (); consume 32)
           else match Queue.pop_opt t.commands with
           | None -> ()
-          | Some (Submit request) -> start_job sw request; consume (budget - 1)
+          | Some (Submit request) -> start_job ~sw ~handle request; consume (budget - 1)
           | Some (Cancel id) ->
             (match Hashtbl.find_opt jobs id with
              | None -> ()

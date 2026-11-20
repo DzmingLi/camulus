@@ -2,6 +2,9 @@ module Q = Sqlite3
 module M = Content
 type t = Q.db
 type target = Article | Thread
+type view_filter = { unread_only : bool; favorite_only : bool; days : int option }
+type view_query = Inbox_view of (string * string) list * view_filter
+                | Group_view of string * string | Folder_view of string
 type archived = { message : M.message; attachments : Yojson.Safe.t; raw : string option; files : (int * string) list }
 let text s = Q.Data.TEXT s
 let int i = Q.Data.INT (Int64.of_int i)
@@ -110,13 +113,7 @@ let embed_archived_images db ~source ~id article html =
       | _ -> ())) (Html.select (fun node -> Html.tag node="img") tree);
   with_html article (`String (Html.render tree))
 
-let with_db path f =
-  if Filename.is_relative path then invalid_arg "State database path must be absolute";
-  directory (Filename.dirname path);
-  let fd = Unix.openfile path [Unix.O_CREAT;Unix.O_RDWR;Unix.O_CLOEXEC] 0o600 in
-  Unix.close fd;
-  let db = Q.db_open path in
-  Fun.protect ~finally:(fun () -> ignore(Q.db_close db)) @@ fun () ->
+let initialize db =
   Q.busy_timeout db 2000;
   exec db "PRAGMA foreign_keys=ON";
   let version = schema_version db in
@@ -233,8 +230,18 @@ CREATE INDEX rss_deletions_pending ON rss_deletions(pending) WHERE pending=1;";
   List.iter (fun row ->
     try finish_rss_delete db ~source:(s row.(0)) ~id:(s row.(1))
     with Unix.Unix_error _ -> ())
-    (query db "SELECT backend_key,id FROM rss_deletions WHERE pending=1" []);
-  f db
+    (query db "SELECT backend_key,id FROM rss_deletions WHERE pending=1" [])
+let close_db db = ignore (Q.db_close db)
+let open_db path =
+  if Filename.is_relative path then invalid_arg "State database path must be absolute";
+  directory (Filename.dirname path);
+  let fd = Unix.openfile path [Unix.O_CREAT;Unix.O_RDWR;Unix.O_CLOEXEC] 0o600 in
+  Unix.close fd;
+  let db = Q.db_open path in
+  match initialize db with
+  | () -> db
+  | exception ex -> close_db db; raise ex
+
 let validate s = if s="" || String.contains s '\000' then invalid_arg "Empty or invalid state identity"
 let observe ?(replace=false) db ~source ~group messages =
   validate source;
@@ -294,9 +301,15 @@ let snapshots db ~source ids =
 let dismiss db ~source ~group ~id ~through =
   if through<0 then invalid_arg "Negative feed revision";
   run db "INSERT INTO dismissals VALUES(?,?,?,?) ON CONFLICT(backend_key,grp,id) DO UPDATE SET through_seq=max(through_seq,excluded.through_seq)" [text source;text group;text id;int through]
+let unread_components root items =
+  let unread=Hashtbl.create 128 in
+  List.iter (fun row ->
+    if n row.(8)=0 then Hashtbl.replace unread (root(s row.(0),s row.(1))) ()) items;
+  unread
 let rows_for_activities db ~dismissals ~events ~groups =
   let root,items=components db in
-  let saved=favorite_components db root in
+  let groups=groups root in
+  let saved=favorite_components db root and unread=unread_components root items in
   let meta=Hashtbl.create 128 and last=Hashtbl.create 128 and removed=Hashtbl.create 32 in
   List.iter(fun r -> Hashtbl.replace meta (s r.(0),s r.(1)) r) items;
   List.iter(fun r -> let k=root(s r.(0),s r.(1)) in
@@ -311,14 +324,14 @@ let rows_for_activities db ~dismissals ~events ~groups =
   Hashtbl.fold(fun key (revision,event) acc ->
     if revision<=Option.value(Hashtbl.find_opt removed key) ~default:0 then acc else
     match Hashtbl.find_opt meta (s event.(1),s event.(2)) with None -> acc | Some m ->
-    let unread=List.exists(fun r -> root(s r.(0),s r.(1))=key && n r.(8)=0) items in
+    let unread=Hashtbl.mem unread key in
     ((time event.(3),revision),`Assoc["backend_key",`String(s event.(1));"id",`String(s event.(2));
       "thread_id",(if s m.(3)="" then `Null else `String(s m.(3)));
       "title",`String(s m.(4));"author",`String(s m.(5));"unread",`Bool unread;
       "url",`String(s m.(6));
       "favorite",`Bool(Hashtbl.mem saved key);
       "conversation_id",`String(snd key);"occurred",`Float(time event.(3));
-      "groups",`List(List.map (fun s -> `String s) (groups root key));
+      "groups",`List(List.map (fun s -> `String s) (groups key));
       "revision",`Int revision])::acc) last []
   |> List.sort(fun(a,_)(b,_)->compare b a) |> List.map snd |> fun xs -> `List xs
 
@@ -343,7 +356,7 @@ let revisions db ~source ~group ~id ~through =
     [text source;text group;text id;int through;text source;text group;text id]
   |> List.map(fun row -> s row.(0))
 
-let timeline db ~entries =
+let timeline db ~entries filter =
   let eligible=Hashtbl.create 128 and origins=Hashtbl.create 128 in
   List.iter (fun (source,group) ->
     List.iter (fun r ->
@@ -358,11 +371,23 @@ let timeline db ~entries =
      already dismissed on the home timeline. *)
   let events=query db "SELECT min(seq),backend_key,id,min(occurred),revision FROM activities GROUP BY backend_key,id,revision ORDER BY min(seq)" []
     |> List.filter (fun r -> Hashtbl.mem eligible (s r.(1),s r.(2),s r.(4))) in
-  rows_for_activities db
+  let groups root =
+    let index=Hashtbl.create (Hashtbl.length origins) in
+    Hashtbl.iter (fun identity groups ->
+      let thread=root identity in
+      let old=Option.value (Hashtbl.find_opt index thread) ~default:[] in
+      Hashtbl.replace index thread (List.rev_append groups old)) origins;
+    fun key -> Option.value (Hashtbl.find_opt index key) ~default:[] |> List.sort_uniq String.compare in
+  let rows=rows_for_activities db
     ~dismissals:(query db "SELECT backend_key,id,through_seq FROM dismissals WHERE grp=?" [text timeline_scope])
-    ~events
-    ~groups:(fun root key -> Hashtbl.fold (fun identity groups acc ->
-      if root identity=key then groups @ acc else acc) origins [] |> List.sort_uniq String.compare)
+    ~events ~groups in
+  let open Yojson.Safe.Util in
+  let since=Option.map (fun days -> Unix.gettimeofday () -. (float_of_int days *. 86400.)) filter.days in
+  `List (List.filter (fun row ->
+    (not filter.unread_only || member "unread" row = `Bool true) &&
+    (not filter.favorite_only || member "favorite" row = `Bool true) &&
+    Option.fold ~none:true ~some:(fun cutoff -> to_number (member "occurred" row) >= cutoff) since)
+    (to_list rows))
 
 let folder_parts path =
   let parts=String.split_on_char '/' path in
@@ -399,7 +424,7 @@ let delete_rss_article db ~source ~id =
   transaction db (fun () ->
     let args=[text source;text id] in
     run db "INSERT OR IGNORE INTO rss_deletions VALUES(?,?,1)" args;
-    List.iter (fun table -> run db ("DELETE FROM " ^ table ^ " WHERE source=? AND id=?") args)
+    List.iter (fun table -> run db ("DELETE FROM " ^ table ^ " WHERE backend_key=? AND id=?") args)
       ["archives";"favorites";"entry_members";"activities";"dismissals";"items"]);
   finish_rss_delete db ~source ~id
 let write_archive db source a =
@@ -463,8 +488,26 @@ let remove_folder db path =
   ignore(folder_parts path);
   transaction db (fun () -> run db "DELETE FROM folders WHERE path=?" [text path])
 let favorites db ~folder =
-  query db "SELECT f.backend_key,f.kind,f.id,i.title,i.url FROM favorites f LEFT JOIN items i ON i.backend_key=f.backend_key AND i.id=f.id WHERE folder=? ORDER BY f.backend_key,f.id,f.kind" [text folder]
-  |> List.map(fun r -> `Assoc["backend_key",`String(s r.(0));"target",`String(s r.(1));"id",`String(s r.(2));"title",`String(s r.(3));"url",`String(s r.(4));"favorite",`Bool true]) |> fun xs -> `List xs
+  let root,items=components db in
+  let unread=unread_components root items in
+  query db "SELECT f.backend_key,f.kind,f.id,i.title,i.url,i.is_read FROM favorites f LEFT JOIN items i ON i.backend_key=f.backend_key AND i.id=f.id WHERE folder=? ORDER BY f.backend_key,f.id,f.kind" [text folder]
+  |> List.map(fun r ->
+    let source=s r.(0) and id=s r.(2) in
+    let is_unread=if s r.(1)="thread" then Hashtbl.mem unread (root(source,id)) else n r.(5)=0 in
+    `Assoc["backend_key",`String source;"target",`String(s r.(1));"id",`String id;
+      "title",`String(s r.(3));"url",`String(s r.(4));"favorite",`Bool true;"unread",`Bool is_unread])
+  |> fun xs -> `List xs
+let view_counts db views =
+  `List (List.map (fun (name,view) ->
+    let rows=match view with
+      | Inbox_view (entries,filter) -> timeline db ~entries filter
+      | Group_view (source,group) -> feed db ~source ~group
+      | Folder_view folder -> favorites db ~folder in
+    let rows=Yojson.Safe.Util.to_list rows in
+    let unread=List.fold_left (fun count row ->
+      if Yojson.Safe.Util.member "unread" row = `Bool true then count+1 else count) 0 rows in
+    `Assoc ["name",`String name;"unread",`Int unread;"total",`Int (List.length rows)]) views)
+
 let stored_content db ~source ~target ~id =
   match target with
   | Article -> stored_article db ~source ~id
@@ -487,6 +530,13 @@ let load_archive db ~source ~target ~id =
         |> List.map (fun part -> `Assoc (("download_from_source",`Bool true) :: to_assoc part)) in
       `Assoc (("attachments",`List attachments) :: List.remove_assoc "attachments" (to_assoc article)))
       (read_article ~source r)) |> fun xs -> `List xs
+let export_articles db ~source ~target ~id =
+  match target with
+  | Article -> Option.to_list (local_article db ~source ~id)
+  | Thread ->
+    if query db "SELECT 1 FROM favorites WHERE backend_key=? AND kind='thread' AND id=?" [text source;text id] = []
+    then []
+    else Yojson.Safe.Util.to_list (load_archive db ~source ~target ~id)
 let store_article ~refresh db ~source article =
   let open Yojson.Safe.Util in
   let id=article |> member "message" |> member "id" |> to_string in
@@ -539,16 +589,19 @@ let raw_archive db ~source ~id =
 type operation =
   | States of string * string list | Read of string * string list * bool
   | Feed of string * string
-  | Timeline of (string * string) list
+  | Timeline of (string * string) list * view_filter
+  | View_counts of (string * view_query) list
   | Dismiss_timeline of string * string * int
   | Dismiss_notification of string * string * string * int
-  | Refresh of string * string * string option | Refresh_archives
+  | Refresh of [ `Cursor | `Group_rows ] * string * string * string option | Refresh_archives
   | Dismiss of string * string * string * int
   | Delete_rss_article of string * string
   | Folders | Remove_folder of string | Favorites of string
   | Favorite of string * target * string * string
   | Unfavorite of string * target * string * string
   | Archive of string * target * string
+  | Export_content of string * target * string
+  | Write_export of string * string
   | Attachment of string * string * int * string
 let native_thread db ~source ~id = match query db "SELECT thread FROM items WHERE backend_key=? AND id=?" [text source;text id] with
   | [r] when s r.(0)<>"" -> Some(s r.(0)) | _ -> None

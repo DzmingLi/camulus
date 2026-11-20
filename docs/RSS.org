@@ -6,13 +6,13 @@ RSS 2.0、RSS 1.0/RDF 和 Atom 1.0 共用 =src/backends/rss/= 中的 OCaml 后�
 通过 =setopt camulus-rss-subscriptions= 声明进入个人收件箱的 URL 列表，=camulus-groups= 单独配置各后端的浏览入口。也可以 =M-x camulus-reader-rss= 输入地址浏览，按 =s= 打开后端的 Customize 订阅选项。没有独立订阅文件。首页 =g= 刷新来源。
 
 - 每篇文章独立一行；=RET= 在右侧打开正文，支持文本及 SHR HTML 阅读。
-- =+= 选择收藏文件夹，保存文章和所有声明的 enclosure 附件；支持多个文件夹及嵌套目录。
+- =m= 选择收藏文件夹，=x= 确认保存文章和所有声明的 enclosure 附件；支持多个文件夹及嵌套目录。
 - 附件按钮位于文章下面，可以下载；收藏中的附件直接从本地数据库保存，不访问网络。
-- 首页收件箱按 =d= 删除本地文章、所属收藏和已保存的 enclosure。Camulus 只留下来源和条目 ID 的删除记录，以后收到同 ID 的修订也会略过。在浏览组内按 =d= 只从该组列表移除当前修订。
+- 收件箱视图按 =d= 后按 =x=，删除本地文章、所属收藏和已保存的 enclosure。Camulus 只留下来源和条目 ID 的删除记录，以后收到同 ID 的修订也会略过。在浏览组内执行移除标记只从该组列表移除当前修订。
 - 从 =camulus-rss-subscriptions= 移除 URL 即取消订阅；浏览入口和既有收藏保留。
 - =f= 打开收藏，读取持久副本。
 
-也可以 =M-x camulus-reader-rss= 输入地址，先浏览而不订阅。RSS 使用 Camulus 的公共列表界面：=g= 刷新、=RET= 阅读、=+= 收藏、=d= 移除当前进展、=h= 回首页。切换 RSS 源时复用 =*Reader*= 缓冲区，不再为每个 URL 创建独立列表。
+也可以 =M-x camulus-reader-rss= 输入地址，先浏览而不订阅。RSS 使用 Camulus 的公共列表界面。=g= 刷新，=RET= 阅读，=m= 标记收藏，=d= 标记移除，=x= 执行标记，=h= 回首页。切换 RSS 源时复用 =*Reader*= 缓冲区。
 
 * 内容与身份
 来源标识为 =rss:<订阅时输入的URL>=，HTTP 重定向不会更换来源身份。RSS =guid=、Atom =id=、RSS 1.0 =rdf:about= 优先作为文章标识，其次使用文章链接。不同订阅 URL 的内容隔离；不猜测不同 feed 中同名 ID 是否表示同一篇文章。

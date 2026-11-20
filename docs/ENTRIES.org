@@ -1,6 +1,6 @@
-#+title: 浏览入口与订阅配置
+#+title: 视图、浏览入口与订阅配置
 
-浏览入口与订阅分开配置。=camulus-groups= 注册浏览组，供首页的后端按钮和组目录使用。每项用 =name= 设置显示名称，用 =backend= 选择后端，用 =group= 指定浏览范围。后端可以声明额外的定位字段，例如论坛的 =site=。主页根据订阅设置选择要接收的更新。
+浏览入口与订阅分开配置。=camulus-groups= 注册浏览组，供组目录及配置好的首页视图使用。每项用 =name= 设置显示名称，用 =backend= 选择后端，用 =group= 指定浏览范围。后端可以声明额外的定位字段，例如论坛的 =site=。订阅设置决定收件箱接收哪些更新。
 
 按同步设计，刷新订阅源会把新内容和更新写入本地收件箱。文章保存正文，讨论保存主题正文及完整回复树，打开时直接从 SQLite 阅读。刷新普通 group 获取浏览列表，打开条目时按需读取正文和回复。订阅和 group 可以指向同一批内容，并共享已读和收藏。[[file:HACKING.org][同步设计与实现进度]]
 
@@ -18,7 +18,7 @@
            (group . "latest"))))
 #+end_src
 
-本地订阅由各后端的 =defcustom= 选项声明。对应选项保存后端能识别的组标识，由后端生成主页使用的订阅入口。修改选项后刷新主页即可，不需要重启后台 worker，也不再读取或写入 JSON 订阅文件。
+本地订阅由各后端的 =defcustom= 选项声明。对应选项保存后端能识别的组标识，由后端生成收件箱使用的订阅入口。修改选项后刷新主页即可，不需要重启后台 worker，也不再读取或写入 JSON 订阅文件。
 
 #+begin_src elisp
 (setopt camulus-rss-subscriptions '("https://example.org/feed.xml")
@@ -37,24 +37,42 @@
 
 列表默认为 =nil=。已注册但没有列入订阅的组仍可浏览；订阅源也可以不单独注册，届时使用后端提供的默认名称。Mu 根据 =camulus-mail-root= 定位本地索引，Reddit 使用当前配置的账户。
 
-首页或组目录的 =s= 对本地订阅打开当前后端的 Customize 选项。通过 Customize 保存，或在自己的 Emacs / Nix 配置中维护 =setopt=；阅读器不会另外写一份订阅状态。=U= 列出各后端当前提供的订阅来源，=g= 重新读取选项。
+订阅视图或组目录中的 =s= 对本地订阅打开当前后端的 Customize 选项。通过 Customize 保存，或在自己的 Emacs / Nix 配置中维护 =setopt=；阅读器不会另外写一份订阅状态。=U= 列出各后端当前提供的订阅来源，=g= 重新读取选项。
 
 Discourse 使用服务器的会话通知和追踪机制。已注册且已认证的站点提供通知时间线，=T= 打开远端会话追踪面板；阅读讨论时的 =s= 修改远端通知级别。全站、分类等浏览组没有本地订阅开关。取消一个话题的追踪通过服务器接口完成。
 
 Discourse 启动时从已注册分组发现有效站点并读取认证信息，不再将它们写回站点配置。无效的论坛 URL 在打开对应分组时报错。
 
-优先级由 =camulus-subscription-priorities=、=camulus-default-subscription-priority= 和 =camulus-home-priorities= 配置。级别可以是任意整数，包括负数，数值越小越优先。它只决定主页展示哪些订阅来源，不修改订阅列表或远端追踪。配置在筛选或显示优先级时读取；错误的优先级配置不会阻止浏览无关入口。
+* 首页视图
 
-#+begin_src elisp
-(setopt camulus-subscription-priorities
-        '((((backend . "atlantic") (group . "author.ian-bogost")) 1)
-          (((backend . "discourse") (site . "https://forum.example.org")
-            (group . "notifications")) 2)))
+=camulus-home-views= 按配置的顺序在首页显示各视图的本地未读数和总数。每项提供 =:name= 和可选的单键 =:key=，并从下表选择一种入口。首页按 =RET= 或点击进入视图，也可直接使用配置的快捷键。=V= 按名称选择视图，=h= 返回首页。
+
+| 入口                              | 行为                                           |
+|-----------------------------------+------------------------------------------------|
+| =:inbox t=                        | 从本地订阅收件箱读取，按讨论串合并并按发布时间排列。 |
+| =:group GROUP=                    | 进入指定浏览组。组的格式与 =camulus-groups= 相同。 |
+| =:folder "Reading/Later"=          | 直接打开收藏夹。                                |
+
+收件箱视图可叠加过滤条件。=:backends= 按后端 ID 筛选，=:subscriptions= 按精确的订阅引用筛选，同时设置时取交集。订阅引用只需后端、组和必要的定位信息，例如站点。=:unread-only t= 只显示未读讨论串，=:favorite-only t= 只显示已收藏的讨论串，=:days N= 按最近 N 天内的条目时间筛选。
+
+#+begin_src emacs-lisp
+(setopt camulus-home-views
+        '((:name "Unread" :key ?i :inbox t :unread-only t)
+          (:name "Mail inbox" :key ?m :inbox t :backends ("mu"))
+          (:name "Forum replies" :key ?n :inbox t
+           :subscriptions (((backend . "discourse")
+                            (site . "https://forum.example.org")
+                            (group . "notifications"))))
+          (:name "Reading list" :key ?l :folder "Reading/Later")
+          (:name "OCaml" :key ?o :group ((backend . "reddit") (group . "ocaml")))
+          (:name "All subscriptions" :key ?a :inbox t)))
 #+end_src
+
+打开首页或按 =g= 时异步同步全部已订阅入口。打开收件箱视图会使用本地结果，=n= 只续载当前视图包含且仍有下一页的订阅。浏览组可用自己的刷新操作。多个视图共享已读、收藏和收件箱移除状态。在一个收件箱视图用 =d= 标记并按 =x= 后，其他收件箱视图也会隐藏这次进展。
 
 阅读与写入状态仍独立持久保存：已读、移除、收藏文件夹、归档正文和附件属于内容状态；Mu 草稿属于邮件后端。更改订阅或移除浏览入口不会删除这些内容。
 
-普通来源的主页 =d= 移除当前已显示的进展，新更新仍可出现；组内 =d= 只影响该入口。邮件的 =d= 由 Mu 移动到相应账户的 Trash；收藏夹中的 =d= 取消当前收藏归属。
+按 =d= 标记移除，再按 =x=。普通条目在收件箱视图中移除当前进展，后续新更新仍可出现；组内移除只影响该入口。邮件由 Mu 移动到相应账户的 Trash；收藏夹内移除会取消当前收藏归属。
 
 后端扩展通过 =Reader_backend.register_local_groups= 提供选项名及可订阅的组规则。需要区分站点、账户或订阅 URL 的后端还可以指定如何生成持久键。该函数在 Emacs 主线程读取 Customize 选项并生成订阅入口。远端讨论串追踪使用独立的可选能力。
 

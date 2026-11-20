@@ -24,4 +24,5 @@ let prepare ~notify:_ =
 let install ~submit () =
   worker_factories := prepare :: !worker_factories;
   let backend=Rss_emacs.publication_backend ~submit ~source:"atlantic" ~threaded:false in
-  register_local_groups ~option:"camulus-theatlantic-subscriptions" ~accepts:all_groups backend
+  register_local_groups ~option:"camulus-theatlantic-subscriptions" ~accepts:all_groups
+    {backend with inline_attachments=false}

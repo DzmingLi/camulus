@@ -1,15 +1,20 @@
 (** Durable local state. All database work runs off the Emacs thread. *)
 type t
 type target = Article | Thread
+type view_filter = { unread_only : bool; favorite_only : bool; days : int option }
+type view_query = Inbox_view of (string * string) list * view_filter
+                | Group_view of string * string | Folder_view of string
 type archived = { message : Content.message; attachments : Yojson.Safe.t; raw : string option; files : (int * string) list }
-val with_db : string -> (t -> 'a) -> 'a
+val open_db : string -> t
+val close_db : t -> unit
 (* [group=None] only records content identity. [Some group] caches a page
     explicitly fetched from that backend entry; it never subscribes to it. *)
 val observe : ?replace:bool -> t -> source:string -> group:string option -> Content.message list -> unit
 val snapshots : t -> source:string -> string list -> Yojson.Safe.t
 val mark_read : t -> source:string -> string list -> bool -> unit
 val feed : t -> source:string -> group:string -> Yojson.Safe.t
-val timeline : t -> entries:(string * string) list -> Yojson.Safe.t
+val timeline : t -> entries:(string * string) list -> view_filter -> Yojson.Safe.t
+val view_counts : t -> (string * view_query) list -> Yojson.Safe.t
 val dismiss_timeline : t -> source:string -> id:string -> through:int -> unit
 val dismiss_notification : t -> source:string -> group:string -> id:string -> through:int -> unit
 val revisions : t -> source:string -> group:string -> id:string -> through:int -> string list
@@ -21,6 +26,7 @@ val favorites : t -> folder:string -> Yojson.Safe.t
 val memberships : t -> (string * target * string * string) list
 val remove_favorite : t -> source:string -> target:target -> id:string -> folder:string -> unit
 val load_archive : t -> source:string -> target:target -> id:string -> Yojson.Safe.t
+val export_articles : t -> source:string -> target:target -> id:string -> Yojson.Safe.t list
 (* Persist a complete article presentation (message plus attachment metadata).
     This does not mark it read, favorite it, or download its external resources. *)
 val cache_article : t -> source:string -> Yojson.Safe.t -> unit
@@ -35,16 +41,19 @@ val message_json : Content.message -> Yojson.Safe.t
 type operation =
   | States of string * string list | Read of string * string list * bool
   | Feed of string * string
-  | Timeline of (string * string) list
+  | Timeline of (string * string) list * view_filter
+  | View_counts of (string * view_query) list
   | Dismiss_timeline of string * string * int
   | Dismiss_notification of string * string * string * int
-  | Refresh of string * string * string option | Refresh_archives
+  | Refresh of [ `Cursor | `Group_rows ] * string * string * string option | Refresh_archives
   | Dismiss of string * string * string * int
   | Delete_rss_article of string * string
   | Folders | Remove_folder of string | Favorites of string
   | Favorite of string * target * string * string
   | Unfavorite of string * target * string * string
   | Archive of string * target * string
+  | Export_content of string * target * string
+  | Write_export of string * string
   | Attachment of string * string * int * string
 val native_thread : t -> source:string -> id:string -> string option
 val copy_favorite : t -> source:string -> target:target -> id:string -> folder:string -> bool

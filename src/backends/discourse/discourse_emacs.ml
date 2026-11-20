@@ -74,21 +74,52 @@ let install_protocol ~ensure_ui ~idle ~submit =
     (let open Defun.Let_syntax in let%map_open request=required "request" value in
      let j=Reader_backend.to_json request in request_discourse ~submit (Discourse.Decode.site (Discourse.Decode.str "site" j)) (Discourse.operation_of_json j))
 let composer ~submit =
-  let post site category label =
-    Writing.post_draft ~destination:("Discourse · "^site^" · "^label)
-      ~identity:(Discourse.source_of_site site^"/category:"^Int.to_string category)
-      ~submit:(fun ~subject ~body ~complete ->
-        Writing.request (submit site (Discourse.Send(New_topic{category;title=subject;text=body})))
-          ~expect:"sent" ~complete) in
-  let choose_category site () =
-    let window=call "selected-window" [] in
-    let origin=call "window-buffer" [window] in
+  let authenticated ()=List.map (values(get "camulus-discourse--authenticated-sites")) ~f:text in
+  let known_categories=String.Table.create () in
+  let categories site complete =
     Writing.request (submit site Discourse.Categories) ~expect:"categories" ~complete:(function
-      | Error reason -> message "Discourse categories: %s" [s reason]
+      | Error reason -> complete(Error reason)
       | Ok data ->
         let choices=List.map (values(field "rows" data)) ~f:(fun row ->
           let category=integer(field "id" row) in
           Printf.sprintf "%s [%d]" (text(field "name" row)) category,category) in
+        Hashtbl.set known_categories ~key:site ~data:(List.map choices ~f:snd);
+        complete(Ok choices)) in
+  let post site category label =
+    Writing.post_draft ~destination:("Discourse · "^site^" · "^label)
+      ~identity:(Discourse.source_of_site site^"/category:"^Int.to_string category)
+      ~fields:["Discourse",site;"Category",Int.to_string category]
+      ~complete_fields:(function
+        | "Discourse" -> authenticated ()
+        | "Category" ->
+          let current_site=Writing.post_header "Discourse" in
+          (match current_site with
+           | None -> []
+           | Some current ->
+             let configured=List.filter_map (configured_groups ()) ~f:(fun entry ->
+               if String.equal (text(field "backend_key" entry)) ("discourse:"^current) then
+                 String.chop_prefix (text(field "group" entry)) ~prefix:"category:"
+               else None) in
+             let cached=Option.value (Hashtbl.find known_categories current) ~default:[] in
+             let selected=if String.equal site current then [category] else [] in
+             configured @ List.map (selected @ cached) ~f:Int.to_string
+             |> List.dedup_and_sort ~compare:String.compare)
+        | _ -> [])
+      ~submit:(fun ~targets ~subject ~body ~complete ->
+        let field name=List.Assoc.find_exn targets name ~equal:String.equal in
+        let site=Discourse.Decode.site (field "Discourse") in
+        let category=Discourse.Decode.number (field "Category") in
+        if not(List.mem (authenticated ()) site ~equal:String.equal) then
+          invalid_arg "Authorize the destination Discourse site before posting";
+        Writing.request (submit site (Discourse.Send(New_topic{category;title=subject;text=body})))
+          ~expect:"sent" ~complete) ();
+    if not(Hashtbl.mem known_categories site) then categories site ignore in
+  let choose_category site () =
+    let window=call "selected-window" [] in
+    let origin=call "window-buffer" [window] in
+    categories site (function
+      | Error reason -> message "Discourse categories: %s" [s reason]
+      | Ok choices ->
         (* Open the picker outside the worker event drain. Only use the window
            that requested it if it still displays the original reader. *)
         let choose () =
@@ -101,7 +132,6 @@ let composer ~submit =
               post site category choice));
           nil in
         run "run-at-time" [i 0;nil;lambda0 choose]) in
-  let authenticated ()=List.map (values(get "camulus-discourse--authenticated-sites")) ~f:text in
   let in_group entry =
     let site=Discourse.site_of_source(text(field "backend_key" entry)) in
     if not(List.mem (authenticated ()) site ~equal:String.equal) then
@@ -109,9 +139,7 @@ let composer ~submit =
     else match Discourse.group_of_string(text(field "group" entry)) with
     | Category category -> Some(fun () -> post site category (text(field "name" entry)))
     | Latest | Topic _ | Notifications -> Some(choose_category site) in
-  let destinations ()=List.map (authenticated ()) ~f:(fun site ->
-    {label="Discourse · "^site;open_=choose_category site}) in
-  {email=false;in_group;destinations}
+  {in_group;default=(fun () -> None)}
 
 let install ~submit () =
   let submit=request_discourse ~submit in
@@ -119,13 +147,12 @@ let install ~submit () =
   register { (base ~id:"discourse" ~name:"Discourse" ~threaded:true
     ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Discourse(String.drop_prefix source 10,Discourse_backend.Thread id))) with
     group_key=(fun entry -> Discourse.source_of_site (string_field "site" entry));
-    group_context=(fun key -> ["site",s (Discourse.site_of_source key)]);
     start=Interaction_emacs.setup;
     followed=Some(fun () ->
       Interaction_emacs.registered_sites ()
       |> List.filter ~f:(fun (site,_) -> List.exists(values(get "camulus-discourse--authenticated-sites")) ~f:(Value.equal(s site)))
       |> List.map ~f:(fun (site,entry) ->
-        alist["name",s(text(field "name" entry)^" · 通知");
+        alist["name",s(text(field "name" entry)^" · Notifications");
           "backend_key",s(Discourse_backend.source_of_site site);"group",s "notifications"]));
     normalize=(fun entry ->
       let source=Discourse_backend.source_of_site(String.drop_prefix(text(field "backend_key" entry))10) in
@@ -135,7 +162,7 @@ let install ~submit () =
       let id=text(field "id"(selected ()))in
       if String.is_prefix id ~prefix:"topic:"then Some id else None);
     topic_tracking=Some {
-      filters=["watching","所有回复通知";"tracking","追踪未读数量";"muted","免打扰"];
+      filters=["watching","Watching";"tracking","Tracking";"muted","Muted"];
       list=(fun ~source ~filter ~after -> i(submit (String.drop_prefix source 10)
         (Discourse_backend.Subscriptions(Discourse_backend.tracking_of_string filter,after))));
       change=(fun ~source ~target ~setting -> i(submit (String.drop_prefix source 10)

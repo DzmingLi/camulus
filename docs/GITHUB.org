@@ -14,7 +14,7 @@ GitHub 后端位于 =src/backends/github/=，支持 Issues、Pull Requests、Dis
 (setopt camulus-github-notifications t)
 #+end_src
 
-注册仓库浏览入口不意味着关注整个仓库。首页可汇入 GitHub 自身的会话通知，过滤掉非话题通知；具体话题的 =s= 调用 GitHub 的 =SUBSCRIBED=、=UNSUBSCRIBED=、=IGNORED= 设置。=camulus-github-notifications= 只选择首页是否展示通知，不修改远端订阅。订阅优先级沿用 =(source="github", group="notifications")=。
+注册仓库浏览入口不意味着关注整个仓库。收件箱可汇入 GitHub 自身的会话通知，过滤掉非话题通知；具体话题的 =s= 调用 GitHub 的 =SUBSCRIBED=、=UNSUBSCRIBED=、=IGNORED= 设置。=camulus-github-notifications= 控制收件箱是否同步通知。可在收件箱视图中使用后端 =github= 和组 =notifications= 筛选。
 
 =M-x camulus-github= 从已注册组中选择。=M-x camulus-github-browse= 可临时输入浏览组。和其他来源一样，进入时刷新，=g= 手动刷新，无定时更新。通知请求遵守 GitHub 的 =X-Poll-Interval=，使用条件请求；断网错误由公共界面报告，已缓存列表保留。
 
@@ -40,11 +40,11 @@ GitHub 列表和正文中：
 |------+---------------------------------------|
 | =F=  | 在 Forge 中打开当前话题               |
 | =M=  | 打开该话题所属仓库的本地 Magit status |
-| =r=  | 回复当前内容（正文界面）              |
+| =R=  | 回复当前内容（正文界面）              |
 | =v=  | 打开 PR review                        |
 | =D=  | 恢复本地草稿（列表界面）              |
 
-统一首页的正文也提供这些 GitHub 操作；首页列表可通过 =M-x camulus-github-forge-topic= 或 =M-x camulus-github-magit= 操作当前条目。
+从收件箱视图打开的正文也提供这些 GitHub 操作。收件箱列表可通过 =M-x camulus-github-forge-topic= 或 =M-x camulus-github-magit= 操作当前条目。
 
 反向导航以 Forge 数据库的仓库身份及 =worktree= 为准，不维护第二份路径映射。Forge 会验证记录目录的 remote，失效或没有关联时明确提示先访问本地仓库。查找关联不会自动 clone、checkout、登记或 fetch。=F= 是显式打开话题的操作：Forge 优先使用已缓存话题，缺失时按 Forge 自身规则获取该话题。
 

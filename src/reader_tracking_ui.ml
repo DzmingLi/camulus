@@ -28,7 +28,7 @@ let header ()=
    else if truth(get_local "request")then "Loading…"
    else Printf.sprintf "%d topics%s" (List.length(values(get_local "rows")))
      (if truth(get_local "after")then " · more available"else "")in
- local "header-line-format" (s("远端追踪 · "^label^" · "^status^
+ local "header-line-format" (s("Topic tracking · "^label^" · "^status^
    "   RET: read  s: change policy  /: filter  g: refresh  n: more  q: quit"))
 let render ()=
  let selected=call "tabulated-list-get-id" []in

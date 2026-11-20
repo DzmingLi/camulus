@@ -1,6 +1,6 @@
 type t
 type handler = Protocol.work -> emit:(Protocol.payload -> unit) -> unit
-type extension = net:Eio_unix.Net.t -> now:(unit -> float) -> sleep:(float -> unit) -> handler
+type extension = sw:Eio.Switch.t -> net:Eio_unix.Net.t -> now:(unit -> float) -> sleep:(float -> unit) -> handler
 
 (** Owner-thread handle. Call all functions below from that same thread.
     [notify_ui] runs on the worker domain, must not call Emacs, block, or raise. *)

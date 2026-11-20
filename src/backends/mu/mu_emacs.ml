@@ -141,6 +141,11 @@ let start_sync ~submit () =
       if List.mem ["starting";"running"] (text(call "camulus-probe-status" [])) ~equal:String.equal then
         (try sync ~submit ~manual:false () with ex -> message "Mail sync: %s" [s(Exn.to_string ex)]);
       nil)]
+let move_item ~item ~folder =
+  let field key=call "plist-get"[item;sym key] in
+  let thread=if Value.eq (field ":kind") (sym "thread") then sym "t" else sym ":json-false" in
+  Compose_emacs.move_mail ~source:(field ":backend-key") ~group:(field ":group")
+    ~id:(field ":id") ~thread ~folder:(s folder)
 let install ~submit ~configured ~request_state () =
   Process_emacs.install ();
   Compose_emacs.install ();
@@ -155,6 +160,9 @@ let install ~submit ~configured ~request_state () =
   custom ~kind:Customization.Type.String "camulus-mail-account" (s "") "Backend configuration option.";
   custom ~kind:Customization.Type.(Repeat String) "camulus-mail-sync-command" nil "Backend configuration option.";
   custom ~kind:Customization.Type.Integer "camulus-mail-sync-interval" (i 0) "Backend configuration option.";
+  custom ~kind:Customization.Type.(Choice [Const nil;String;Function])
+    "camulus-mail-refile-folder" nil
+    "Destination Maildir relative to the configured mail root, written as /Account/Archive. A function receives the refile item plist and returns a Maildir or nil to use the common refile behavior.";
   define0 ~interactive:true "camulus-mail-sync" (fun () ->
     run "camulus-reader-start" [];sync ~submit ~manual:true ());
   register_local_groups ~option:"camulus-mu-subscriptions" ~key_for_group:(fun _->"maildir:"^text(get "camulus-mail-root")) ~accepts:all_groups { (base ~id:"mu" ~name:"Mu" ~threaded:true
@@ -170,8 +178,23 @@ let install ~submit ~configured ~request_state () =
     attachment=Some (fun ~source:_ ~id ~group:_ ~part ~destination -> Value.of_int_exn (submit (Mu_backend.Attachment(id,part,destination))));
     events=["mail"];available=configured;
     composer=Some(Compose_emacs.composer ~configured);
+    folder_move=Some {
+      list=(fun ~item ~receive -> Compose_emacs.move_folders (call "plist-get"[item;sym ":group"]) ~receive);
+      move=move_item;
+    };
+    refile=(fun ~item ->
+      let field key=call "plist-get"[item;sym key] in
+      let group=field ":group" in
+      if not(truth group) then None else
+      let setting=get "camulus-mail-refile-folder" in
+      let folder=if truth(call "functionp"[setting])then Value.funcallN setting [item] else setting in
+      if not(truth folder)then None else (
+        if not(truth(call "stringp"[folder])) || not(String.is_prefix (text folder) ~prefix:"/") then
+          user_error "camulus-mail-refile-folder must specify a Maildir such as /Account/Archive";
+        let folder=text folder in
+        Some(folder,fun () -> move_item ~item ~folder)));
     delete=Some(fun ~entry ~row ~complete ->
       Compose_emacs.trash ~entry ~row ~complete:(fun result ->
         complete(Result.map result ~f:(fun () -> Refresh_membership))));
-    controls=[{key="A";hint="A: attachments";command="camulus-mail-attachments"};{key="r";hint="r: reply";command="camulus-mail-reply"};{key="C-c C-a";hint="C-c C-a: archive";command="camulus-mail-archive"}];
-    list_controls=[{key="r";hint="r: reply";command="camulus-mail-reply"};{key="C-c C-a";hint="C-c C-a: archive";command="camulus-mail-archive"};{key="D";hint="D: drafts";command="camulus-mail-drafts"}] }
+    controls=[{key="A";hint="A: attachments";command="camulus-mail-attachments"};{key="R";hint="R: reply";command="camulus-mail-reply"};{key="C-c C-a";hint="C-c C-a: archive";command="camulus-mail-archive"}];
+    list_controls=[{key="R";hint="R: reply";command="camulus-mail-reply"};{key="C-c C-a";hint="C-c C-a: archive";command="camulus-mail-archive"};{key="D";hint="D: drafts";command="camulus-mail-drafts"}] }

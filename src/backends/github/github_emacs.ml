@@ -153,7 +153,7 @@ let install ~submit () =
  let request=request ~submit in
  run "require"[sym "auth-source"];run "require"[sym "diff-mode"];
  custom "camulus-github-auth-user" nil "Optional auth-source login at api.github.com. Nil reuses Forge/ghub's GitHub user and token.";
- custom ~kind:Customization.Type.Boolean "camulus-github-notifications" nil "Include GitHub's conversation notifications in Home; repository registration is separate.";
+ custom ~kind:Customization.Type.Boolean "camulus-github-notifications" nil "Include GitHub's conversation notifications in the inbox; repository registration is separate.";
  custom ~kind:Customization.Type.Directory "camulus-github-drafts-directory" (data_path "XDG_STATE_HOME" "~/.local/state" "github-drafts/") "Local GitHub reply and review drafts.";
  List.iter["camulus-github--draft-meta";"camulus-github--review-data"]~f:(fun name->variable name nil);
  let setup ()=
@@ -214,11 +214,11 @@ let install ~submit () =
   start=setup;thread_contains_bodies=true;events=["github"];
   normalize=(fun row->ignore(G.group_of_string(text(field "group"row)):G.group);row);
   followed=Some(fun()->if truth(get "camulus-github-notifications")then
-   [alist["name",s "GitHub · 通知";"backend_key",s G.source;"group",s "notifications"]]else []);
+   [alist["name",s "GitHub · Notifications";"backend_key",s G.source;"group",s "notifications"]]else []);
   subscription_target=Some(fun ~source:_ ~selected->let row=selected()in
    Some(text(let v=field "thread_id"row in if truth v then v else field "id"row)));
   browser=Some("GitHub","camulus-github");
-  controls=[{key="F";hint="F: Forge";command="camulus-github-forge-topic"};{key="M";hint="M: Magit";command="camulus-github-magit"};{key="r";hint="r: reply";command="camulus-github-reply"};{key="v";hint="v: PR review";command="camulus-github-review"}];
+  controls=[{key="F";hint="F: Forge";command="camulus-github-forge-topic"};{key="M";hint="M: Magit";command="camulus-github-magit"};{key="R";hint="R: reply";command="camulus-github-reply"};{key="v";hint="v: PR review";command="camulus-github-review"}];
   list_controls=[{key="F";hint="F: Forge";command="camulus-github-forge-topic"};{key="M";hint="M: Magit";command="camulus-github-magit"};{key="v";hint="v: PR review";command="camulus-github-review"};{key="D";hint="D: drafts";command="camulus-github-drafts"}];
   delete=Some(fun ~entry ~row ~complete->
    if not(String.equal(text(field "group"entry))"notifications")then user_error "Done applies to GitHub notifications; browse-only topics are not deleted";

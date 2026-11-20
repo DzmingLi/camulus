@@ -213,7 +213,44 @@ let request id ~expect ~complete =
     get "camulus-reader--completions"]
 
 let post_drafts : Value.t String.Table.t = String.Table.create ()
-let post_draft ~destination ~identity ~submit =
+let post_headers source =
+  String.split_lines source |> List.take_while ~f:(Fn.non String.is_empty)
+let header_values headers name =
+  let prefix=name^":" in
+  List.filter_map headers ~f:(fun line ->
+    Option.map (String.chop_prefix line ~prefix) ~f:String.strip)
+let post_header name =
+  text(call "buffer-substring-no-properties" [call "point-min" [];call "point-max" []])
+  |> post_headers |> fun headers -> List.hd (header_values headers name)
+
+let attach_completion ~separator ?delimiter candidates =
+  let slice start stop=text(call "buffer-substring-no-properties" [i start;i stop]) in
+  let length value=integer(call "length" [s value]) in
+  let capf () =
+    let point=integer(call "point" []) in
+    let start=integer(call "line-beginning-position" []) in
+    let stop=integer(call "line-end-position" []) in
+    let prefix=slice (integer(call "point-min" [])) point in
+    match String.lsplit2 (slice start stop) ~on:':',String.substr_index prefix ~pattern:separator with
+    | Some (name,_),None when point>start+length name ->
+      (match candidates name with
+       | [] -> nil
+       | choices ->
+         let value_start=start+length name+1 in
+         let first,last=match delimiter with
+           | None -> value_start,stop
+           | Some char ->
+             let before=slice value_start point and after=slice point stop in
+             let first=Option.value_map (String.rindex before char) ~default:value_start ~f:(fun index -> value_start+length(String.prefix before (index+1))) in
+             let last=Option.value_map (String.index after char) ~default:stop ~f:(fun index -> point+length(String.prefix after index)) in
+             first,last in
+         let before=slice first point in
+         let first=point-length (String.lstrip before) in
+         Value.list [i first;i last;Value.list(List.map choices ~f:s);sym ":exclusive";sym "no"])
+    | _ -> nil in
+  run "add-hook" [sym "completion-at-point-functions";lambda0 capf;nil;sym "t"]
+
+let post_draft ?(optional_fields=[]) ~destination ~identity ~fields ~complete_fields ~submit () =
   let window=summary_window () in
   let directory=data_path "XDG_STATE_HOME" "~/.local/state" "post-drafts/" in
   run "make-directory" [directory;sym "t"];
@@ -231,10 +268,24 @@ let post_draft ~destination ~identity ~submit =
         run "text-mode" [];
         run "add-hook" [sym "kill-buffer-hook";lambda0(fun () -> Hashtbl.remove post_drafts identity;nil);nil;sym "t"];
         let snapshot ()=text(call "buffer-substring-no-properties" [call "point-min" [];call "point-max" []]) in
-        if exists path then run "insert-file-contents" [path]
-        else Point.insert "Subject: \n\n";
-        Point.goto_min ();run "end-of-line" [];
+        let insert_fields fields =
+          List.iter fields ~f:(fun (name,value) -> Point.insert (name^": "^value^"\n")) in
+        if exists path then (
+          run "insert-file-contents" [path];
+          Point.goto_min ();
+          let headers=post_headers (snapshot ()) in
+          if truth(call "looking-at-p" [s "Subject:"]) &&
+             List.for_all fields ~f:(fun (name,_) -> List.is_empty (header_values headers name)) then
+            insert_fields fields;
+          let missing=List.filter optional_fields ~f:(fun (name,_) -> List.is_empty (header_values headers name)) in
+          if not(List.is_empty missing) then (
+            Point.goto_min ();
+            run "forward-line" [i (List.length fields)];
+            insert_fields missing))
+        else (insert_fields (fields @ optional_fields);Point.insert "Subject: \n\n");
+        Point.goto_min ();run "forward-line" [i (List.length fields + List.length optional_fields)];run "end-of-line" [];
         run "set-buffer-modified-p" [nil];
+        attach_completion ~separator:"\n\n" complete_fields;
         attach {
           snapshot;
           save=(fun ~source ~complete ->
@@ -247,12 +298,22 @@ let post_draft ~destination ~identity ~submit =
             complete(Ok ()));
           send=(fun ~complete ->
             let source=snapshot () in
-            let subject,body=match String.lsplit2 source ~on:'\n' with
-              | Some (header,body) when String.is_prefix header ~prefix:"Subject: " ->
-                String.strip(String.drop_prefix header 9),String.strip body
-              | _ -> invalid_arg "Enter a Subject followed by the post body" in
-            if String.is_empty subject || String.is_empty body then
-              invalid_arg "Enter both a subject and a post body";
+            let header_end=String.substr_index source ~pattern:"\n\n"
+              |> Option.value_exn ~message:"Separate the post headers from the body with a blank line" in
+            let headers=post_headers source in
+            let header name =
+              match header_values headers name with
+              | [value] when not(String.is_empty value) -> value
+              | _ -> invalid_arg ("Enter a single "^name^": value") in
+            let optional name=match header_values headers name with
+              | [] | [""] -> None
+              | [value] -> Some(name,value)
+              | _ -> invalid_arg ("Enter at most one "^name^": value") in
+            let targets=List.map fields ~f:(fun (name,_) -> name,header name) @
+              List.filter_map optional_fields ~f:(fun (name,_) -> optional name) in
+            let subject=header "Subject" in
+            let body=String.drop_prefix source (header_end+2) |> String.strip in
+            if String.is_empty body then invalid_arg "Enter a post body";
             if exists pending then (
               if not(truth(call "yes-or-no-p"
                 [s "Previous submission is unconfirmed. Have you checked the destination and want to resend? "])) then
@@ -262,16 +323,17 @@ let post_draft ~destination ~identity ~submit =
             run "write-region" [s "";nil;pending;nil;sym "silent";nil;sym "excl"];
             let finish = function
               | Error reason -> complete(Error reason)
-              | Ok _ ->
+              | Ok data ->
                 let cleaned=try
                   if exists path then run "delete-file" [path];
                   run "delete-file" [pending];true
                 with _ -> false in
-                complete(Ok {close=cleaned;message=if cleaned then "Post published" else "Post published. Draft cleanup failed."}) in
-            try submit ~subject ~body ~complete:finish
+                let notice=text(field "notice" data) in
+                let message=if String.is_empty notice then "Post published" else notice in
+                complete(Ok {close=cleaned;message=if cleaned then message else message^". Draft cleanup failed."}) in
+            try submit ~targets ~subject ~body ~complete:finish
             with ex -> run "delete-file" [pending];raise ex)
-        };
-        set "header-line-format" (Value.list [s (destination^"  ");get "header-line-format"]));
+        });
       buffer in
   run "select-window" [window];
   run "switch-to-buffer" [buffer]

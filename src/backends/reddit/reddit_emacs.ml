@@ -140,27 +140,24 @@ let composer ~submit ~configured =
   let post source name () =
     Writing.post_draft ~destination:("Reddit · r/"^name)
       ~identity:(source^"/"^String.lowercase name)
-      ~submit:(fun ~subject ~body ~complete ->
-        Writing.request (submit(Reddit_backend.Submit(name,subject,body))) ~expect:"submit" ~complete) in
+      ~fields:["Subreddit",name]
+      ~complete_fields:(function
+        | "Subreddit" ->
+          let groups=List.filter_map (configured_groups ()) ~f:(fun entry ->
+            if String.equal (text(field "backend_key" entry)) source then Some(text(field "group" entry)) else None) in
+          name::(groups @ List.map (values(get "camulus-reddit-subscriptions")) ~f:text)
+          |> List.filter_map ~f:(fun group -> if String.equal group "notifications" then None else subreddit_name group)
+          |> List.dedup_and_sort ~compare:String.compare
+        | _ -> [])
+      ~submit:(fun ~targets ~subject ~body ~complete ->
+        let target=List.Assoc.find_exn targets "Subreddit" ~equal:String.equal in
+        let name=Option.value_exn (subreddit_name target) ~message:"Enter a valid subreddit" in
+        Writing.request (submit(Reddit_backend.Submit(name,subject,body))) ~expect:"submit" ~complete) () in
   let in_group entry =
     let source=text(field "backend_key" entry) and group=text(field "group" entry) in
     if not(configured source) || String.equal group "notifications" then None
     else Option.map (subreddit_name group) ~f:(post source) in
-  let destinations () =
-    let source="reddit:"^text(get "camulus-reddit-username") in
-    if not(configured source) then [] else
-    let names=List.filter_map (configured_groups ()) ~f:(fun entry ->
-      if String.equal (text(field "backend_key" entry)) source then Some(text(field "group" entry)) else None)
-      @ List.map (values(get "camulus-reddit-subscriptions")) ~f:text in
-    let names=List.filter_map names ~f:(fun name ->
-      if String.equal name "notifications" then None else subreddit_name name)
-      |> List.dedup_and_sort ~compare:(fun a b -> String.compare (String.lowercase a) (String.lowercase b)) in
-    List.map names ~f:(fun name -> {label="Reddit · r/"^name;open_=post source name})
-    @ [{label="Reddit · Other subreddit…";open_=(fun () ->
-      match subreddit_name(text(call "read-string" [s "Subreddit: "])) with
-      | Some name -> post source name ()
-      | None -> user_error "Enter a subreddit name")}] in
-  {email=false;in_group;destinations}
+  {in_group;default=(fun () -> None)}
 
 let install ~submit ~configured () =
   Interaction_emacs.install ();

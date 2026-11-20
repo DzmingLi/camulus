@@ -38,19 +38,27 @@ let start_runtime process =
   let notify_ui () = ignore (Reader.Host.notify fd : bool) in
   try
     let hosts=List.filter_map !Reader_backend.worker_factories ~f:(fun prepare -> prepare ~notify:notify_ui) in
-    let extension ~net ~now ~sleep =
+    let path = !state_file in
+    let extension ~sw ~net ~now ~sleep =
+      let db = ref None in
+      Eio.Switch.on_release sw (fun () -> Option.iter !db ~f:CS.close_db);
       let db_lock = Eio.Mutex.create () in
       (* A late response must not replace a newer entry snapshot in storage.
          Atomics are read by the storage system thread under db_lock. *)
       let entry_versions = Stdlib.Hashtbl.create 16 in
       let storage f =
-        let path=Option.value_exn !state_file in
         Eio.Mutex.lock db_lock;
         Exn.protect ~finally:(fun () -> Eio.Mutex.unlock db_lock) ~f:(fun () ->
-          Eio_unix.run_in_systhread (fun () -> CS.with_db path f)) in
+          Eio_unix.run_in_systhread (fun () ->
+            let connection = match !db with
+              | Some connection -> connection
+              | None ->
+                let connection = CS.open_db (Option.value_exn path) in
+                db := Some connection; connection in
+            f connection)) in
       let reply = Reader_backend.reply in
       let observe ?(replace=false) emit source group messages =
-        if Option.is_some !state_file then begin
+        if Option.is_some path then begin
           let data=storage(fun db -> CS.observe ~replace db ~source ~group messages;
             CS.snapshots db ~source (List.map messages ~f:(fun m -> m.Reader.Content.id))) in
           reply emit "states" ["data",data]
@@ -77,6 +85,13 @@ let start_runtime process =
         let articles=Stdlib.Hashtbl.fold(fun _ a xs -> a::xs) articles [] in
         if List.is_empty articles then failwith "Requested article is unavailable";
         articles in
+      let save_file emit destination data =
+        Eio_unix.run_in_systhread(fun () ->
+          let fd=Os.openfile destination [Os.O_WRONLY;Os.O_CREAT;Os.O_EXCL;Os.O_CLOEXEC] 0o600 in
+          let ch=Os.out_channel_of_descr fd in
+          try Stdlib.output_string ch data;Stdlib.flush ch;Os.fsync fd;Stdlib.close_out ch
+          with ex -> Stdlib.close_out_noerr ch;(try Os.unlink destination with _ -> ());raise ex);
+        reply emit "saved" ["path",`String destination] in
       let state operation emit =
         let changed ()=reply emit "changed" [] in
         match operation with
@@ -85,7 +100,8 @@ let start_runtime process =
           let data=storage(fun db -> CS.mark_read db ~source ids value;CS.snapshots db ~source ids) in
           reply emit "states" ["data",data];changed()
         | Feed(source,group) -> reply emit "feed" ["rows",storage(fun db -> CS.feed db ~source ~group)]
-        | Timeline entries -> reply emit "feed" ["rows",storage(fun db -> CS.timeline db ~entries)]
+        | Timeline (entries,filter) -> reply emit "feed" ["rows",storage(fun db -> CS.timeline db ~entries filter)]
+        | View_counts views -> reply emit "view-counts" ["rows",storage(fun db -> CS.view_counts db views)]
         | Dismiss_timeline(source,id,through) -> storage(fun db -> CS.dismiss_timeline db ~source ~id ~through);changed()
         | Dismiss(source,group,id,through) -> storage(fun db -> CS.dismiss db ~source ~group ~id ~through);changed()
         | Delete_rss_article(source,id) -> storage(fun db -> CS.delete_rss_article db ~source ~id);changed()
@@ -105,6 +121,20 @@ let start_runtime process =
         | Archive(source,target,id) ->
           reply emit "archive" ["backend_key",`String source;"id",`String id;
             "articles",storage(fun db -> CS.load_archive db ~source ~target ~id)]
+        | Export_content(source,target,id) ->
+          let articles=match storage(fun db -> CS.export_articles db ~source ~target ~id) with
+            | [] -> List.map (archived ~refresh:false source target id) ~f:(fun a ->
+              `Assoc["message",CS.message_json a.message;"attachments",a.attachments])
+            | articles -> articles in
+          let open Yojson.Safe.Util in
+          let key article =
+            let message=member "message" article in
+            message |> member "created" |> to_number, message |> member "id" |> to_string in
+          let articles=List.sort articles ~compare:(fun a b ->
+            let t,id=key a and u,j=key b in
+            match Float.compare t u with 0 -> String.compare id j | order -> order) in
+          reply emit "export-content" ["articles",`List articles]
+        | Write_export(destination,data) -> save_file emit destination data
         | Attachment(source,id,part,destination) ->
           let data=match storage(fun db -> CS.attachment_archive db ~source ~id ~part) with
             | Some data -> data
@@ -112,13 +142,8 @@ let start_runtime process =
               let extract=List.find_map !Reader_backend.archive_extractors ~f:(fun f -> f source)
                 |> Option.value_exn ~message:"No backend can extract this archived attachment" in
               extract raw part in
-          Eio_unix.run_in_systhread(fun () ->
-            let fd=Os.openfile destination [Os.O_WRONLY;Os.O_CREAT;Os.O_EXCL;Os.O_CLOEXEC] 0o600 in
-            let ch=Os.out_channel_of_descr fd in
-            try Stdlib.output_string ch data;Stdlib.flush ch;Os.fsync fd;Stdlib.close_out ch
-            with ex -> Stdlib.close_out_noerr ch;(try Os.unlink destination with _ -> ());raise ex);
-          reply emit "saved" ["path",`String destination]
-        | Refresh(source,group,after) ->
+          save_file emit destination data
+        | Refresh(output,source,group,after) ->
           let version=match Stdlib.Hashtbl.find_opt entry_versions (source,group) with
             | Some v -> v
             | None -> let v=Atomic.make 0 in Stdlib.Hashtbl.add entry_versions (source,group) v;v in
@@ -134,15 +159,15 @@ let start_runtime process =
                 if not (List.is_empty articles) then CS.cache_page_articles db ~source articles;
                 CS.observe ~replace db ~source
                   ~group:(Some group) page.messages;
-                let states=CS.snapshots db ~source (List.map page.messages ~f:(fun m -> m.Reader.Content.id)) in
-                let rows=CS.feed db ~source ~group in
-                Some(states,rows)
+                let cursor = "after", (match page.after with None -> `Null | Some c -> `String c) in
+                Some (match output with
+                  | `Cursor -> "refreshed", [cursor]
+                  | `Group_rows -> "feed", [cursor; "rows", CS.feed db ~source ~group])
               end) in
             match result with
             | None -> reply emit "superseded" []
-            | Some(states,rows) ->
-              reply emit "states" ["data",states];
-              reply emit "feed" ["rows",rows;"after",(match page.after with None -> `Null | Some c -> `String c)];
+            | Some(kind,fields) ->
+              reply emit kind fields;
               if backend.all_pages then Option.iter page.after ~f:(fun next -> fetch (Some next)) in
           fetch after
         | Refresh_archives ->

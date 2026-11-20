@@ -41,17 +41,21 @@ type saved_draft = { key : string; group : string; revision : string; source_tex
 type move_result = { destination : string; moved : string list; failed : int }
 type operation = List of group * cursor option
   | Thread of string | Read of string | Attachment of string * int * string | Send of draft
-  | Draft_new of string * string option | Draft_open of string
+  | Draft_new of group option * string option | Draft_mailto of string | Draft_open of string
   | Draft_save of string * string * string | Draft_list of string
   | Draft_send of string * string
+  | Contacts
+  | Move_folders of string
   | Archive of string * string * bool
+  | Move of string * string * bool * string
   | Trash of string * string * bool
   | Sync of string list
 type result = Page of M.page | Thread_batch of M.thread_batch | Article of article
   | Progress of string
   | Saved of string | Sent of receipt
   | Draft of saved_draft | Drafts of saved_draft list | Archived of move_result | Trashed of move_result
-  | Draft_sent of string * bool | Synced
+  | Draft_sent of string * bool | Contact_list of string list | Synced
+  | Folder_list of string list
 type process_result = Process.response = { status : int; stdout : string }
 type run = ?timeout:float -> string list -> process_result
 type submit = profile:string -> sender:string -> recipients:string list -> string -> unit
@@ -84,6 +88,17 @@ let find t ?(related=false) query =
     let json=try Yojson.Safe.from_string r.stdout with _ -> error "Invalid mu JSON output" in
     match json with `List xs -> List.map header xs | _ -> error "mu did not return an array"
   end
+
+let contacts t =
+  let r=t.run [t.config.mu;"cfind";"--muhome";t.config.muhome;"--format=json"] in
+  if r.status=2 then []
+  else if r.status<>0 then error "Could not read mu contacts"
+  else match Yojson.Safe.from_string r.stdout with
+  | `List entries ->
+    List.filter_map (fun entry ->
+      try Some(address (str(get entry "email"))) with Error _ -> None) entries
+    |> List.sort_uniq String.compare
+  | _ -> error "Invalid mu contact list"
 
 let remember t (h:header) = Hashtbl.replace t.headers h.message.id h
 
@@ -220,6 +235,27 @@ let account_for t group =
     let prefix=match parts with _::_::_ -> "/"^List.hd parts | _ -> "" in
     {prefix;address=t.config.sender;smtp_account=t.config.account}
 let special_folder t group name = (account_for t group).prefix ^ "/" ^ name
+let move_folders t group =
+  let prefix=(account_for t group).prefix in
+  let directory path=match Unix.lstat path with
+    | {Unix.st_kind=Unix.S_DIR;_} -> true
+    | _ | exception Unix.Unix_error (Unix.ENOENT,_,_) -> false in
+  let rec walk name =
+    let path=t.config.root^name in
+    let entries=Sys.readdir path |> Array.to_list in
+    let folders=List.concat_map (fun child ->
+      if List.mem child ["cur";"new";"tmp"] then []
+      else
+        let name=name^"/"^child in
+        if directory (t.config.root^name) then walk name else []) entries in
+    if name=prefix || name=group || (account_for t name).prefix<>prefix || Filename.basename name="Drafts" ||
+       not(List.for_all (fun part -> directory (Filename.concat path part)) ["cur";"new";"tmp"])
+    then folders else name::folders in
+  if Filename.basename group="Drafts" then [] else List.sort String.compare (walk prefix)
+let default_account t =
+  List.find_opt (fun a -> a.smtp_account=t.config.account &&
+    String.lowercase_ascii a.address=String.lowercase_ascii t.config.sender) t.config.accounts
+  |> Option.value ~default:{prefix="";address=t.config.sender;smtp_account=t.config.account}
 let with_mutation t f =
   Eio.Mutex.lock t.mutations;
   Fun.protect ~finally:(fun () -> Eio.Mutex.unlock t.mutations) f
@@ -244,14 +280,25 @@ let save_draft t key expected source_text = with_mutation t @@ fun () ->
   Hashtbl.clear t.snapshots;
   let indexed=index_file t path in
   {key;group;revision;source_text;indexed}
-let new_draft t group reply_to = with_mutation t @@ fun () ->
-  let account=account_for t group in
-  let folder=special_folder t group "Drafts" in
+let persist_draft t account headers body =
+  let folder=account.prefix ^ "/Drafts" in
   let dir=Store.folder ~root:t.config.root folder in
   let id=random_id () in
+  let source_text=String.concat "\n" (["From: "^account.address] @ headers @
+    ["Message-ID: <"^id^">";"MIME-Version: 1.0";"Content-Type: text/plain; charset=UTF-8";
+     "Content-Transfer-Encoding: 8bit";"";body]) in
+  let key=folder^"/cur/ecaml-"^id^":2,D" in
+  let _,_,path=Store.draft_path ~root:t.config.root key in
+  let revision=Store.write_atomic ~dir ~path ~expected:None source_text in
+  let indexed=index_file t path in
+  {key;group=folder;revision;source_text;indexed}
+
+let new_draft t group reply_to = with_mutation t @@ fun () ->
+  let account=match group with None -> default_account t | Some group -> account_for t group in
   let headers,body=match reply_to with
     | None -> ["To: ";"Subject: "],""
     | Some id ->
+      let group=match group with Some group -> group | None -> error "Reply needs a Maildir group" in
       if not(String.starts_with ~prefix:"mail:" id) then error "Reply target needs a Message-ID";
       let candidates=find t ("msgid:"^quote(String.sub id 5 (String.length id-5))) |>
         List.filter(fun (h:header) -> h.message.id=id && (account_for t h.maildir).prefix=account.prefix) in
@@ -265,29 +312,59 @@ let new_draft t group reply_to = with_mutation t @@ fun () ->
       ["To: "^a.message.author;"Subject: "^subject;"In-Reply-To: <"^p.message_id^">";
        "References: "^String.concat " " (List.map(fun s -> "<"^s^">") refs)],
       String.concat "\n" (List.map(fun line -> "> "^line)(String.split_on_char '\n' a.message.body)) in
-  let source_text=String.concat "\n" (["From: "^account.address] @ headers @
-    ["Message-ID: <"^id^">";"MIME-Version: 1.0";"Content-Type: text/plain; charset=UTF-8";
-     "Content-Transfer-Encoding: 8bit";"";body]) in
-  let key=folder^"/cur/ecaml-"^id^":2,D" in
-  let _,_,path=Store.draft_path ~root:t.config.root key in
-  let revision=Store.write_atomic ~dir ~path ~expected:None source_text in
-  let indexed=index_file t path in
-  {key;group=folder;revision;source_text;indexed}
+  persist_draft t account headers body
+
+let draft_from_mailto t raw =
+  let uri=Uri.of_string raw in
+  if Option.map String.lowercase_ascii (Uri.scheme uri) <> Some "mailto" ||
+     Option.is_some (Uri.host uri) then error "Expected a mailto URI";
+  let decode encoded =
+    let value=Uri.pct_decode encoded in
+    if not (String.is_valid_utf_8 value) || String.contains value '\000' then
+      error "Invalid text in mailto URI";
+    value in
+  let header_value value =
+    if not (clean value) then error "Control character in mailto header";
+    value in
+  let addresses value =
+    let value=header_value value in
+    if value="" then [] else String.split_on_char ',' value |> List.map (fun s -> address (String.trim s)) in
+  (* URI query values use percent-encoding. A literal '+' stays a plus. *)
+  let fields=Option.value (Uri.verbatim_query uri) ~default:"" |> String.split_on_char '&'
+    |> List.filter_map (fun pair ->
+      match String.index_opt pair '=' with
+      | None -> None
+      | Some sep ->
+        let name=String.sub pair 0 sep |> Uri.pct_decode |> String.lowercase_ascii in
+        Some (name, String.sub pair (sep+1) (String.length pair-sep-1))) in
+  let recipients name = List.concat_map (fun (key,value) ->
+    if key=name then addresses (decode value) else []) fields in
+  let value name = Option.value (List.assoc_opt name fields) ~default:"" |> decode in
+  let to_=addresses (decode (Uri.path uri)) @ recipients "to" in
+  let cc=recipients "cc" in
+  let subject=header_value (value "subject") in
+  let body=value "body" |> String.split_on_char '\n' |> List.map (fun line ->
+    if String.ends_with ~suffix:"\r" line then String.sub line 0 (String.length line-1) else line)
+    |> String.concat "\n" in
+  let headers=["To: " ^ String.concat ", " to_; "Subject: " ^ subject] @
+    (if cc=[] then [] else ["Cc: " ^ String.concat ", " cc]) in
+  with_mutation t (fun () -> persist_draft t (default_account t) headers body)
+
 let list_drafts t group =
   let folder=special_folder t group "Drafts" in
   let dir=Store.folder ~root:t.config.root folder in
   Sys.readdir(Filename.concat dir "cur") |> Array.to_list |> List.sort String.compare |>
   List.filter(fun name -> not(String.starts_with ~prefix:"." name)) |>
   List.map(fun name -> draft_info t (folder^"/cur/"^name) true)
-let move_to ?(progress=ignore) t group id whole_thread folder =
+let move_to ?(progress=ignore) t group id whole_thread destination =
   (* The UI remains responsive while this fiber waits. Sync holds the same lock
      across mbsync and indexing, so a move must report that it is queued. *)
   progress "Waiting for mail access; synchronization or another move may be running…";
   with_mutation t @@ fun () ->
-  progress ("Preparing move to "^folder^"…");
+  progress ("Preparing move to "^destination^"…");
   if not(Store.valid_group group) then error "Invalid Maildir group";
+  if destination="/" || not(Store.valid_group destination) then error "Invalid destination Maildir";
   if Filename.basename group="Drafts" then error "Drafts must stay in Drafts while being edited";
-  let destination=special_folder t group folder in
   if group=destination then {destination;moved=[];failed=0} else begin
     if not(String.starts_with ~prefix:"mail:" id) then error "Moving mail requires a Message-ID";
     let query="msgid:"^quote(String.sub id 5 (String.length id-5)) in
@@ -312,10 +389,10 @@ let move_to ?(progress=ignore) t group id whole_thread folder =
     Hashtbl.clear t.snapshots;
     {destination;moved=List.rev !moved;failed= !failed}
   end
-let archive t group id whole_thread = move_to t group id whole_thread "Archive"
+let archive t group id whole_thread = move_to t group id whole_thread (special_folder t group "Archive")
 let trash_with_progress ~progress t group id whole_thread =
   if Filename.basename group="Trash" then error "Already in Trash; d does not permanently delete mail";
-  move_to ~progress t group id whole_thread "Trash"
+  move_to ~progress t group id whole_thread (special_folder t group "Trash")
 let trash t group id whole_thread = trash_with_progress ~progress:ignore t group id whole_thread
 let prepare_internal ?message_id ?(references=[]) t d =
   if d.to_=[] then error "Supply at least one recipient";
@@ -400,12 +477,18 @@ let operation_of_json j =
   | "attachment" ->
     let part=match get j "part" with `Int n when n>0 -> n | _ -> error "Invalid attachment part" in
     Attachment(required "id",part,required "destination")
-  | "draft-new" -> Draft_new(required "group",(match get j "reply_to" with `String s -> Some s | _ -> None))
+  | "draft-new" ->
+    let group=match get j "group" with `Null -> None | _ -> Some(required "group") in
+    Draft_new(group,(match get j "reply_to" with `String s -> Some s | _ -> None))
+  | "draft-mailto" -> Draft_mailto(required "uri")
   | "draft-open" -> Draft_open(required "key")
   | "draft-save" -> Draft_save(required "key",required "revision",(match get j "source" with `String s -> s | _ -> error "Missing draft source"))
   | "draft-send" -> Draft_send(required "key",required "revision")
+  | "contacts" -> Contacts
+  | "move-folders" -> Move_folders(required "group")
   | "draft-list" -> Draft_list(required "group")
   | "archive" -> Archive(required "group",required "id", get j "thread" = `Bool true)
+  | "move" -> Move(required "group",required "id",get j "thread" = `Bool true,required "folder")
   | "trash" -> Trash(required "group",required "id", get j "thread" = `Bool true)
   | "send" -> Send {to_=strings(get j "to");cc=strings(get j "cc");subject=str(get j "subject");
     body=str(get j "body");reply_to=(match get j "reply_to" with `String s -> Some s | _ -> None)}
@@ -429,6 +512,8 @@ let result_json = function
   | Draft_sent(id,cleaned) -> `Assoc["kind",`String "draft-sent";"id",`String id;"cleaned",`Bool cleaned]
   | Draft d -> `Assoc["kind",`String "draft";"draft",draft_json ~include_source:true d]
   | Drafts ds -> `Assoc["kind",`String "drafts";"drafts",`List(List.map(draft_json ~include_source:false) ds)]
+  | Contact_list contacts -> `Assoc["kind",`String "contacts";"rows",`List(List.map(fun email -> `String email) contacts)]
+  | Folder_list folders -> `Assoc["kind",`String "move-folders";"rows",`List(List.map(fun folder -> `String folder) folders)]
   | Synced -> `Assoc["kind",`String "synced"]
   | (Archived r | Trashed r) as result -> `Assoc["kind",`String (match result with Trashed _->"trashed"|_->"archived");"destination",`String r.destination;
                         "moved",`List(List.map(fun s -> `String s) r.moved);"failed",`Int r.failed]
@@ -441,10 +526,15 @@ let execute t op ~emit = match op with
   | Send d -> emit(Sent(send t d))
 
   | Draft_new(g,id) -> emit(Draft(new_draft t g id))
+  | Draft_mailto uri -> emit(Draft(draft_from_mailto t uri))
   | Draft_open key -> emit(Draft(open_draft t key))
   | Draft_save(key,rev,src) -> emit(Draft(save_draft t key rev src))
   | Draft_list g -> emit(Drafts(list_drafts t g))
+  | Contacts -> emit(Contact_list(contacts t))
+  | Move_folders group -> emit(Folder_list(move_folders t group))
   | Archive(g,id,whole) -> emit(Archived(archive t g id whole))
+  | Move(g,id,whole,destination) ->
+    emit(Archived(move_to ~progress:(fun message->emit(Progress message)) t g id whole destination))
   | Trash(g,id,whole) -> emit(Trashed(trash_with_progress ~progress:(fun message->emit(Progress message)) t g id whole))
   | Sync command -> sync t command;emit Synced
 

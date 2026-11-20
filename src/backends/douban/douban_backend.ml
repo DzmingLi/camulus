@@ -4,14 +4,41 @@ module D=R.Decode
 module Html=Reader.Html
 type group=string
 type cursor=string
+type destination = Broadcast | Group of { slug:string; category:string option; also_broadcast:bool }
 let field k = function `Assoc pairs->Option.value(List.assoc_opt k pairs)~default:`Null|_->`Null
 let str k j=match field k j with `String s->s|`Int n->string_of_int n|_->""
 let num k j=match field k j with `Int n->n|`String s->Option.value(int_of_string_opt s)~default:0|_->0
 let array k j=match field k j with `List xs->xs|_->[]
 let numeric s=if s="" || not(String.for_all(function '0'..'9'->true|_->false)s) then invalid_arg "Expected numeric Douban ID" else s
+let group_categories data =
+ array "group_tabs" data |> List.filter_map(fun tab ->
+  if str "type" tab<>"topic_tag" then None else
+   let name=str "name" tab and id=numeric(str "id" tab) in
+   if name="" then None else Some(name,id))
+let category_id categories value =
+ match List.filter_map (fun (name,id) -> if value=id || value=name then Some id else None) categories
+   |> List.sort_uniq String.compare with
+ | [id] -> id
+ | [] -> invalid_arg "该小组没有这个分区，请填写当前小组的分区名称或 ID"
+ | _ -> invalid_arg "存在同名分区，请填写分区 ID"
+let group_slug s =
+ if s="" || not(String.for_all(function 'a'..'z'|'A'..'Z'|'0'..'9'|'-'|'_'->true|_->false)s) then
+  invalid_arg "Expected a Douban group ID or slug";
+ s
+let group_of_target target =
+ let uri=Uri.of_string (String.trim target) in
+ let slug=match Uri.scheme uri,Uri.host uri,Uri.port uri with
+  | None,None,None -> String.trim target
+  | Some "https",Some "www.douban.com",None when Uri.userinfo uri=None ->
+    (match List.filter ((<>) "") (String.split_on_char '/' (Uri.path uri)) with
+     | ["group";slug] | ["group";slug;"discussion"] -> slug
+     | _ -> invalid_arg "Expected a Douban group URL")
+  | _ -> invalid_arg "Expected a Douban group URL, ID or slug" in
+ "group."^group_slug slug
 let parts group=match String.split_on_char '.' group with
+ | ["group";slug] -> "group",group_slug slug
  | [kind;n] when List.mem kind ["timeline";"replies";"topic";"group-topic"] -> kind,numeric n
- | _->invalid_arg "Douban expects timeline.USER, replies.ACCOUNT, topic.ID or group-topic.ID"
+ | _->invalid_arg "Douban expects group.ID, timeline.USER, replies.ACCOUNT, topic.ID or group-topic.ID"
 let root_id id=List.hd(String.split_on_char '/' id)
 let root_parts id=match String.split_on_char ':' (root_id id) with
  | [kind;n] when List.mem kind ["status";"topic";"group-topic"]->kind,numeric n
@@ -92,6 +119,22 @@ let topic id html=
  let pick classes=List.find_map(fun c->Html.find(Html.has_class c)tree)classes |> Option.map(fun n->String.trim(Html.text n)) |> Option.value ~default:"" in
  let title=pick["topic-title"] and author=pick["author-name";"from"] and created=date(pick["create-time"]) in
  let html=Html.render(paragraph_breaks body) in R.Article.of_html(message ~id ~title ~author ~created ~html)html
+let group_topic j =
+ let id="group-topic:"^numeric(str "id" j) in
+ let content=match field "content" j with
+  | `String body -> body
+  | _ -> failwith "Douban group topic body missing" in
+ let body=Html.parse content |> paragraph_breaks in
+ let image_name url=Filename.basename (Uri.path (Uri.of_string url)) in
+ let inline=Html.select(fun n->Html.tag n="img")body
+   |> List.map(fun n->image_name(Html.attr "src" n)) in
+ let photos=List.filter_map(fun photo ->
+  let url=str "url" (field "large" (field "image" photo)) in
+  if url="" || List.mem (image_name url) inline then None
+  else Some("<img src=\""^Html.escape url^"\">")) (array "photos" j) in
+ let html=Html.render body ^ String.concat "" photos in
+ R.Article.of_html (message ~id ~title:(str "title" j) ~author:(str "name" (field "author" j))
+   ~created:(date(str "create_time" j)) ~html) html
 module Make(H:R.Http.S)=struct
  module Download=R.Make(H)
  type t={cookies:string->(string*string)list;post:R.Http.request->body:string->R.Http.response;cache:(string,D.article)Hashtbl.t;reactions:(string,reaction)Hashtbl.t}
@@ -123,6 +166,8 @@ module Make(H:R.Http.S)=struct
  let json t url=
   let j=Yojson.Safe.from_string(fst(request t url)) in
   if (field "code" j<>`Null && num "code" j<>0) || field "localized_message" j<>`Null then failwith "Douban rejected request";j
+ let group_info t slug = json t ("https://m.douban.com/rexxar/api/v2/group/"^group_slug slug)
+ let categories t slug = group_info t slug |> group_categories
  let remember t (a:D.article)=Hashtbl.replace t.cache a.message.id a;a
  let read_root t id=
   let id=root_id id in let kind,n=root_parts id in
@@ -130,14 +175,38 @@ module Make(H:R.Http.S)=struct
    let j=json t ("https://m.douban.com/rexxar/api/v2/status/"^n) in
    let j=match field "status" j with `Null->j|v->v in
    remember_reaction t id (json_reaction j);status j
+  else if kind="group-topic" then
+   let j=json t ("https://m.douban.com/rexxar/api/v2/group/topic/"^n) in
+   remember_reaction t id (json_reaction j);group_topic j
   else let html=fst(request t (root_url id)) in
    remember_reaction t id (topic_reaction id html);topic id html in
   if a.message.id<>id then failwith "Douban returned another discussion";remember t a
+ let group_topics t slug offset =
+  let url=Printf.sprintf "https://m.douban.com/rexxar/api/v2/group/%s/topics?start=%d&count=20" slug offset in
+  let j=json t url in
+  let next=match field "start" j,field "count" j,field "total" j with
+   | `Int start,`Int count,`Int total when start=offset && count>0 && total>=0 ->
+     if total-start>count then Some(start+count) else None
+   | _ -> failwith "Invalid Douban group pagination" in
+  let topics=match field "topics" j with
+   | `List items -> items
+   | _ -> failwith "Douban group topics missing; check whether the group is accessible" in
+  let messages=List.filter_map(fun topic ->
+   if field "is_ad" topic=`Bool true then None else
+    let id="group-topic:"^numeric(str "id" topic) in
+    let summary=message ~id ~title:(str "title" topic) ~author:(str "name" (field "author" topic))
+      ~created:(date(str "create_time" topic)) ~html:"" in
+    (* A browsing page contains metadata only. Fetch the root and replies on open. *)
+    Some {summary with html=None;activity=Some(str "update_time" topic^":"^str "comments_count" topic)}) topics in
+  messages,next
  let list t group ~after=
   let kind,n=parts group in
   let offset=match after with None->0|Some s->(match Yojson.Safe.from_string s with
    | `List[`String g;`Int v] when g=group && v>0->v|_->invalid_arg "Invalid Douban cursor") in
-  let articles,more=match kind with
+  let article_rows articles more = List.map(fun(a:D.article)->a.message)articles,
+    (if more then Some(offset+20) else None) in
+  let messages,next=match kind with
+  | "group" -> group_topics t n offset
   | "timeline" ->
    let j=json t (Printf.sprintf "https://m.douban.com/rexxar/api/v2/status/user_timeline/%s?start=%d&count=20" n offset) in
    let items=match field "items" j with `List xs->xs|_->failwith "Douban timeline data missing" in
@@ -147,7 +216,7 @@ module Make(H:R.Http.S)=struct
       let card=field "card" s in
       (match (if str "type" card="topic" then target(str "url" card) else None) with
       | Some id->Some(read_root t id) | None->let a=status s in remember_reaction t a.message.id (json_reaction s);Some(remember t a)))items in
-   articles,(if field "total" j<>`Null then offset+List.length items<num "total" j else List.length items=20)
+   article_rows articles (if field "total" j<>`Null then offset+List.length items<num "total" j else List.length items=20)
   | "replies" ->
    let cookies=t.cookies "https://www.douban.com/reply_notify/" in
    let account=List.assoc_opt "dbcl2" cookies |> Option.value ~default:"" |> String.trim in
@@ -173,12 +242,12 @@ module Make(H:R.Http.S)=struct
       |Some id->id|None->failwith "Unsupported Douban reply target") in
     let a=read_root t id in
     {a with message={a.message with activity=Some(Html.attr "id" node)}})nodes in
-   articles,List.length nodes>=20
+   article_rows articles (List.length nodes>=20)
   | _->if after<>None then invalid_arg "Single Douban topic has no next page";
-    [read_root t ((if kind="topic" then "topic:" else "group-topic:")^n)],false in
+    article_rows [read_root t ((if kind="topic" then "topic:" else "group-topic:")^n)] false in
   let unique=Hashtbl.create 32 in
-  let articles=List.filter(fun(a:D.article)->if Hashtbl.mem unique a.message.id then false else (Hashtbl.add unique a.message.id ();true))articles in
-  {C.messages=List.map(fun(a:D.article)->a.message)articles;after=if more then Some(Yojson.Safe.to_string(`List[`String group;`Int(offset+20)]))else None}
+  let messages=List.filter(fun(m:C.message)->if Hashtbl.mem unique m.id then false else (Hashtbl.add unique m.id ();true))messages in
+  {C.messages;after=Option.map(fun offset->Yojson.Safe.to_string(`List[`String group;`Int offset]))next}
  let stream_thread t id ~emit_article ~emit=
   let root=root_id id in let kind,n=root_parts root in
   let a=read_root t root in emit_article a;
@@ -225,8 +294,7 @@ module Make(H:R.Http.S)=struct
  let read t _group id=match Hashtbl.find_opt t.cache id with Some a->a|None->
   if id=root_id id then read_root t id else begin stream_thread t id ~emit_article:(fun _->())~emit:(fun _->());
    match Hashtbl.find_opt t.cache id with Some a->a|None->failwith "Douban comment not found" end
- let set_like t ~id ~liked =
-  let url,fields,is_status=like_target id liked in
+ let authenticated_headers t url =
   let cookies=t.cookies url in
   if not(List.mem_assoc "dbcl2" cookies) then failwith "Log in to Douban in the configured Firefox profile first";
   let token value =
@@ -239,16 +307,20 @@ module Make(H:R.Http.S)=struct
    let bootstrap="https://www.douban.com/mine/" in
    let r=H.request {R.Http.meth=Get;body="";url=bootstrap;headers=["Cookie",Reader.Credentials.Firefox.header(t.cookies bootstrap);"Referer","https://www.douban.com/";
     "User-Agent","Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"]} in
-   if r.status<>200 then failwith "Douban CSRF bootstrap failed; check Firefox login";
+   if not(List.mem r.status [200;302;303]) then failwith "Douban CSRF bootstrap failed; check Firefox login";
    let ck=List.find_map(fun(k,v)->
     if String.lowercase_ascii k<>"set-cookie" then None else
     let first=List.hd(String.split_on_char ';' v) |> String.trim in
     if String.starts_with ~prefix:"ck=" first then token(String.sub first 3 (String.length first-3)) else None)r.headers in
    (match ck with Some ck->ck|None->failwith "Douban did not return a CSRF token; log in again in Firefox") in
-  let headers=["Cookie",Reader.Credentials.Firefox.header(("ck",ck)::List.remove_assoc "ck" cookies);
+  ck,["Cookie",Reader.Credentials.Firefox.header(("ck",ck)::List.remove_assoc "ck" cookies);
    "User-Agent","Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0";
    "Referer","https://www.douban.com/";"Origin","https://www.douban.com";
-   "Content-Type","application/x-www-form-urlencoded; charset=UTF-8";"X-CSRF-TOKEN",ck;"X-Requested-With","XMLHttpRequest"] in
+   "X-CSRF-TOKEN",ck;"X-Requested-With","XMLHttpRequest"]
+ let set_like t ~id ~liked =
+  let url,fields,is_status=like_target id liked in
+  let ck,headers=authenticated_headers t url in
+  let headers=("Content-Type","application/x-www-form-urlencoded; charset=UTF-8")::headers in
   let body=Uri.encoded_of_query(List.map(fun(k,v)->k,[v])(("ck",ck)::fields)) in
   let r=try t.post {R.Http.meth=Get;body="";url;headers} ~body with R.Http.Transport_error _->
     failwith "Douban like transfer failed or timed out; refresh to check the remote state" in
@@ -260,6 +332,42 @@ module Make(H:R.Http.S)=struct
    else (if field "reaction_type" j<>`Int(if liked then 1 else 0) then failwith "Douban did not confirm the requested reaction";
      match json_reaction j with Some r->r.count|None->None) in
   Hashtbl.replace t.reactions id {liked;count}
+ let publish t destination ~title ~text =
+  let url="https://m.douban.com/rexxar/api/v2/topic/post" in
+  let group,category,send_status=match destination with
+   | Broadcast -> None,None,true
+   | Group {slug;category;also_broadcast} ->
+     let group=group_info t slug in
+     let category=Option.map (fun value -> category_id (group_categories group) value) category in
+     Some(numeric(str "id" group)),category,also_broadcast in
+  let _,headers=authenticated_headers t url in
+  let blocks=String.split_on_char '\n' text |> List.mapi(fun index line ->
+   `Assoc["key",`String(Printf.sprintf "a%x" index);"text",`String line;"type",`String "unstyled";
+     "depth",`Int 0;"inlineStyleRanges",`List [];"entityRanges",`List [];"data",`Assoc []]) in
+  (* The Douban editor sends serialized rich-text blocks inside a JSON request.
+     send_status asks Douban to publish the broadcast in the same operation. *)
+  let content=Yojson.Safe.to_string (`Assoc["blocks",`List blocks;"entityMap",`Assoc []]) in
+  let fields=["title",`String title;"content",`String content;"send_status",`Bool send_status;
+    "accessible",`String "public";"subtype",`String(if group=None then "personal" else "group")] in
+  let id_field name = Option.fold ~none:[] ~some:(fun id -> [name,`String id]) in
+  let body=Yojson.Safe.to_string (`Assoc(fields @ id_field "group_id" group @ id_field "topic_tag_ids" category)) in
+  let headers=("Content-Type","application/json; charset=UTF-8")::headers in
+  let uncertain ()=failwith "豆瓣发布结果未确认，请在豆瓣核对后再重试" in
+  let r=try t.post {R.Http.meth=Get;url;headers;body=""} ~body with R.Http.Transport_error _ -> uncertain () in
+  if r.status>=500 || r.status=408 then uncertain ();
+  if r.status<200 || r.status>=300 then failwith(Printf.sprintf "豆瓣发布失败（HTTP %d），请检查登录、发帖权限或账号验证" r.status);
+  let j=try Yojson.Safe.from_string r.body with Yojson.Json_error _ -> uncertain () in
+  if (field "code" j<>`Null && num "code" j<>0) || field "localized_message" j<>`Null then
+   failwith "豆瓣拒绝发布，请检查登录、小组发帖权限或账号验证";
+  let id=try numeric(str "id" j) with Invalid_argument _ -> uncertain () in
+  let notice=match destination,field "is_status_sent" j with
+   | Group {also_broadcast=true;_},`Bool true -> "已发到豆瓣小组和广播"
+   | Group {also_broadcast=true;_},`Bool false -> "已发到豆瓣小组，豆瓣未同步到广播"
+   | Group {also_broadcast=true;_},_ -> "已发到豆瓣小组，广播状态请在豆瓣查看"
+   | Group _,_ -> "已发到豆瓣小组"
+   | Broadcast,`Bool false -> "豆瓣已接收内容，广播未发布，请在豆瓣查看"
+   | Broadcast,_ -> "已提交豆瓣广播" in
+  id,notice
  let invalidate t id=Hashtbl.remove t.cache id
  let download url=Download.download_url url
  let archive_article _ a=R.Article.archive ~download a

@@ -20,16 +20,20 @@ type saved_draft = { key : string; group : string; revision : string; source_tex
 type move_result = { destination : string; moved : string list; failed : int }
 type operation = List of group * cursor option
   | Thread of string | Read of string | Attachment of string * int * string | Send of draft
-  | Draft_new of string * string option | Draft_open of string
+  | Draft_new of group option * string option | Draft_mailto of string | Draft_open of string
   | Draft_save of string * string * string | Draft_list of string
   | Draft_send of string * string
+  | Contacts
+  | Move_folders of string
   | Archive of string * string * bool
+  | Move of string * string * bool * string
   | Trash of string * string * bool
   | Sync of string list
 type result = Page of Reader.Content.page | Thread_batch of Reader.Content.thread_batch
   | Article of article | Progress of string | Saved of string | Sent of receipt
   | Draft of saved_draft | Drafts of saved_draft list | Archived of move_result | Trashed of move_result
-  | Draft_sent of string * bool | Synced
+  | Draft_sent of string * bool | Contact_list of string list | Synced
+  | Folder_list of string list
 type process_result = Process.response = { status : int; stdout : string }
 type run = ?timeout:float -> string list -> process_result
 type submit = profile:string -> sender:string -> recipients:string list -> string -> unit
@@ -47,7 +51,7 @@ val attachment_json : attachment -> Yojson.Safe.t
 val result_json : result -> Yojson.Safe.t
 val execute : t -> operation -> emit:(result -> unit) -> unit
 
-val new_draft : t -> group -> string option -> saved_draft
+val new_draft : t -> group option -> string option -> saved_draft
 val open_draft : t -> string -> saved_draft
 val save_draft : t -> string -> string -> string -> saved_draft
 val list_drafts : t -> group -> saved_draft list

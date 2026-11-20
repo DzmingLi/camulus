@@ -26,13 +26,14 @@ let get ?(headers=[]) url = {meth=Get;url;headers;body=""}
 (* Initialize before spawning the worker. Never clean up libcurl globally in
    Emacs, which can host other modules using it. Each transfer owns its handles. *)
 let () = Curl.global_init Curl.CURLINIT_GLOBALALL
+let asynchronous_dns = List.mem "asynchdns" (Curl.version_info ()).features
 let request ?(policy=Http_and_https) ?(user_agent="camulus/0.1")
     ?(connect_timeout_ms=10000) ?(timeout_ms=30000) (r:request) =
   ignore(validate ~policy r.url);
   if connect_timeout_ms<=0 || timeout_ms<=0 then invalid_arg "Invalid HTTP timeouts";
   List.iter(fun(k,v)->if k="" || String.exists(fun c->c='\r'||c='\n'||c='\000') (k^v) then
     invalid_arg "Invalid HTTP header")r.headers;
-  if not(List.mem "asynchdns" (Curl.version_info()).features) then
+  if not asynchronous_dns then
     raise(Transport_error "libcurl must support asynchronous DNS for the Eio transport");
   let easy=Curl.init() and multi=Curl.Multi.create() in
   let attached=ref false in

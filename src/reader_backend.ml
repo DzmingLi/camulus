@@ -8,9 +8,12 @@ type control = { key : string; hint : string; command : string }
 type entrance = { label : string; open_ : unit -> unit }
 type removal = Refresh_membership | Dismiss_notification | Delete_inbox_article
 type composer = {
-  email : bool;
   in_group : Value.t -> (unit -> unit) option;
-  destinations : unit -> entrance list;
+  default : unit -> (unit -> unit) option;
+}
+type folder_move = {
+  list : item:Value.t -> receive:(string list -> unit) -> unit;
+  move : item:Value.t -> folder:string -> unit;
 }
 type topic_tracking = {
   filters : (string * string) list;
@@ -29,7 +32,6 @@ type t = {
   inline_attachments : bool;
   normalize : Value.t -> Value.t;
   group_key : Value.t -> string;
-  group_context : string -> (string * Value.t) list;
   threaded : bool;
   thread_contains_bodies : bool;
   available : string -> bool;
@@ -39,6 +41,8 @@ type t = {
   controls : control list;
   list_controls : control list;
   composer : composer option;
+  refile : item:Value.t -> (string * (unit -> unit)) option;
+  folder_move : folder_move option;
   (* Completion acknowledges the backend operation, not merely queueing it.
      The reader owns optimistic hiding and rollback of list rows. *)
   delete : (entry:Value.t -> row:Value.t -> complete:((removal, string) Result.t -> unit) -> unit) option;
@@ -69,9 +73,9 @@ let s = Value.of_utf8_bytes
 let alist fields = Value.list (List.map fields ~f:(fun (k,v) -> call "cons" [Value.intern k;v]))
 let base ~id ~name ~threaded ~read = {
   id;storage_prefix=id;name;start=(fun()->());on_refresh=(fun()->());inline_attachments=true;
-  normalize=Fn.id;group_key=(fun _ -> id);group_context=(fun _ -> []);threaded;read;thread_contains_bodies=false;
-  available=(fun _ -> true);attachment=None;controls=[];list_controls=[];composer=None;article_marks=(fun _->"");row_title=(fun row->Value.funcallN(Value.intern "alist-get")[Value.intern "title";row]);browser=None;entrances=(fun () -> []);followed=None;
-  subscription_target=None;topic_tracking=None;subscription_option=None;can_subscribe_group=(fun ~source:_ ~group:_ -> false);delete=None;events=[];
+  normalize=Fn.id;group_key=(fun _ -> id);threaded;read;thread_contains_bodies=false;
+  available=(fun _ -> true);attachment=None;controls=[];list_controls=[];composer=None;refile=(fun ~item:_ -> None);article_marks=(fun _->"");row_title=(fun row->Value.funcallN(Value.intern "alist-get")[Value.intern "title";row]);browser=None;entrances=(fun () -> []);followed=None;
+  subscription_target=None;topic_tracking=None;subscription_option=None;can_subscribe_group=(fun ~source:_ ~group:_ -> false);delete=None;folder_move=None;events=[];
   reconcile=(fun ~source:_ ~existing:_ ~request:_ ~archived:_ message -> message)
 }
 
@@ -125,12 +129,6 @@ let resolve_group entry =
       if String.equal key (string_field "backend_key" entry) then entry
       else call "cons" [call "cons" [sym "backend_key";s key];entry] in
     backend.normalize entry
-let group_reference entry =
-  let key = string_field "backend_key" entry in
-  match find key with
-  | None -> invalid_arg "Unknown group backend"
-  | Some backend ->
-    alist (["backend",s backend.id; "group",field "group" entry] @ backend.group_context key)
 let firefox_cookie_provider () =
  let configured=get "camulus-firefox-profile" in
  let profile=if truth configured then Some(text(call "expand-file-name" [configured])) else None in
@@ -179,7 +177,7 @@ let all_groups ~source:_ ~group:_ = true
 let register_local_groups ?key_for_group ~option ~accepts backend =
   let key_for_group = Option.value key_for_group ~default:(fun _ -> backend.storage_prefix) in
   custom ~kind:Customization.Type.(Repeat String) option nil
-    (backend.name^" groups included in Home. Configure with setopt or Customize; registering a browsing group does not subscribe it.");
+    (backend.name^" groups included in the inbox. Configure with setopt or Customize; registering a browsing group does not subscribe it.");
   let accepts ~source ~group=owns_key backend source && accepts ~source ~group in
   let followed () =
     let groups=values(get option) |> List.map ~f:(fun value->

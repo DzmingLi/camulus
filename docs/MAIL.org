@@ -3,20 +3,22 @@
 这一版是本地 Maildir 邮件后端，保留 mu 索引和现有 mbsync 同步。=Mu_backend= 使用 Mrmime 解析及生成 MIME，通过 Colombe + tls-eio 直接发送 SMTP；不再绑定 GMime 或调用 msmtp。=process_emacs.ml= 通过 Ecaml 提供 mu 子进程宿主；=compose_emacs.ml= 负责邮件编辑格式、草稿组以及 Mu 操作接入，公共 =src/writing.ml= 管理自动保存、编辑版本、关闭和发送状态。没有以 Gnus 或 mu4e 作为后端，也没有 Elisp 后端扩展接口。
 
 * 运行
-运行 =M-x camulus= 打开首页。在入口配置中声明 Maildir，再用 =G= 选择，例如 =/main/Inbox=。默认读取 =~/Maildir= 和 =~/.cache/mu=。
+运行 =M-x camulus= 打开首页。在入口配置中声明 Maildir，再从组目录或配置好的视图进入，例如 =/main/Inbox=。默认读取 =~/Maildir= 和 =~/.cache/mu=。
 
 - =RET=：右侧打开整棵回复树，默认展开。
 - =g=：重新查询本地索引。
 - =n=：下一页。
-- =c= / =r=：新建 / 回复，summary 所在窗口切换为 Message 编辑 buffer，右侧阅读窗口保留。
+- =C= / =R=：新建 / 回复，summary 所在窗口切换为 Message 编辑 buffer，右侧阅读窗口保留。
 - =D=：打开当前账户的草稿组；=RET= 恢复编辑。
-- =m= 写新邮件，可选择发件账户。邮件组里的 =a= 直接使用该组所属的账户。
+- 在首页按 =C= 使用默认账户，邮件组内按 =C= 使用该组所属的账户。新邮件的 =To:= 留空，可在草稿中填写。
 - =C-c C-a= 在列表中归档当前组内的整条讨论，在阅读窗口中归档当前这一封。
 - 邮件有附件时，在正文窗口下方显示附件面板；随当前邮件切换。=A= 手动打开，面板中 =RET= / =o= 打开附件，=s= 保存当前附件，=S= 保存全部，=q= 关闭。正文不再显示附件按钮。
 
 启动前可设置 =camulus-mail-root=、=camulus-mail-muhome=、=camulus-mail-sender= 和 =camulus-mail-account=。发信地址由后端配置，=camulus-mail-account= 选择 SMTP profile。=camulus-mail-smtp-profiles= 的每一项为 =(名称 主机 端口 用户名 密码文件 CA文件)=；CA 文件为空时使用系统信任库。未配置 SMTP 时仍可阅读、编辑草稿和归档，发送会失败。
 
 账户映射通过 =camulus-mail-accounts= 配置 Maildir 前缀、发件地址和 SMTP profile。=camulus-mail-smtp-profiles= 指定 SMTP 主机、端口、用户名、密码文件及 CA 文件；凭据只在发送时读取。账户配置示例见 [[file:ENTRIES.org]]。
+
+=M-x camulus-mailto= 接受一个 =mailto:= URI。也可从 Lisp 调用，例如 =(camulus-mailto "mailto:alice@example.org?subject=Hello")=。命令用默认发件地址和 SMTP profile 创建草稿，预填收件人、抄送、主题和纯文本正文。草稿会先保存到 Maildir，再打开供编辑，发送仍通过 =C-c C-c= 确认。
 
 设置 =(setopt camulus-mail-sync-command '("mbsync" "-a"))= 后，进入首页或邮件组时自动同步，=M-x camulus-mail-sync= 可手动同步。每次成功后运行 =mu index=，更新首页邮件来源和打开的邮件列表。同步尚未完成时跳过重复触发；失败时保留缓存，下一次进入或手动刷新可重试。默认 =camulus-mail-sync-interval= 为 =0=，不定时轮询；显式设置正数才启用周期同步。未配置同步命令时使用纯本地 Maildir。
 
@@ -54,9 +56,18 @@ SMTP 在 Eio 工作 domain 内直接使用 TCP、tls-eio 和 Colombe 的调度�
 当前编辑与发送只支持纯文本。包含附件、HTML 或 MML 标记的草稿会拒绝发送，避免静默丢失内容；Bcc、加密和签名也尚未支持。
 
 * 邮件归档
-在统一首页或邮件组的 summary 列表按 =d=，邮件后端会将当前组中属于该讨论的邮件移入同一账户的 =Trash=，成功后更新本地索引和列表缓存。失败时不写入 feed 移除标记；部分成功会报告数量并刷新实际剩余内容。已在 Trash 的邮件不会再次删除或永久清除。收藏文件夹中的 =d= 仍只取消收藏归属。
+在收件箱视图或邮件组的 summary 列表按 =d= 标记移除，再按 =x=。邮件后端会将当前组中属于该讨论的邮件移入同一账户的 =Trash=，成功后更新本地索引和列表缓存。部分成功会报告数量并刷新实际剩余内容。已在 Trash 的邮件不会再次删除或永久清除。收藏文件夹中的移除标记只取消收藏归属。
 
-=d= 提交后台任务，不阻塞 Emacs 主线程。移动与同步、草稿等写操作共用后端互斥锁；正在执行 =mbsync= 和索引时，移动需要等它们结束。按键后立即从普通列表隐藏当前条目，光标移动到下一条；后台排队并显示等待及逐封移动进度，同一组的同一讨论在完成前不会重复提交。临时隐藏属于界面状态，不写入 feed 移除标记，不影响已读或收藏；等待期间的刷新也会过滤该条目。成功后等待源缓存更新，再清除临时隐藏并重新加载列表，丢弃旧的列表响应。异常、取消、部分移动失败或没有确认结果时恢复条目并提示，保持当前光标位置；停止 worker 也会撤销临时隐藏。同步命令超时为 240 秒，随后索引超时为 120 秒，离线时可能因此等待较久。
+=d= 打标记并把光标移到下一条。=x= 立即从普通列表隐藏已标记的邮件并提交后台任务。移动与同步、草稿等写操作共用后端互斥锁；正在执行 =mbsync= 和索引时，移动需要等它们结束。等待期间的刷新会过滤已提交移除的邮件。后台报告等待和逐封移动进度，同一组的同一讨论在完成前不会重复提交。成功后等待缓存更新，再重新加载列表。异常、取消、部分移动失败或没有确认结果时恢复条目并提示。同步命令超时为 240 秒，随后索引超时为 120 秒。
+
+=camulus-mail-refile-folder= 支持固定路径，也可以用函数按账户或条目属性选择。路径按 Maildir 根目录表示，例如 =/work/Archive=。按 =r= 解析目的地，再按 =x= 移动。公共 =camulus-refile-rule= 优先，可为特定邮件选择收藏或导出。=m= 同时列出当前账户的 Maildir 和 Camulus 收藏夹，分别以 =Mu:= 和 =Favorites:= 为前缀。
+
+#+begin_src emacs-lisp
+(setopt camulus-mail-refile-folder
+        (lambda (item)
+          (when (equal (plist-get item :group) "/work/INBOX")
+            "/work/Archive")))
+#+end_src
 
 移入 Trash 保留完整 MIME、附件及已有标志，不额外添加会使 mbsync expunge 的 =T= 标志。其他账户和 Sent 中的副本保留；本地移动由下一次邮件同步推送到 IMAP。
 
