@@ -217,7 +217,7 @@ SPSC 意为单生产者、单消费者。它适用于当前固定的两个执行
 | `activities` | 同一内容的不同进展及发现序号 |
 | `dismissals` | 列表已经移除到哪个进展 |
 | `folders` 与 `favorites` | 嵌套文件夹及收藏关系 |
-| `archives` 与 `archive_files` | 正文缓存与归档资源。RSS / Atom 正文存于 SQLite。The Atlantic 正文位于独立 HTML 文件 |
+| `archives` 与 `archive_files` | 正文缓存与归档资源。RSS / Atom 和 The Atlantic 的正文存于 SQLite，The Atlantic 的题图嵌入 HTML |
 | `rss_deletions` | 收件箱中永久删除的 RSS 来源和条目 ID |
 | `cached_threads` | 已缓存线程的最近加载完整性 |
 

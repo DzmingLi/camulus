@@ -42,13 +42,10 @@ let with_database f =
       Sys.rmdir directory
     end;
     Sys.remove path) (fun () -> f path directory)
-let file directory =
-  match Sys.readdir directory with
-  | [|name|] when Filename.check_suffix name ".html" -> Filename.concat directory name
-  | _ -> failwith "Expected exactly one HTML file"
-let assert_article path expected_text expected_image =
-  let bytes=In_channel.with_open_bin path In_channel.input_all in
-  check (String.starts_with ~prefix:"<!doctype html>" bytes) "Not a standalone HTML document";
+let cached_html db =
+  let article=Option.get (S.local_article db ~source ~id) in
+  article |> Json.member "message" |> Json.member "html" |> Json.to_string
+let assert_article bytes expected_text expected_image =
   let tree=Html.parse bytes in
   check (Html.find (fun n -> Html.tag n="p" && Html.text n=expected_text) tree <> None)
     "Article did not contain the requested revision";
@@ -70,25 +67,25 @@ let refresh_and_reopen () = with_database (fun path directory ->
       S.cache_page_articles db ~source (List.map R.article_json articles);
       S.observe db ~source ~group:(Some group) (List.map (fun a -> a.R.Decode.message) articles)) in
   refresh ();
-  let html=file directory in
-  assert_article html "First revision" first_image;
+  let html ()=S.with_db path cached_html in
+  let initial=html () in
+  assert_article initial "First revision" first_image;
   S.with_db path (fun db ->
     S.mark_read db ~source [id] true;
     let article=Option.get (S.local_article db ~source ~id) |> R.article_of_json in
     let archive=B.archive_local article in
     check (archive.files=[0,first_image]) "Archiving could not reuse the cover";
     S.save_archive db ~source ~target:S.Article ~id ~folder:"saved" [archive]);
-  let inode=(Unix.stat html).st_ino in
   refresh ();
-  check (!image_requests=1 && (Unix.stat html).st_ino=inode) "Unchanged revision fetched or rewrote the cover";
+  check (!image_requests=1 && html ()=initial) "Unchanged revision fetched or changed the cover";
   feed_text := feed ~date:"2026-10-11T10:00:00Z" ~text:"Second revision";
   image_response := 503,"";
   refresh ();
-  assert_article html "Second revision" first_image;
+  assert_article (html ()) "Second revision" first_image;
   image_response := 200,second_image;
   refresh ();
-  check (file directory=html) "A revision created another article file";
-  assert_article html "Second revision" second_image;
+  check (not (Sys.file_exists directory)) "A revision created an article file";
+  assert_article (html ()) "Second revision" second_image;
   check (!image_requests=3) "Failed cover was not retried";
 
   S.with_db path (fun db ->
@@ -101,7 +98,7 @@ let refresh_and_reopen () = with_database (fun path directory ->
     check (S.load_archive db ~source ~target:S.Article ~id |> Json.to_list=articles)
       "Favorite did not render the updated local HTML"))
 
-let migrate_legacy_article () = with_database (fun path directory ->
+let migrate_legacy_article ~from_file = with_database (fun path directory ->
   let legacy=feed ~date:"2026-10-10T10:00:00Z" ~text:"Legacy article" in
   let article=Atlantic_backend.decode ~url:(Atlantic_backend.feed_url group) legacy |> List.hd in
   S.with_db path (fun db ->
@@ -115,16 +112,34 @@ let migrate_legacy_article () = with_database (fun path directory ->
         check (Sqlite3.bind_values stmt values=Sqlite3.Rc.OK && Sqlite3.step stmt=Sqlite3.Rc.DONE)
           "Could not create a v6 fixture") in
     let text s=Sqlite3.Data.TEXT s in
-    run "PRAGMA user_version=6" [];
+    let stored_article=
+      if from_file then begin
+        let tree=Html.parse (Option.get article.message.html) in
+        let img=Option.get (Html.find (fun node -> Html.tag node="img") tree) in
+        Html.set_attr "src" (cover_data second_image) img;
+        Sys.mkdir directory 0o700;
+        let identity=Yojson.Safe.to_string (`List [`String source;`String id]) in
+        let name=Digest.to_hex (Digest.string identity) ^ ".html" in
+        Out_channel.with_open_bin (Filename.concat directory name)
+          (fun channel -> Out_channel.output_string channel (Html.render tree));
+        {article with message={article.message with html=None}}
+      end else article in
+    run (if from_file then "PRAGMA user_version=8" else "PRAGMA user_version=6") [];
     run "INSERT INTO archives(source,id,payload,resources_complete) VALUES(?,?,?,1)"
-      [text source;text id;text(Yojson.Safe.to_string (R.article_json article))];
-    run "INSERT INTO archive_files VALUES(?,?,0,?)" [text source;text id;Sqlite3.Data.BLOB second_image];
+      [text source;text id;text(Yojson.Safe.to_string (R.article_json stored_article))];
+    let archived_image=if from_file then first_image else second_image in
+    run "INSERT INTO archive_files VALUES(?,?,0,?)" [text source;text id;Sqlite3.Data.BLOB archived_image];
     run "INSERT INTO folders VALUES('saved','')" [];
     run "INSERT INTO favorites VALUES('saved',?,'article',?)" [text source;text id]);
-  S.with_db path check_states;
-  assert_article (file directory) "Legacy article" second_image)
+  S.with_db path (fun db ->
+    check_states db;
+    assert_article (cached_html db) "Legacy article" second_image;
+    check (S.attachment_archive db ~source ~id ~part:0=Some second_image)
+      "Migrated archive did not serve the current cover");
+  check (not (Sys.file_exists directory)) "Migration left an article file")
 
 let () = Eio_posix.run (fun _ ->
   refresh_and_reopen ();
-  migrate_legacy_article ();
+  migrate_legacy_article ~from_file:false;
+  migrate_legacy_article ~from_file:true;
   print_endline "The Atlantic inbox tests passed")

@@ -99,7 +99,7 @@ emacsWithPackages (epkgs: [
 
 密钥使用 auth-source 或独立凭据文件。完整说明见 [入口与订阅](docs/ENTRIES.md)、[邮件](docs/MAIL.md)、[Reddit](docs/REDDIT.md)、[Discourse](docs/DISCOURSE.md)、[RSS](docs/RSS.md) 和 [知乎](docs/ZHIHU.md)。
 
-本地内容状态默认为 `~/.local/state/camulus/state.sqlite3`，遵循 `XDG_STATE_HOME`。已读、移除、收藏归属和归档相互独立。所有实际加载的完整正文都会持久缓存，不必先收藏。再次打开单篇文章直接读取本地副本；线程先显示本地消息，再刷新远端，刷新失败仍保留缓存。收藏另外下载并持久保存所需资源；从最后一个文件夹移除或删除文件夹只取消收藏关系，正文与已有资源仍保留，不自动清理。列表刷新中的标题或摘要不会覆盖完整正文。RSS / Atom 和 The Atlantic 会在刷新时保存源提供的正文，同 ID 的修订原位更新，保留已读和收藏。RSS / Atom 正文存于 SQLite。The Atlantic 使用与数据库相邻的 `state.sqlite3.html/` 目录，题图嵌入 HTML，可离线显示。首页收件箱对 RSS 按 `d` 会删除本地副本并记住条目 ID。
+本地内容状态默认为 `~/.local/state/camulus/state.sqlite3`，遵循 `XDG_STATE_HOME`。已读、移除、收藏归属和归档相互独立。所有实际加载的完整正文都会持久缓存，不必先收藏。再次打开单篇文章直接读取本地副本；线程先显示本地消息，再刷新远端，刷新失败仍保留缓存。收藏另外下载并持久保存所需资源；从最后一个文件夹移除或删除文件夹只取消收藏关系，正文与已有资源仍保留，不自动清理。列表刷新中的标题或摘要不会覆盖完整正文。RSS / Atom 和 The Atlantic 会在刷新时保存源提供的正文，同 ID 的修订原位更新，保留已读和收藏。RSS / Atom 和 The Atlantic 的正文存于 SQLite。The Atlantic 题图嵌入 HTML，可离线显示。首页收件箱对 RSS 按 `d` 会删除本地副本并记住条目 ID。
 
 ## 开发
 
