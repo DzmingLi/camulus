@@ -25,11 +25,6 @@ let trash ~entry ~row ~complete =
 let current ()=Buffer.to_value(Current_buffer.get())
 let group ()=let v=get "camulus-mail--group"in if truth v then v else field "group"(get "camulus-reader--entry")
 let selected ()=field "id"(call "camulus-reader--selected"[])
-let summary_window ()=
- if truth(call "derived-mode-p"[sym "camulus-reader-article-mode"])then
-  Option.value(List.find(values(call "window-list"[]))~f:(fun w->
-   Value.eq(call "buffer-local-value"[sym "major-mode";call "window-buffer"[w]])(sym "camulus-reader-feed-mode")))~default:(call "selected-window"[])
- else call "selected-window"[]
 let draft_source ()=
  let source=text(call "buffer-substring-no-properties"[call "point-min"[];call "point-max"[]])in
  let separator="\n"^text(get "mail-header-separator")^"\n"in
@@ -76,12 +71,32 @@ let open_composer data window=
   Writing.attach(writing_backend(Buffer.to_value buffer));
   run "set-buffer-modified-p"[nil];run "message-goto-body"[]);
  if truth(call "window-live-p"[window])then(run "set-window-buffer"[window;Buffer.to_value buffer];run "select-window"[window])else run "pop-to-buffer"[Buffer.to_value buffer]
-let compose reply=
- let window=summary_window()and group=group()in
+let compose_in group reply=
+ let window=Writing.summary_window () in
  let id=if reply then selected()else nil in
  if not(truth group)then user_error "Open a mail group first";
  if reply && not(truth id)then user_error "Select a message to reply to";
- action(alist["op",s "draft-new";"group",group;"reply_to",id])(fun data->open_composer(field "draft"data)window)None
+ action(alist["op",s "draft-new";"group",group;"reply_to",id])(fun data->
+   open_composer(field "draft"data)window;
+   if not reply then run "message-goto-to" [])None
+let compose reply=compose_in (group ()) reply
+
+let composer ~configured = {
+ email=true;
+ in_group=(fun entry ->
+   let group=field "group" entry in
+   if configured(text(field "source" entry)) && truth group then
+     Some(fun () -> compose_in group false)
+   else None);
+ destinations=(fun () ->
+   let source="maildir:"^text(get "camulus-mail-root") in
+   if not(configured source) then [] else
+   match values(get "camulus-mail-accounts") with
+   | [] -> [{label="Mail · "^text(get "camulus-mail-sender");open_=(fun () -> compose_in (s "/") false)}]
+   | accounts -> List.map accounts ~f:(fun account ->
+     let prefix=call "nth" [i 0;account] and address=call "nth" [i 1;account] in
+     {label="Mail · "^text address^" ("^text prefix^")";open_=(fun () -> compose_in prefix false)}))
+}
 let drafts_refresh ()=
  let buffer=current()in
  action(alist["op",s "draft-list";"group",get "camulus-mail--group"])(fun data->if live buffer then in_buffer buffer(fun()->
@@ -99,11 +114,13 @@ let install ()=
     match finish with Some f->f state reason|None->if not(Value.eq state(sym "completed"))then message "Mail: %s"[reason]));nil);
  hook "camulus-probe-event-hook""camulus-mail--action-event";
  define0 "camulus-mail--no-direct-send"(fun()->user_error "Use C-c C-c to send through the OCaml mail backend");
- optional ~interactive:true "camulus-mail-compose"(fun reply->compose(truth reply);nil);
+ optional ~interactive:true "camulus-mail-compose"(fun reply->
+   if truth reply || truth(group ()) then compose(truth reply) else run "camulus-mail-new" [];
+   nil);
  define0 ~interactive:true "camulus-mail-reply"(fun()->compose true);
  Defun.defun(Symbol.intern "camulus-mail--open-composer")[%here]~docstring:"Open a native mail draft."(Returns Value.Type.unit)
   (let open Defun.Let_syntax in let%map_open data=required "data"value and window=required "window"value in open_composer data window);
- mode "camulus-mail-drafts-mode""tabulated-list-mode""Mail drafts""RET: resume  g: refresh  c: compose";
+ mode "camulus-mail-drafts-mode""tabulated-list-mode""Mail drafts""RET: resume  g: refresh  m: new mail";
  define0 ~interactive:true "camulus-mail-drafts"(fun()->let group=group()in
   if not(truth group)then user_error "Open a mail group first";
   run "switch-to-buffer"[call "get-buffer-create"[s("*Mail drafts "^text group^"*")]];run "camulus-mail-drafts-mode"[];
@@ -120,4 +137,4 @@ let install ()=
    message "Archived %d messages to %s; %d failed"[call "length"[field "moved"data];field "destination"data;field "failed"data];
    if live buffer then in_buffer buffer(fun()->if whole then run "camulus-reader-refresh"[]))None);
  let map=get "camulus-mail-drafts-mode-map"in
- List.iter["RET","camulus-mail-resume-draft";"g","camulus-mail-drafts-refresh";"c","camulus-mail-compose"]~f:(fun(k,c)->bind map k c)
+ List.iter["RET","camulus-mail-resume-draft";"g","camulus-mail-drafts-refresh";"m","camulus-mail-compose";"a","camulus-mail-compose"]~f:(fun(k,c)->bind map k c)

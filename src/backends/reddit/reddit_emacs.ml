@@ -130,7 +130,39 @@ let install_protocol ~ensure_ui ~idle ~submit =
      submit_operation ~submit (Reddit_backend.operation_of_json (Reader_backend.to_json request)));
   ()
 
-let install ~submit:_ ~configured () =
+let subreddit_name name =
+  let name=String.strip name in
+  let name=if String.is_prefix name ~prefix:"r/" then String.drop_prefix name 2 else name in
+  if String.is_empty name || not(String.for_all name ~f:(fun c -> Char.is_alphanum c || Char.equal c '_')) then None
+  else Some name
+
+let composer ~submit ~configured =
+  let post source name () =
+    Writing.post_draft ~destination:("Reddit · r/"^name)
+      ~identity:(source^"/"^String.lowercase name)
+      ~submit:(fun ~subject ~body ~complete ->
+        Writing.request (submit(Reddit_backend.Submit(name,subject,body))) ~expect:"submit" ~complete) in
+  let in_group entry =
+    let source=text(field "source" entry) and group=text(field "group" entry) in
+    if not(configured source) || String.equal group "notifications" then None
+    else Option.map (subreddit_name group) ~f:(post source) in
+  let destinations () =
+    let source="reddit:"^text(get "camulus-reddit-username") in
+    if not(configured source) then [] else
+    let names=List.filter_map (values(get "camulus-groups")) ~f:(fun entry ->
+      if String.equal (text(field "source" entry)) source then Some(text(field "group" entry)) else None)
+      @ List.map (values(get "camulus-reddit-subscriptions")) ~f:text in
+    let names=List.filter_map names ~f:(fun name ->
+      if String.equal name "notifications" then None else subreddit_name name)
+      |> List.dedup_and_sort ~compare:(fun a b -> String.compare (String.lowercase a) (String.lowercase b)) in
+    List.map names ~f:(fun name -> {label="Reddit · r/"^name;open_=post source name})
+    @ [{label="Reddit · Other subreddit…";open_=(fun () ->
+      match subreddit_name(text(call "read-string" [s "Subreddit: "])) with
+      | Some name -> post source name ()
+      | None -> user_error "Enter a subreddit name")}] in
+  {email=false;in_group;destinations}
+
+let install ~submit ~configured () =
   Interaction_emacs.install ();
   custom ~kind:Customization.Type.(Option {doc_for_none="Unconfigured";t=String}) "camulus-reddit-username" Value.nil "Backend configuration option.";
   custom ~kind:Customization.Type.File "camulus-reddit-token-file" (call "expand-file-name" [s "~/News/nnreddit/refresh-token"]) "Backend configuration option.";
@@ -140,6 +172,7 @@ let install ~submit:_ ~configured () =
     ~read:(fun ~source:_ ~id ~thread_id ~group:_ ->
       Reddit(Reddit_backend.Thread (Option.value thread_id ~default:id)))) with
     start=(fun()->if truth(get "camulus-reddit-username")then run "camulus-reddit-configure"[get "camulus-reddit-username";get "camulus-reddit-token-file";get "camulus-reddit-client-id";get "camulus-reddit-redirect-uri"]);
+    composer=Some(composer ~submit ~configured);
     controls=Interaction_emacs.controls;list_controls=Interaction_emacs.controls;
     article_marks=(fun m->"  ["^Interaction_emacs.vote_label m^"]");
     row_title=(fun row->s("["^Interaction_emacs.vote_label row^"] "^text(field "title"row)));
@@ -150,8 +183,6 @@ let install ~submit:_ ~configured () =
      run "camulus-reader-start" [];
      let username=Current_buffer.symbol_value (Symbol.intern "camulus-reddit-username") in
      if Value.eq username Value.nil then run "user-error" [s "Configure a Reddit account first"];
-     let subreddit=String.strip subreddit in
-     let subreddit=if String.is_prefix subreddit ~prefix:"r/" then String.drop_prefix subreddit 2 else subreddit in
-     if String.is_empty subreddit || not (String.for_all subreddit ~f:(fun c -> Char.is_alphanum c || Char.equal c '_')) then
-       run "user-error" [s "Enter a subreddit name"];
-     run "camulus-reader-browse-entry" [alist ["name",s ("r/"^subreddit);"source",s ("reddit:"^Value.to_utf8_bytes_exn username);"group",s subreddit]])
+     match subreddit_name subreddit with
+     | None -> user_error "Enter a subreddit name"
+     | Some name -> run "camulus-reader-browse-entry" [alist ["name",s ("r/"^name);"source",s ("reddit:"^Value.to_utf8_bytes_exn username);"group",s name]])

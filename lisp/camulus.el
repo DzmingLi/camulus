@@ -2,6 +2,7 @@
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "31.1"))
 ;;;###autoload (autoload 'camulus "camulus" "Open the Camulus unified timeline." t)
+;;;###autoload (autoload 'camulus-mail-new "camulus" "Compose a new mail from a configured account." t)
 ;;;###autoload (autoload 'camulus-subscriptions "camulus" "List current Camulus subscription sources." t)
 ;;;###autoload (autoload 'camulus-manage-subscriptions "camulus" "Manage a backend's remote topic tracking." t)
 ;;;###autoload (autoload 'camulus-mail-sync "camulus" "Synchronize and index Camulus mail now." t)

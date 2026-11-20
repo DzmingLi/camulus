@@ -333,7 +333,7 @@ let render () =
   Reader_media.finish_render ();
   let controls=Option.value_map (capability(get "camulus-reader--source")) ~default:[] ~f:(fun backend->
     List.concat_map backend.controls ~f:(fun control->[s "  ";header_link ("["^control.hint^"]") control.command])) in
-  set "header-line-format" (list ([header_link "[收藏夹 · f]" "camulus-reader-folders";s "  m: choose folder  n: next unread"] @ controls @
+  set "header-line-format" (list ([header_link "[收藏夹 · f]" "camulus-reader-folders";s "  m: mail  a: compose  +: save to folder  n: next unread"] @ controls @
     [s (Printf.sprintf " — %d articles — %s" (List.length messages) (if flag "camulus-reader--complete" then "loaded" else "loading / partial"))]));
   (match !first_unread with
    | Some p when not (flag "camulus-reader--positioned") -> goto p;set "camulus-reader--positioned" (b true);
@@ -452,7 +452,7 @@ let home_header () =
   set "header-line-format" (list ([s "Home  ";header_link "[收藏夹 · f]" "camulus-reader-folders";s "  ";header_link "[Groups · B]" "camulus-reader-browse-groups"] @ links @
     [s "  ";header_link "[Subscriptions · U]" "camulus-subscriptions";
      s "  ";header_link "[Priorities · P]" "camulus-home-select-priorities";
-    s (Printf.sprintf "   %d feeds · %d/%d refreshed%s   RET: read  d: delete  m: choose folder  g: refresh  e: errors"
+    s (Printf.sprintf "   %d feeds · %d/%d refreshed%s   RET: read  m: mail  a: compose  +: save to folder  d: delete  g: refresh  e: errors"
       (List.length (values (get "camulus-reader-home--entries"))) (number (get "camulus-reader-home--done"))
       (number (get "camulus-reader-home--total")) (if errors=0 then "" else Printf.sprintf " · %d failed" errors))]));
   run "force-mode-line-update" []
@@ -787,6 +787,28 @@ let delete_folder () =
   if not (flag "camulus-reader--folder") then user_error "Open a favorites folder first";
   request_ignore (CS.Remove_folder(str (get "camulus-reader--folder")))
     ~receive:(callback_unit (fun data -> if String.equal (text "kind" data) "changed" then reader nil))
+let compose ~email =
+  run "camulus-reader-start" [];
+  let entry=if email || flag "camulus-reader--home" || flag "camulus-reader--archive" then nil
+    else if derived "camulus-reader-groups-mode" then property (point ()) "camulus-reader-entry"
+    else get "camulus-reader--entry" in
+  let current=Option.bind (capability (field "source" entry)) ~f:(fun backend ->
+    Option.bind backend.composer ~f:(fun composer -> composer.in_group entry)) in
+  match current with
+  | Some open_ -> open_ ()
+  | None ->
+    let destinations=List.concat_map (Reader_backend.all ()) ~f:(fun backend ->
+      match backend.composer with
+      | Some composer when not email || composer.email -> composer.destinations ()
+      | _ -> []) in
+    match destinations with
+    | [] -> user_error (if email then "Configure a mail account first" else "Configure a source that supports posting")
+    | [destination] -> destination.open_ ()
+    | _ ->
+      let choices=List.map destinations ~f:(fun destination -> destination.Reader_backend.label,destination.open_) in
+      let choice=str(call "completing-read" [s (if email then "Send mail from: " else "Compose in: ");
+        list(List.map choices ~f:(fun (label,_) -> s label));nil;b true]) in
+      Option.iter (List.Assoc.find choices choice ~equal:String.equal) ~f:(fun open_ -> open_ ())
 let choose_subscription ?(label="Following policy") submit =
   let id=submit None in
   put (get "camulus-reader--requests") id (callback_unit (fun data ->
@@ -988,16 +1010,16 @@ let install_modes () =
   List.iter ["done";"total"] ~f:(fun name -> local_default ("camulus-reader-home--"^name) (i 0));
   mode "camulus-reader-feed-mode" "tabulated-list-mode" "Feed"
     (Some ["New",3,false;"Source",24,true;"Author",20,true;"Thread",70,true])
-    "RET: read  d: delete  m: choose folder  g: refresh  n: more  C-c C-k: stop  s: subscriptions  G: entries  C: config  f: folders"
+    "RET: read  m: mail  a: compose  +: save to folder  d: delete  g: refresh  n: more"
     (fun () -> List.iter ["kill-buffer-hook";"change-major-mode-hook"] ~f:(fun hook ->
       run "add-hook" [sym hook;sym "camulus-reader-cancel";nil;b true]));
   mode "camulus-reader-folder-mode" "tabulated-list-mode" "Favorites"
     (Some ["Kind",8,false;"Source",24,true;"Title",80,true])
-    "RET: read saved copy  m: add folder  d: remove entry  D: remove folder  f: folders  g: reload  h: home" ignore;
+    "RET: read saved copy  +: add folder  d: remove entry  D: remove folder  f: folders  g: reload  h: home" ignore;
   mode "camulus-reader-folders-mode" "special-mode" "Favorite folders" None
     "RET / click: open folder  TAB: next folder  g: refresh  h: home" ignore;
   mode "camulus-reader-groups-mode" "special-mode" "Reader groups" None
-    "Groups · RET / click: browse  TAB: next entry  T: remote tracking  h: home  g: reload  U: subscriptions  B: all groups  C: edit groups" ignore;
+    "Groups · RET / click: browse  m: mail  a: compose  TAB: next entry  T: tracking  h: home  g: reload" ignore;
   mode "camulus-subscriptions-mode" "camulus-reader-groups-mode" "Subscriptions" None
     "Subscriptions · RET / click: browse  p: priority  s: configure subscriptions  T: remote tracking  g: refresh  B: all groups  h: home" ignore;
   mode "camulus-reader-article-mode" "special-mode" "Reader thread" None "Loading…" (fun () ->
@@ -1010,12 +1032,14 @@ let install_modes () =
       if truth (call "timerp" [get "camulus-reader--visibility-timer"]) then run "cancel-timer" [get "camulus-reader--visibility-timer"];
       if flag "camulus-reader--active" && not (String.equal (str (call "camulus-probe-status" [])) "idle") then run "camulus-probe-cancel" [get "camulus-reader--active"]);nil;b true]);
   List.iter ["camulus-reader-feed-mode";"camulus-reader-folder-mode"] ~f:(fun mode ->
-    bind mode ["RET","camulus-reader-open";"d","camulus-reader-delete";"m","camulus-reader-save";"g","camulus-reader-refresh";"f","camulus-reader-folders";"h","camulus"]);
+    bind mode ["RET","camulus-reader-open";"d","camulus-reader-delete";"+","camulus-reader-save";"g","camulus-reader-refresh";"f","camulus-reader-folders";"h","camulus"]);
+  List.iter ["camulus-reader-feed-mode";"camulus-reader-article-mode";"camulus-reader-groups-mode"] ~f:(fun mode ->
+    bind mode ["m","camulus-mail-new";"a","camulus-reader-compose"]);
   bind "camulus-reader-feed-mode" ["s","camulus-reader-subscription";"S","camulus-reader-group-subscription";"G","camulus-groups";"C","camulus-reader-edit-config";"n","camulus-reader-more";"C-c C-k","camulus-reader-cancel";
     "U","camulus-subscriptions";"P","camulus-home-select-priorities";"B","camulus-reader-browse-groups";"b","camulus-reader-home-browse-source";"e","camulus-reader-home-errors"];
   bind "camulus-reader-folder-mode" ["D","camulus-reader-delete-folder"];
   bind "camulus-reader-folders-mode" ["RET","push-button";"TAB","forward-button";"<backtab>","backward-button";"f","camulus-reader-folders";"g","camulus-reader-folders-refresh";"h","camulus"];
-  bind "camulus-reader-article-mode" ["f","camulus-reader-folders";"s","camulus-reader-subscription";"m","camulus-reader-save";"n","camulus-reader-next-unread";"h","camulus"];
+  bind "camulus-reader-article-mode" ["f","camulus-reader-folders";"s","camulus-reader-subscription";"+","camulus-reader-save";"n","camulus-reader-next-unread";"h","camulus"];
   bind "camulus-subscriptions-mode" ["p","camulus-subscription-set-priority";"g","camulus-subscriptions-refresh";"B","camulus-reader-browse-groups";"U","camulus-subscriptions"];
   List.iter ["camulus-reader-feed-mode";"camulus-reader-article-mode";"camulus-reader-groups-mode"] ~f:(fun mode ->
     bind mode ["T","camulus-manage-subscriptions"]);
@@ -1053,6 +1077,8 @@ let install () =
   Defun.defun_nullary (Symbol.intern "camulus-reader--selected") [%here] ~docstring:"Selected content." (Returns Value.Type.value) selected;
   define0 "camulus-reader--render" render;
   define0 ~interactive:true "camulus-reader-open" open_article;
+  define0 ~interactive:true "camulus-mail-new" (fun () -> compose ~email:true);
+  define0 ~interactive:true "camulus-reader-compose" (fun () -> compose ~email:false);
   define0 ~interactive:true "camulus-reader-next-unread" next_unread;
   define1 "camulus-reader-home--key" entry_key;
   define1 "camulus-reader-home-row-entry" home_entry;

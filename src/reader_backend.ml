@@ -6,6 +6,11 @@ open! Ecaml
 
 type control = { key : string; hint : string; command : string }
 type entrance = { label : string; open_ : unit -> unit }
+type composer = {
+  email : bool;
+  in_group : Value.t -> (unit -> unit) option;
+  destinations : unit -> entrance list;
+}
 type topic_tracking = {
   filters : (string * string) list;
   (* Request results use subscription-page {rows: [{id; title; setting}]; after}
@@ -29,6 +34,7 @@ type t = {
   attachment : (source:string -> id:string -> group:string option -> part:int -> destination:string -> Value.t) option;
   controls : control list;
   list_controls : control list;
+  composer : composer option;
   (* Completion acknowledges the backend operation, not merely queueing it.
      The reader owns optimistic hiding and rollback of list rows. *)
   delete : (entry:Value.t -> row:Value.t -> complete:((unit, string) Result.t -> unit) -> unit) option;
@@ -56,7 +62,7 @@ let s = Value.of_utf8_bytes
 let alist fields = Value.list (List.map fields ~f:(fun (k,v) -> call "cons" [Value.intern k;v]))
 let base ~name ~matches ~threaded ~read = {
   name;start=(fun()->());on_refresh=(fun()->());inline_attachments=true;normalize=Fn.id;matches;threaded;read;thread_contains_bodies=false;
-  available=(fun _ -> true);attachment=None;controls=[];list_controls=[];article_marks=(fun _->"");row_title=(fun row->Value.funcallN(Value.intern "alist-get")[Value.intern "title";row]);browser=None;entrances=(fun () -> []);followed=None;
+  available=(fun _ -> true);attachment=None;controls=[];list_controls=[];composer=None;article_marks=(fun _->"");row_title=(fun row->Value.funcallN(Value.intern "alist-get")[Value.intern "title";row]);browser=None;entrances=(fun () -> []);followed=None;
   subscription_target=None;topic_tracking=None;subscription_option=None;can_subscribe_group=(fun ~source:_ ~group:_ -> false);delete=None;events=[];
   reconcile=(fun ~source:_ ~existing:_ ~request:_ ~archived:_ message -> message)
 }

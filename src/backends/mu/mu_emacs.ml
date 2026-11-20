@@ -169,6 +169,7 @@ let install ~submit ~configured ~request_state () =
       try sync ~submit ~manual:false () with ex -> message "Mail sync: %s" [s(Exn.to_string ex)]);
     attachment=Some (fun ~source:_ ~id ~group:_ ~part ~destination -> Value.of_int_exn (submit (Mu_backend.Attachment(id,part,destination))));
     events=["mail"];available=configured;
+    composer=Some(Compose_emacs.composer ~configured);
     delete=Some Compose_emacs.trash;
-    controls=[{key="A";hint="A: attachments";command="camulus-mail-attachments"};{key="r";hint="r: reply";command="camulus-mail-reply"};{key="c";hint="c: compose";command="camulus-mail-compose"};{key="a";hint="a: archive";command="camulus-mail-archive"}];
-    list_controls=[{key="r";hint="r: reply";command="camulus-mail-reply"};{key="c";hint="c: compose";command="camulus-mail-compose"};{key="a";hint="a: archive";command="camulus-mail-archive"};{key="D";hint="D: drafts";command="camulus-mail-drafts"}] }
+    controls=[{key="A";hint="A: attachments";command="camulus-mail-attachments"};{key="r";hint="r: reply";command="camulus-mail-reply"};{key="C-c C-a";hint="C-c C-a: archive";command="camulus-mail-archive"}];
+    list_controls=[{key="r";hint="r: reply";command="camulus-mail-reply"};{key="C-c C-a";hint="C-c C-a: archive";command="camulus-mail-archive"};{key="D";hint="D: drafts";command="camulus-mail-drafts"}] }

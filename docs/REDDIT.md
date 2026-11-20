@@ -67,7 +67,7 @@ Reader.Runtime                 与具体后端无关的调度和生命周期
 
 `Reddit_backend.Make` 的 session 类型 `t` 通过 `.mli` 隐藏；access token、刷新状态和 OAuth challenge 属于后端。网络请求通过 `Http.S` 传入。核心 runtime 只接收扩展处理器；之后增加 Discourse 等后端，不需要给核心调度器添加一个新的硬编码分支。
 
-真实会话直接使用 `Reddit_backend.Live`。回复与发帖调用其 `reply`、`submit`，不再经过另一套 `Writing` 模块和仅供包装使用的草稿、回执变体。
+在 subreddit 按 `a` 撰写文字帖。`C-c C-c` 发布，`C-c C-d` 保存并关闭，再次选择同一 subreddit 可继续草稿。Emacs 编辑器通过公共 `Writing` 模块自动保存，实际发帖由 `Reddit_backend.Live.submit` 完成。
 
 线程/消息关系使用普通不可变 OCaml 记录。`Content.message.thread_id` 是 option，未把 Reddit 的原生稳定 thread ID 假设强加给邮件后端。JSON 只用于 Emacs 边界，跨 domain 通信仍然是类型化 OCaml 值。
 

@@ -179,9 +179,99 @@ let attach backend =
   let map=if truth original then call "copy-keymap" [original] else call "make-sparse-keymap" [] in
   run "use-local-map" [map];
   List.iter ["C-x C-s","camulus-writing-save";"C-c C-s","camulus-writing-save";
-    "C-c C-c","camulus-writing-send";"C-c C-k","camulus-writing-close"]
+    "C-c C-c","camulus-writing-send";"C-c C-d","camulus-writing-close";
+    "C-c C-k","camulus-writing-close"]
     ~f:(fun (key,command)->bind map key command);
-  local "header-line-format" (s "Draft · autosave  C-c C-s: save  C-c C-c: send  C-c C-k: save and close");
+  local "header-line-format" (s "Draft · autosave  C-c C-c: send  C-c C-d: save and close");
   hook ~local:true "after-change-functions" "camulus-writing--changed";
   hook ~local:true "kill-buffer-query-functions" "camulus-writing--before-kill";
   hook ~local:true "kill-buffer-hook" "camulus-writing--detach"
+
+let summary_window () =
+  let selected=call "selected-window" [] in
+  if not(truth(call "derived-mode-p" [sym "camulus-reader-article-mode"])) then selected
+  else
+    List.find (values(call "window-list" [])) ~f:(fun window ->
+      in_buffer (call "window-buffer" [window]) (fun () ->
+        truth(call "derived-mode-p" [sym "camulus-reader-feed-mode"])))
+    |> Option.value ~default:selected
+
+(* Wait for a positive backend receipt as well as task completion. *)
+let request id ~expect ~complete =
+  let receipt=ref None in
+  let callback f = Function.to_value(Defun.lambda [%here] (Returns Value.Type.value)
+    (let open Defun.Let_syntax in let%map_open data=required "data" value in f data;nil)) in
+  run "puthash" [i id;callback(fun data ->
+    if String.equal (text(field "kind" data)) expect then receipt:=Some data);
+    get "camulus-reader--requests"];
+  run "puthash" [i id;callback(fun event ->
+    match !receipt with
+    | Some data -> complete(Ok data)
+    | None ->
+      let reason=text(call "nth" [i 3;event]) in
+      complete(Error(if String.is_empty reason then "No server receipt; check the destination before retrying" else reason)));
+    get "camulus-reader--completions"]
+
+let post_drafts : Value.t String.Table.t = String.Table.create ()
+let post_draft ~destination ~identity ~submit =
+  let window=summary_window () in
+  let directory=data_path "XDG_STATE_HOME" "~/.local/state" "post-drafts/" in
+  run "make-directory" [directory;sym "t"];
+  run "set-file-modes" [directory;i 0o700];
+  let name=Stdlib.Digest.(to_hex(string identity)) ^ ".draft" in
+  let path=call "expand-file-name" [s name;directory] in
+  let pending=s(text path^".sending") in
+  let exists file=truth(call "file-exists-p" [file]) in
+  let buffer=match Hashtbl.find post_drafts identity with
+    | Some buffer when live buffer -> buffer
+    | _ ->
+      let buffer=Buffer.to_value(Buffer.create ~name:("*Camulus post: "^destination^"*")) in
+      Hashtbl.set post_drafts ~key:identity ~data:buffer;
+      in_buffer buffer (fun () ->
+        run "text-mode" [];
+        run "add-hook" [sym "kill-buffer-hook";lambda0(fun () -> Hashtbl.remove post_drafts identity;nil);nil;sym "t"];
+        let snapshot ()=text(call "buffer-substring-no-properties" [call "point-min" [];call "point-max" []]) in
+        if exists path then run "insert-file-contents" [path]
+        else Point.insert "Subject: \n\n";
+        Point.goto_min ();run "end-of-line" [];
+        run "set-buffer-modified-p" [nil];
+        attach {
+          snapshot;
+          save=(fun ~source ~complete ->
+            let temp=call "make-temp-file" [path] in
+            Exn.protect ~finally:(fun () -> if exists temp then run "delete-file" [temp]) ~f:(fun () ->
+              Current_buffer.set_value_temporarily Sync
+                (Var.create (Symbol.intern "coding-system-for-write") Value.Type.value) (sym "utf-8-unix")
+                ~f:(fun () -> run "write-region" [s source;nil;temp;nil;sym "silent"]);
+              run "rename-file" [temp;path;sym "t"]);
+            complete(Ok ()));
+          send=(fun ~complete ->
+            let source=snapshot () in
+            let subject,body=match String.lsplit2 source ~on:'\n' with
+              | Some (header,body) when String.is_prefix header ~prefix:"Subject: " ->
+                String.strip(String.drop_prefix header 9),String.strip body
+              | _ -> invalid_arg "Enter a Subject followed by the post body" in
+            if String.is_empty subject || String.is_empty body then
+              invalid_arg "Enter both a subject and a post body";
+            if exists pending then (
+              if not(truth(call "yes-or-no-p"
+                [s "Previous submission is unconfirmed. Have you checked the destination and want to resend? "])) then
+                failwith "Draft kept";
+              run "delete-file" [pending]);
+            (* A marker survives Emacs exit or a missing receipt. *)
+            run "write-region" [s "";nil;pending;nil;sym "silent";nil;sym "excl"];
+            let finish = function
+              | Error reason -> complete(Error reason)
+              | Ok _ ->
+                let cleaned=try
+                  if exists path then run "delete-file" [path];
+                  run "delete-file" [pending];true
+                with _ -> false in
+                complete(Ok {close=cleaned;message=if cleaned then "Post published" else "Post published. Draft cleanup failed."}) in
+            try submit ~subject ~body ~complete:finish
+            with ex -> run "delete-file" [pending];raise ex)
+        };
+        set "header-line-format" (Value.list [s (destination^"  ");get "header-line-format"]));
+      buffer in
+  run "select-window" [window];
+  run "switch-to-buffer" [buffer]

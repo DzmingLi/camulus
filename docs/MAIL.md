@@ -17,7 +17,8 @@ nix develop -c make reader-demo
 - `n`：下一页。
 - `c` / `r`：新建 / 回复，summary 所在窗口切换为 Message 编辑 buffer，右侧阅读窗口保留。
 - `D`：打开当前账户的草稿组；`RET` 恢复编辑。
-- `a`：summary 中归档当前组内的整条讨论；阅读窗口中归档当前这一封。
+- `m` 写新邮件，可选择发件账户。邮件组里的 `a` 直接使用该组所属的账户。
+- `C-c C-a` 在列表中归档当前组内的整条讨论，在阅读窗口中归档当前这一封。
 - 邮件有附件时，在正文窗口下方显示附件面板；随当前邮件切换。`A` 手动打开，面板中 `RET` / `o` 打开附件，`s` 保存当前附件，`S` 保存全部，`q` 关闭。正文不再显示附件按钮。
 
 启动前可设置 `camulus-mail-root`、`camulus-mail-muhome`、`camulus-mail-sender` 和 `camulus-mail-account`。发信地址由后端配置，`camulus-mail-account` 选择 SMTP profile。`camulus-mail-smtp-profiles` 的每一项为 `(名称 主机 端口 用户名 密码文件 CA文件)`；CA 文件为空时使用系统信任库。未配置 SMTP 时仍可阅读、编辑草稿和归档，发送会失败。

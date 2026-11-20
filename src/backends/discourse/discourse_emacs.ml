@@ -73,6 +73,46 @@ let install_protocol ~ensure_ui ~idle ~submit =
     ~docstring:"Submit an operation described by an Emacs alist." (Returns Value.Type.int)
     (let open Defun.Let_syntax in let%map_open request=required "request" value in
      let j=Reader_backend.to_json request in request_discourse ~submit (Discourse.Decode.site (Discourse.Decode.str "site" j)) (Discourse.operation_of_json j))
+let composer ~submit =
+  let post site category label =
+    Writing.post_draft ~destination:("Discourse · "^site^" · "^label)
+      ~identity:(Discourse.source_of_site site^"/category:"^Int.to_string category)
+      ~submit:(fun ~subject ~body ~complete ->
+        Writing.request (submit site (Discourse.Send(New_topic{category;title=subject;text=body})))
+          ~expect:"sent" ~complete) in
+  let choose_category site () =
+    let window=call "selected-window" [] in
+    let origin=call "window-buffer" [window] in
+    Writing.request (submit site Discourse.Categories) ~expect:"categories" ~complete:(function
+      | Error reason -> message "Discourse categories: %s" [s reason]
+      | Ok data ->
+        let choices=List.map (values(field "rows" data)) ~f:(fun row ->
+          let category=integer(field "id" row) in
+          Printf.sprintf "%s [%d]" (text(field "name" row)) category,category) in
+        (* Open the picker outside the worker event drain. Only use the window
+           that requested it if it still displays the original reader. *)
+        let choose () =
+          if truth(call "window-live-p" [window]) && Value.eq origin (call "window-buffer" [window]) then (
+            run "select-window" [window];
+            if List.is_empty choices then user_error "No categories available on this forum";
+            let choice=text(call "completing-read" [s "Discourse category: ";
+              Value.list(List.map choices ~f:(fun (label,_) -> s label));nil;sym "t"]) in
+            Option.iter (List.Assoc.find choices choice ~equal:String.equal) ~f:(fun category ->
+              post site category choice));
+          nil in
+        run "run-at-time" [i 0;nil;lambda0 choose]) in
+  let authenticated ()=List.map (values(get "camulus-discourse--authenticated-sites")) ~f:text in
+  let in_group entry =
+    let site=Discourse.site_of_source(text(field "source" entry)) in
+    if not(List.mem (authenticated ()) site ~equal:String.equal) then
+      Some(fun () -> user_error "Authorize this Discourse site before posting")
+    else match Discourse.group_of_string(text(field "group" entry)) with
+    | Category category -> Some(fun () -> post site category (text(field "name" entry)))
+    | Latest | Topic _ | Notifications -> Some(choose_category site) in
+  let destinations ()=List.map (authenticated ()) ~f:(fun site ->
+    {label="Discourse · "^site;open_=choose_category site}) in
+  {email=false;in_group;destinations}
+
 let install ~submit () =
   let submit=request_discourse ~submit in
   Interaction_emacs.install ();
@@ -98,6 +138,7 @@ let install ~submit () =
         (Discourse_backend.Subscriptions(Discourse_backend.tracking_of_string filter,after))));
       change=(fun ~source ~target ~setting -> i(submit (String.drop_prefix source 10)
         (Discourse_backend.Subscription_change(target,Option.map setting ~f:Discourse_backend.tracking_of_string)))) };
+    composer=Some(composer ~submit);
     list_controls=[{key="c";hint="c: categories";command="camulus-reader-discourse-categories"}];
     controls=[{key="l";hint="l: like / C-u l: unlike";command="camulus-reader-discourse-like"}];
     browser=Some ("Discourse", "camulus-reader-discourse");
