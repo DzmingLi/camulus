@@ -8,59 +8,71 @@
   };
   outputs = { self, nixpkgs, opam-nix }:
     let
-      system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
-      on = opam-nix.lib.${system};
-      source = pkgs.lib.cleanSourceWith {
+      inherit (nixpkgs) lib;
+      systems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
+      forSystems = lib.genAttrs systems;
+      source = lib.cleanSourceWith {
         src = ./.;
         name = "camulus-source";
         filter = path: type:
-          baseNameOf path != "_build" && pkgs.lib.cleanSourceFilter path type;
+          baseNameOf path != "_build" && lib.cleanSourceFilter path type;
       };
-      scope = (on.buildOpamProject {
-        inherit pkgs;
-        resolveArgs.env.sys-ocaml-version = pkgs.ocaml-ng.ocamlPackages_5_3.ocaml.version;
-      } "camulus" source { ocaml-system = "5.3.0"; }).overrideScope
-        (final: prev: {
-          ecaml = prev.ecaml.overrideAttrs (old: {
-            patches = (old.patches or []) ++ [
-              ./patches/ecaml-domain-finalizers.patch
-              ./patches/ecaml-emacs31-obarray.patch
-            ];
-          });
-          eio_posix = prev.eio_posix.overrideAttrs (old: {
-            patches = (old.patches or []) ++ [ ./patches/eio-host-signals.patch ];
-          });
-        });
+      scopes = forSystems (system:
+        let pkgs = nixpkgs.legacyPackages.${system};
+        in (opam-nix.lib.${system}.buildOpamProject {
+          inherit pkgs;
+          resolveArgs.env.sys-ocaml-version = pkgs.ocaml-ng.ocamlPackages_5_3.ocaml.version;
+        } "camulus" source { ocaml-system = "5.3.0"; }).overrideScope
+          (final: prev: {
+            ecaml = prev.ecaml.overrideAttrs (old: {
+              patches = (old.patches or []) ++ [
+                ./patches/ecaml-domain-finalizers.patch
+                ./patches/ecaml-emacs31-obarray.patch
+              ];
+            });
+            eio_posix = prev.eio_posix.overrideAttrs (old: {
+              patches = (old.patches or []) ++ [ ./patches/eio-host-signals.patch ];
+            });
+          }));
     in {
-      packages.${system} = {
-        default = scope.camulus;
-        emacs-camulus = self.lib.mkEmacsPackage pkgs.emacsPackages;
-      };
+      packages = forSystems (system: {
+        default = scopes.${system}.camulus;
+        emacs-camulus = self.lib.mkEmacsPackage nixpkgs.legacyPackages.${system}.emacsPackages;
+      });
+      lib.mkWebkitPackage = epkgs:
+        let system = epkgs.emacs.stdenv.hostPlatform.system;
+        in nixpkgs.legacyPackages.${system}.callPackage ./nix/webkit {
+          emacsPackages = epkgs;
+        };
       # An ordinary Emacs package; no OCaml compiler is needed at runtime.
-      lib.mkWebkitPackage = epkgs: pkgs.callPackage ./nix/webkit {
-        emacsPackages = epkgs;
-      };
-      lib.mkEmacsPackage = epkgs: epkgs.trivialBuild {
-        pname = "camulus";
-        version = "0.1.0";
-        packageRequires = [ (self.lib.mkWebkitPackage epkgs) ];
-        src = "${scope.camulus}/share/emacs/site-lisp/camulus";
-        buildPhase = ''
-          emacs --batch -Q --eval '(progn (require (quote loaddefs-gen)) (loaddefs-generate default-directory (expand-file-name "camulus-autoloads.el")))'
-        '';
-        installPhase = ''
-          packageDir="$out/share/emacs/site-lisp/elpa/camulus-0.1.0"
-          mkdir -p "$packageDir"
-          cp *.el *.so "$packageDir/"
-          cat > "$packageDir/camulus-pkg.el" <<'EOF'
-          (define-package "camulus" "0.1.0" "Native OCaml reader for Emacs" '((emacs "31.1")))
-          EOF
-        '';
-      };
-      devShells.${system}.default = pkgs.mkShell {
-        inputsFrom = [ scope.camulus ];
-        packages = [ pkgs.emacs-nox pkgs.mu ];
-      };
+      lib.mkEmacsPackage = epkgs:
+        let
+          platform = epkgs.emacs.stdenv.hostPlatform;
+          scope = scopes.${platform.system} or (throw "Camulus has no Nix build for ${platform.system}");
+        in epkgs.trivialBuild {
+          pname = "camulus";
+          version = "0.1.0";
+          packageRequires = lib.optional platform.isLinux (self.lib.mkWebkitPackage epkgs);
+          src = "${scope.camulus}/share/emacs/site-lisp/camulus";
+          buildPhase = ''
+            emacs --batch -Q --eval '(progn (require (quote loaddefs-gen)) (loaddefs-generate default-directory (expand-file-name "camulus-autoloads.el")))'
+          '';
+          installPhase = ''
+            packageDir="$out/share/emacs/site-lisp/elpa/camulus-0.1.0"
+            mkdir -p "$packageDir"
+            cp *.el *.so "$packageDir/"
+            cat > "$packageDir/camulus-pkg.el" <<'EOF'
+            (define-package "camulus" "0.1.0" "Native OCaml reader for Emacs" '((emacs "31.1")))
+            EOF
+          '';
+        };
+      devShells = forSystems (system:
+        let pkgs = nixpkgs.legacyPackages.${system};
+        in {
+          default = pkgs.mkShell {
+            inputsFrom = [ scopes.${system}.camulus ];
+            packages = [ pkgs.emacs-nox pkgs.mu ];
+          };
+        });
     };
 }
