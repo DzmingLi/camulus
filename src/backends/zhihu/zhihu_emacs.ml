@@ -8,7 +8,7 @@ let prepare ~notify:_ =
     create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ~revisions:_ ~article:_ ->
       let backend=Z.create_live ~cookies:(Reader.Credentials.Firefox.get browser) () in
       Rss_emacs.publication_worker ~source:"zhihu" ~group:(fun _ _ -> "")
-        ~page:(fun group ~after -> Z.Live.list backend group ~after)
+        ~page:(fun group ~after -> Z.Live.list backend group ~after,[])
         ~read:(Z.Live.read backend) ~attachment:(Z.Live.attachment backend)
         ~archive:(fun group id -> Z.Live.invalidate backend id;Z.Live.archive backend group id)
         ~refresh:(fun _ _ -> ()) ())}

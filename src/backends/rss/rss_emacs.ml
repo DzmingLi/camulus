@@ -93,7 +93,7 @@ let publication_backend ~submit ~source ~threaded =
 let publication_worker ?(all_pages=false) ~source ~group ~page ~read ~archive ~attachment ~refresh
     ?thread () =
   {matches_source=String.equal source;all_pages;refresh_membership=`Merge;
-   page=(fun ~source:_ group ~after -> page group ~after,[]);
+   page=(fun ~source:_ group ~after -> page group ~after);
    archive=(fun ~source:_ ~refresh:reload target id ~native_thread:_ ~add ->
      let group=group id None in
      if reload then refresh group id;

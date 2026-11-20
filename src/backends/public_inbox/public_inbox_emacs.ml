@@ -7,7 +7,7 @@ let prepare ~notify:_ =
     let backend=B.Live.create () and source="public-inbox" in
     Rss_emacs.publication_worker ~source
       ~group:(fun _id requested -> match requested with Some group -> group | None -> "")
-      ~page:(fun group ~after -> B.Live.list backend group ~after)
+      ~page:(fun group ~after -> B.Live.list backend group ~after,[])
       ~read:(B.Live.read backend) ~archive:(B.Live.archive backend) ~attachment:(B.Live.attachment backend)
       ~refresh:(fun _ _ -> ())
       ~thread:(B.Live.stream_thread backend,B.Live.archive_article backend) ())}

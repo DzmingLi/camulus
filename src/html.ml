@@ -4,6 +4,8 @@ type node = Soup.general Soup.node
 let parse input = Soup.parse input |> Soup.coerce
 let children node = Soup.children node |> Soup.to_list
 let attr name node = Option.bind (Soup.element node) (Soup.attribute name) |> Option.value ~default:""
+let set_attr name value node =
+ Option.iter (Soup.set_attribute name value) (Soup.element node)
 let tag node = Option.fold ~none:"" ~some:Soup.name (Soup.element node)
 let has_class name node = Option.fold ~none:false ~some:(fun e->List.mem name(Soup.classes e)) (Soup.element node)
 let text node = String.concat "" (Soup.texts node)
@@ -37,3 +39,25 @@ let media tree =
    (tag n="a" && (attr "download" n<>"" || has_class "attachment" n))) tree
  |> List.concat_map(fun n -> List.filter ((<>) "") [attr (if tag n="a" then "href" else "src") n;attr "poster" n])
  |> List.sort_uniq String.compare
+
+let image_data_uri bytes =
+ let starts prefix = String.starts_with ~prefix bytes in
+ let at offset value =
+  String.length bytes >= offset + String.length value &&
+  String.sub bytes offset (String.length value) = value in
+ let mime=
+  if starts "\255\216\255" then Some "image/jpeg"
+  else if starts "\137PNG\r\n\026\n" then Some "image/png"
+  else if starts "GIF87a" || starts "GIF89a" then Some "image/gif"
+  else if starts "RIFF" && at 8 "WEBP" then Some "image/webp"
+  else if at 4 "ftypavif" || at 4 "ftypavis" then Some "image/avif"
+  else None in
+ Option.map (fun mime -> "data:" ^ mime ^ ";base64," ^ Base64.encode_string bytes) mime
+
+let embedded_image ~url tree =
+ find (fun node -> tag node="img" && attr "data-camulus-image-url" node=url &&
+   String.starts_with ~prefix:"data:image/" (attr "src" node)) tree
+let embedded_image_bytes node =
+ let src=attr "src" node in
+ Option.bind (String.index_opt src ',') (fun comma ->
+  Base64.decode ~off:(comma+1) src |> Result.to_option)

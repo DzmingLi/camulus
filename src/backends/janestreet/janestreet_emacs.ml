@@ -7,7 +7,7 @@ let prepare ~notify:_ =
     let backend=B.Live.create () and source="janestreet" in
     Rss_emacs.publication_worker ~source
       ~group:(fun _id requested -> match requested with Some group -> group | None -> "posts")
-      ~page:(fun group ~after -> B.Live.list backend group ~after)
+      ~page:(fun group ~after -> B.Live.list backend group ~after,[])
       ~read:(B.Live.read backend) ~archive:(B.Live.archive backend) ~attachment:(B.Live.attachment backend)
       ~refresh:(fun group _ -> ignore(B.Live.list backend group ~after:None : Reader.Content.page)) ())}
 let install ~submit () =

@@ -1,4 +1,4 @@
-(library (name atlantic_backend) (modules (:standard \ atlantic_emacs)) (libraries reader rss_backend uri yojson))
+(library (name atlantic_backend) (modules (:standard \ atlantic_emacs)) (libraries reader rss_backend uri yojson eio))
 
 (library
  (name atlantic_emacs)
