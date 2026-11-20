@@ -30,12 +30,17 @@ let rec directory path =
   else (directory (Filename.dirname path); try Unix.mkdir path 0o700 with Unix.Unix_error(Unix.EEXIST,_,_) -> ())
 let rss_source = String.starts_with ~prefix:"rss:"
 let html_source = String.equal "atlantic"
-let file_backed source = rss_source source || html_source source
-let article_path db ~source ~id =
-  let database = match query db "PRAGMA database_list" [] with [r] -> s r.(2) | _ -> assert false in
+(* Standalone feeds can publish a new version even after the article was archived. *)
+let refreshable_article source = rss_source source || html_source source
+let state_path db =
+  query db "PRAGMA database_list" []
+  |> List.find (fun row -> s row.(1)="main")
+  |> fun row -> s row.(2)
+let article_path db ~directory ~extension ~source ~id =
   let identity = Yojson.Safe.to_string (`List [`String source;`String id]) in
-  let directory, extension = if html_source source then ".html", ".html" else ".rss", ".json" in
-  Filename.concat (database ^ directory) (Digest.to_hex (Digest.string identity) ^ extension)
+  Filename.concat (state_path db ^ directory) (Digest.to_hex (Digest.string identity) ^ extension)
+let legacy_rss_path db = article_path db ~directory:".rss" ~extension:".json"
+let html_path db = article_path db ~directory:".html" ~extension:".html"
 let article_bytes path =
   try Some (In_channel.with_open_bin path In_channel.input_all)
   with Sys_error _ when not (Sys.file_exists path) -> None
@@ -74,33 +79,34 @@ let html_document article =
 let resource_manifest article =
   Yojson.Safe.Util.member "attachments" article |> Yojson.Safe.to_string
   |> Digest.string |> Digest.to_hex
-let write_file_article db ~source ~id article =
-  let path=article_path db ~source ~id in
+let persist_article db ~source ~id article =
   if html_source source then begin
-    write_article_bytes path (html_document article);
+    write_article_bytes (html_path db ~source ~id) (html_document article);
     with_html article `Null |> Yojson.Safe.to_string
-  end else begin
-    write_article_bytes path (Yojson.Safe.pretty_to_string article ^ "\n");
-    resource_manifest article
-  end
+  end else Yojson.Safe.to_string article
+(* A missing old RSS file still leaves a digest of its archived enclosures.
+   Keep it so a later refresh can recover the body without discarding resources. *)
+let legacy_rss_payload payload =
+  String.length payload = 32 &&
+  String.for_all (function '0'..'9' | 'a'..'f' -> true | _ -> false) payload
 let read_article db ~source row =
   let payload=s row.(1) in
-  if file_backed source then
-    article_bytes (article_path db ~source ~id:(s row.(0)))
-    |> Option.map (fun bytes ->
-      if html_source source then with_html (Yojson.Safe.from_string payload) (`String bytes)
-      else Yojson.Safe.from_string bytes)
+  if html_source source then
+    article_bytes (html_path db ~source ~id:(s row.(0)))
+    |> Option.map (fun bytes -> with_html (Yojson.Safe.from_string payload) (`String bytes))
+  else if rss_source source && legacy_rss_payload payload then None
   else Some (Yojson.Safe.from_string payload)
 let stored_manifest ~source row =
   let payload=s row.(1) in
-  if html_source source then resource_manifest (Yojson.Safe.from_string payload) else payload
+  if rss_source source && legacy_rss_payload payload then payload
+  else resource_manifest (Yojson.Safe.from_string payload)
 let resources_complete ~source row article =
   n row.(2)=1 && stored_manifest ~source row=resource_manifest article
 let rss_deleted db ~source ~id =
   rss_source source &&
   query db "SELECT 1 FROM rss_deletions WHERE source=? AND id=?" [text source;text id] <> []
 let finish_rss_delete db ~source ~id =
-  (try Unix.unlink (article_path db ~source ~id)
+  (try Unix.unlink (legacy_rss_path db ~source ~id)
    with Unix.Unix_error (Unix.ENOENT,_,_) -> ());
   run db "UPDATE rss_deletions SET pending=0 WHERE source=? AND id=?" [text source;text id]
 let schema_version db =
@@ -115,7 +121,7 @@ let with_db path f =
   Q.busy_timeout db 2000;
   exec db "PRAGMA foreign_keys=ON";
   let version = schema_version db in
-  if version < 0 || version > 7 then failwith "Unsupported content-state schema version";
+  if version < 0 || version > 8 then failwith "Unsupported content-state schema version";
   if version = 0 then transaction db (fun () ->
     exec db "CREATE TABLE IF NOT EXISTS items(source TEXT NOT NULL,id TEXT NOT NULL,parent TEXT,thread TEXT,title TEXT NOT NULL,author TEXT NOT NULL,url TEXT NOT NULL,created REAL NOT NULL,is_read INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(source,id));
 CREATE TABLE IF NOT EXISTS item_links(source TEXT NOT NULL,child TEXT NOT NULL,ancestor TEXT NOT NULL,PRIMARY KEY(source,child,ancestor));
@@ -163,13 +169,6 @@ PRAGMA user_version=5");
   if version < 6 then transaction db (fun () ->
     exec db "CREATE TABLE rss_deletions(source TEXT NOT NULL,id TEXT NOT NULL,pending INTEGER NOT NULL,PRIMARY KEY(source,id));
 CREATE INDEX rss_deletions_pending ON rss_deletions(pending) WHERE pending=1;";
-    List.iter (fun row ->
-      let source=s row.(0) and id=s row.(1) in
-      (* Keep the old payload readable until the replacement file is in place. *)
-      let article=Yojson.Safe.from_string (s row.(2)) in
-      let payload=write_file_article db ~source ~id article in
-      run db "UPDATE archives SET payload=? WHERE source=? AND id=?" [text payload;text source;text id])
-      (query db "SELECT source,id,payload FROM archives WHERE source GLOB 'rss:*'" []);
     exec db "PRAGMA user_version=6");
   if version < 7 then transaction db (fun () ->
     if schema_version db < 7 then begin
@@ -195,12 +194,42 @@ CREATE INDEX rss_deletions_pending ON rss_deletions(pending) WHERE pending=1;";
                 | _ -> ())) (Html.select (fun node -> Html.tag node="img") tree);
             with_html article (`String (Html.render tree))
           | _ -> article in
-        let payload=write_file_article db ~source ~id article in
+        let payload=persist_article db ~source ~id article in
         run db "UPDATE archives SET payload=? WHERE source=? AND id=?" [text payload;text source;text id])
         (query db "SELECT id,payload FROM archives WHERE source='atlantic'" []);
       exec db "PRAGMA user_version=7"
     end);
 
+  if version < 8 then begin
+    let migrated=transaction db (fun () ->
+      if schema_version db >= 8 then [] else begin
+        let migrated=query db "SELECT source,id,payload FROM archives WHERE source GLOB 'rss:*'" []
+          |> List.filter_map (fun row ->
+            let source=s row.(0) and id=s row.(1) and manifest=s row.(2) in
+            if not (legacy_rss_payload manifest) then None else
+            let file=legacy_rss_path db ~source ~id in
+            Option.bind (article_bytes file) (fun bytes ->
+              let article=Yojson.Safe.from_string bytes in
+              let open Yojson.Safe.Util in
+              if member "id" (member "message" article) <> `String id then
+                failwith ("RSS article identity does not match its cache file: " ^ file);
+              let args=[text source;text id] in
+              if resource_manifest article <> manifest then begin
+                run db "DELETE FROM archive_files WHERE source=? AND id=?" args;
+                run db "UPDATE archives SET resources_complete=0 WHERE source=? AND id=?" args
+              end;
+              run db "UPDATE archives SET payload=? WHERE source=? AND id=?"
+                (text (Yojson.Safe.to_string article) :: args);
+              Some(file,Digest.string bytes))) in
+        exec db "PRAGMA user_version=8";
+        migrated
+      end) in
+    (* Remove a legacy file only after its body has been committed to SQLite. *)
+    List.iter (fun (path,digest) ->
+      try if Option.map Digest.string (article_bytes path)=Some digest then Unix.unlink path
+      with Unix.Unix_error _ | Sys_error _ -> ()) migrated;
+    (try Unix.rmdir (state_path db ^ ".rss") with Unix.Unix_error _ -> ())
+  end;
   List.iter (fun row ->
     try finish_rss_delete db ~source:(s row.(0)) ~id:(s row.(1))
     with Unix.Unix_error _ -> ())
@@ -377,14 +406,14 @@ let write_archive db source a =
   let id=a.message.id in
   let article=`Assoc["message",message_json a.message;"attachments",a.attachments] in
   let payload=
-    if file_backed source then begin
+    if refreshable_article source then begin
       let article=match local_article db ~source ~id with
         | Some current ->
           if Yojson.Safe.Util.member "attachments" current <> a.attachments then
             failwith "Article enclosures changed during archiving; try again";
           current
         | None -> article in
-      write_file_article db ~source ~id article
+      persist_article db ~source ~id article
     end else Yojson.Safe.to_string article in
   run db "INSERT INTO archives(source,id,payload,raw,resources_complete) VALUES(?,?,?,?,1) ON CONFLICT(source,id) DO UPDATE SET payload=excluded.payload,raw=excluded.raw,resources_complete=1"
     [text source;text id;text payload;(match a.raw with None -> Q.Data.NULL | Some raw -> Q.Data.BLOB raw)];
@@ -449,10 +478,10 @@ let stored_content db ~source ~target ~id =
 let load_archive db ~source ~target ~id =
   let root,_=components db in let members=memberships db in
   stored_content db ~source ~target ~id
-  |> List.filter(fun r -> (n r.(2)=1 || file_backed source) && covered root members source (s r.(0)))
+  |> List.filter(fun r -> (n r.(2)=1 || refreshable_article source) && covered root members source (s r.(0)))
   |> List.filter_map(fun r ->
     Option.map (fun article ->
-      if not (file_backed source) || resources_complete ~source r article then article else
+      if not (refreshable_article source) || resources_complete ~source r article then article else
       let open Yojson.Safe.Util in
       let attachments=member "attachments" article |> to_list
         |> List.map (fun part -> `Assoc (("download_from_source",`Bool true) :: to_assoc part)) in
@@ -462,7 +491,7 @@ let store_article ~refresh db ~source article =
   let open Yojson.Safe.Util in
   let id=article |> member "message" |> member "id" |> to_string in
   validate source;validate id;
-  if file_backed source then begin
+  if refreshable_article source then begin
     if rss_deleted db ~source ~id then failwith "Article was deleted";
     if refresh || Option.is_none (local_article db ~source ~id) then begin
       let manifest=resource_manifest article in
@@ -471,7 +500,7 @@ let store_article ~refresh db ~source article =
         | _ -> false in
       if not preserve_resources then
         run db "DELETE FROM archive_files WHERE source=? AND id=?" [text source;text id];
-      let payload=write_file_article db ~source ~id article in
+      let payload=persist_article db ~source ~id article in
       run db "INSERT INTO archives(source,id,payload,raw,resources_complete) VALUES(?,?,?,NULL,?) ON CONFLICT(source,id) DO UPDATE SET payload=excluded.payload,resources_complete=excluded.resources_complete WHERE archives.payload<>excluded.payload OR archives.resources_complete<>excluded.resources_complete"
         [text source;text id;text payload;int(if preserve_resources then 1 else 0)]
     end
@@ -481,7 +510,7 @@ let store_article ~refresh db ~source article =
     run db "INSERT INTO archives(source,id,payload,raw,resources_complete) VALUES(?,?,?,NULL,0) ON CONFLICT(source,id) DO UPDATE SET payload=excluded.payload WHERE archives.resources_complete=0"
       [text source;text id;text(Yojson.Safe.to_string article)]
 let cache_article db ~source article =
-  if file_backed source then transaction db (fun () -> store_article ~refresh:false db ~source article)
+  if refreshable_article source then transaction db (fun () -> store_article ~refresh:false db ~source article)
   else store_article ~refresh:false db ~source article
 let cache_page_articles db ~source articles =
   transaction db (fun () ->
@@ -527,7 +556,7 @@ let copy_favorite db ~source ~target ~id ~folder =
   let parts=folder_parts folder in
   transaction db (fun () ->
     let available=match target with
-      | Article when file_backed source -> archived_resources_match db ~source ~id
+      | Article when refreshable_article source -> archived_resources_match db ~source ~id
       | Article -> query db "SELECT 1 FROM archives WHERE source=? AND id=? AND resources_complete=1" [text source;text id]<>[]
       | Thread -> query db "SELECT 1 FROM favorites WHERE source=? AND kind='thread' AND id=?" [text source;text id]<>[] in
     if not available then false else begin

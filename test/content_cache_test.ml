@@ -79,7 +79,7 @@ let migration_preserves_archives () = with_database(fun path ->
   check (S.copy_favorite db ~source:"fixture" ~target:S.Article ~id:"one" ~folder:"copy") "Migration lost complete-resource status";
   check (S.raw_archive db ~source:"fixture" ~id:"one"="old MIME") "Migration lost MIME";
   check (S.attachment_archive db ~source:"fixture" ~id:"one" ~part:0=Some "old resource") "Migration lost resource"))
-let migrate_rss_article () = with_database(fun path ->
+let migrate_rss_article ~from_file = with_database(fun path ->
  let source="rss:https://example.test/feed" and id="one" in
  let message=message id "Existing RSS body" in
  S.with_db path(fun db ->
@@ -92,27 +92,41 @@ let migrate_rss_article () = with_database(fun path ->
      Sys.rmdir feed_dir
    end) @@ fun () ->
  let db=Sqlite3.db_open path in
- check (Sqlite3.exec db "DROP TABLE rss_deletions; PRAGMA user_version=5"=Sqlite3.Rc.OK)
-   "Could not prepare v5 fixture";
+ let setup=if from_file then "PRAGMA user_version=7"
+   else "DROP TABLE rss_deletions; PRAGMA user_version=5" in
+ check (Sqlite3.exec db setup=Sqlite3.Rc.OK) "Could not prepare RSS migration fixture";
  let insert sql values =
    let stmt=Sqlite3.prepare db sql in
    Fun.protect ~finally:(fun () -> ignore(Sqlite3.finalize stmt)) @@ fun () ->
    check (Sqlite3.bind_values stmt (List.map (fun value -> Sqlite3.Data.TEXT value) values)=Sqlite3.Rc.OK
      && Sqlite3.step stmt=Sqlite3.Rc.DONE) "Could not insert v5 fixture data" in
+ let attachments=`List [`Assoc ["part",`Int 0;"url",`String "https://example.test/enclosure"]] in
+ let article=Yojson.Safe.to_string (`Assoc ["message",S.message_json message;"attachments",attachments]) in
+ let payload=if from_file then begin
+   let identity=Yojson.Safe.to_string (`List [`String source;`String id]) in
+   let name=Digest.to_hex (Digest.string identity) ^ ".json" in
+   Sys.mkdir feed_dir 0o700;
+   Out_channel.with_open_bin (Filename.concat feed_dir name) (fun channel ->
+     Out_channel.output_string channel article);
+   Digest.to_hex (Digest.string (Yojson.Safe.to_string attachments))
+ end else article in
  insert "INSERT INTO archives(source,id,payload,resources_complete) VALUES(?,?,?,1)"
-   [source;id;Yojson.Safe.to_string (article message)];
+   [source;id;payload];
+ insert "INSERT INTO archive_files VALUES(?,?,0,?)" [source;id;"archived enclosure"];
  insert "INSERT INTO folders VALUES(?,'')" ["saved"];
  insert "INSERT INTO favorites VALUES('saved',?,'article',?)" [source;id];
  ignore(Sqlite3.db_close db);
  S.with_db path(fun db ->
-  check (Array.length(Sys.readdir feed_dir)=1) "Migration did not create one file";
+  check (not (Sys.file_exists feed_dir)) "Migration left per-article RSS files";
   check (List.map body (fst(cached db ~source id))=[`String "Existing RSS body"])
     "Migration lost RSS body";
   let state=S.snapshots db ~source [id] |> field "items" |> Yojson.Safe.Util.to_list |> List.hd in
   check (field "read" state=`Bool true && field "favorite" state=`Bool true)
     "Migration changed local reading or favorites state";
   check (S.copy_favorite db ~source ~target:S.Article ~id ~folder:"copy")
-    "Migration lost RSS archive completeness"))
+    "Migration lost RSS archive completeness";
+  check (S.attachment_archive db ~source ~id ~part:0=Some "archived enclosure")
+    "Migration lost an archived RSS enclosure"))
 let dismissed_notification_stays_hidden_until_new_activity () = with_database(fun path ->
  S.with_db path(fun db ->
   let source="github" and group="notifications" in
@@ -130,6 +144,7 @@ let dismissed_notification_stays_hidden_until_new_activity () = with_database(fu
 
 let () =
  persist_and_keep_state_separate ();favorite_resources_and_removal ();
- threads_and_sources ();migration_preserves_archives ();migrate_rss_article ();
+ threads_and_sources ();migration_preserves_archives ();
+ migrate_rss_article ~from_file:false;migrate_rss_article ~from_file:true;
  dismissed_notification_stays_hidden_until_new_activity ();
  print_endline "Persistent content cache tests passed"

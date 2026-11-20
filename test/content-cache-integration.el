@@ -132,7 +132,6 @@
   (let* ((directory (make-temp-file "camulus-merge-feed" t))
          (camulus-state-file (expand-file-name "state.sqlite3" directory))
          (items '(("older" . "Older article") ("repeat" . "Initial title")))
-         (files-dir (concat camulus-state-file ".rss"))
          (server
           (make-network-process
            :name "camulus-merge-http" :server t :host "127.0.0.1" :service t :noquery t
@@ -164,15 +163,14 @@
           (camulus-reader--load-list t)
           (camulus-cache-test-await #'camulus-cache-test-idle)
           (should (= 2 (length camulus-reader--all-rows)))
-          (let* ((article-path (lambda (id)
-                                 (expand-file-name
-                                  (concat (md5 (json-encode (vector source id))) ".json")
-                                  files-dir)))
-                 (repeat (funcall article-path "repeat"))
-                 (older (funcall article-path "older")))
-            (should (= 2 (length (directory-files files-dir nil "\\.json\\'"))))
-            (should (file-exists-p repeat))
-            (should (file-exists-p older))
+          (let ((payload (lambda (id)
+                           (let ((db (sqlite-open camulus-state-file)))
+                             (unwind-protect
+                                 (caar (sqlite-select db "SELECT payload FROM archives WHERE source=? AND id=?"
+                                                      (list source id)))
+                               (sqlite-close db))))))
+            (should (string-match-p "Initial title body" (funcall payload "repeat")))
+            (should (string-match-p "Older article body" (funcall payload "older")))
             ;; Bookmark and mark read before refreshing the same GUID.
             (let ((db (sqlite-open camulus-state-file)))
               (unwind-protect
@@ -194,21 +192,18 @@
               (should (equal "Updated title" (alist-get 'title row)))
               (should-not (alist-get 'unread row))
               (should (alist-get 'favorite row)))
-            (should (= 3 (length (directory-files files-dir nil "\\.json\\'"))))
-            (with-temp-buffer
-              (insert-file-contents repeat)
-              (should (search-forward "Updated title body" nil t)))
-            (let ((modified (file-attribute-modification-time (file-attributes repeat))))
+            (should (string-match-p "Updated title body" (funcall payload "repeat")))
+            (let ((saved (funcall payload "repeat")))
               (camulus-reader--load-list t)
               (camulus-cache-test-await #'camulus-cache-test-idle)
-              (should (equal modified (file-attribute-modification-time (file-attributes repeat)))))
+              (should (equal saved (funcall payload "repeat"))))
             ;; Group dismissal leaves the local copy and home membership.
             (goto-char (point-min))
             (while (not (equal (cadr (tabulated-list-get-id)) "older"))
               (should (= 0 (forward-line 1))))
             (camulus-reader-delete)
             (camulus-cache-test-await #'camulus-cache-test-idle)
-            (should (file-exists-p older))
+            (should (funcall payload "older"))
             (camulus)
             (camulus-cache-test-await #'camulus-cache-test-idle)
             (should (cl-find "older" camulus-reader--all-rows :test #'equal :key
@@ -218,18 +213,19 @@
               (should (= 0 (forward-line 1))))
             (camulus-reader-delete)
             (camulus-cache-test-await #'camulus-cache-test-idle)
-            (should-not (file-exists-p older))
+            (should-not (funcall payload "older"))
             (setq items '(("older" . "Revised after deletion") ("repeat" . "Updated title")))
             (camulus-reader--load-list t)
             (camulus-cache-test-await #'camulus-cache-test-idle)
-            (should-not (file-exists-p older))
+            (should-not (funcall payload "older"))
             (let ((db (sqlite-open camulus-state-file)))
               (unwind-protect
                   (progn
                     (should (equal (sqlite-select db "SELECT id FROM rss_deletions") '(("older"))))
                     (should (equal (sqlite-select db "SELECT count(*) FROM items WHERE id='older'") '((0))))
-                    (should (equal (sqlite-select db "SELECT count(*) FROM archives WHERE length(payload)=32") '((2)))))
+                    (should (equal (sqlite-select db "SELECT count(*) FROM archives WHERE json_valid(payload)") '((2)))))
                 (sqlite-close db))))
+          (should-not (file-exists-p (concat camulus-state-file ".rss")))
           (camulus-probe-session-stop)
           (delete-process server)
           (camulus-reader-start)
