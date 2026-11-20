@@ -85,7 +85,7 @@ let composer ~configured = {
  email=true;
  in_group=(fun entry ->
    let group=field "group" entry in
-   if configured(text(field "source" entry)) && truth group then
+   if configured(text(field "backend_key" entry)) && truth group then
      Some(fun () -> compose_in group false)
    else None);
  destinations=(fun () ->

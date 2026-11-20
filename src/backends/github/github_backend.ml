@@ -78,7 +78,6 @@ module Make(H:Http.S) = struct
            notification_ids:(string,string list) Hashtbl.t}
  type nonrec group=group
  type nonrec cursor=cursor
- let source=source
  let create ?(now=Unix.gettimeofday) config = {config;now;notifications=Hashtbl.create 8;notification_ids=Hashtbl.create 32}
  let request t ?(meth=Http.Get) ?(headers=[]) ?(body="") path =
   if t.config.token="" then failwith "Configure GitHub authentication for Forge/ghub before using GitHub";

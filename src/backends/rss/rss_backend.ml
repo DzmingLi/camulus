@@ -4,7 +4,6 @@ module Transport = struct let request r = Http.request ~policy:Http.Http_and_htt
 module Decode = Decode
 module Feed_xml = Feed_xml
 module C = Reader.Content
-let source = "rss"
 let source_of_url url = "rss:" ^ Http.validate url
 let url_of_source source =
   if not(String.starts_with ~prefix:"rss:" source) then invalid_arg "Not an RSS source";
@@ -36,7 +35,6 @@ module Make (H:Http.S) = struct
   type t = article list cache
   type nonrec group=group
   type nonrec cursor=cursor
-  let source=source
   let create_cache ~decode () = {cache=Hashtbl.create 16;lock=Eio.Mutex.create ();decode}
   let create ?(decode=Decode.parse) () = create_cache ~decode ()
   let locked t f = Eio.Mutex.lock t.lock;Fun.protect ~finally:(fun () -> Eio.Mutex.unlock t.lock) f

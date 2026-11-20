@@ -2,7 +2,6 @@ module C=Reader.Content
 module R=Rss_backend
 module D=R.Decode
 module Html=Reader.Html
-let source="douban"
 type group=string
 type cursor=string
 let field k = function `Assoc pairs->Option.value(List.assoc_opt k pairs)~default:`Null|_->`Null
@@ -98,7 +97,6 @@ module Make(H:R.Http.S)=struct
  type t={cookies:string->(string*string)list;post:R.Http.request->body:string->R.Http.response;cache:(string,D.article)Hashtbl.t;reactions:(string,reaction)Hashtbl.t}
  type nonrec group=group
  type nonrec cursor=cursor
- let source=source
  let create ?(post=(fun _ ~body:_->failwith "Douban write transport is unavailable")) ~cookies ()={cookies;post;cache=Hashtbl.create 128;reactions=Hashtbl.create 128}
  let reaction t id=Hashtbl.find_opt t.reactions id
  let remember_reaction t id value=match value with Some r->Hashtbl.replace t.reactions id r|None->Hashtbl.remove t.reactions id

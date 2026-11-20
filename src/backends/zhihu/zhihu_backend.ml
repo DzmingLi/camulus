@@ -3,7 +3,6 @@ module R=Rss_backend
 module D=R.Decode
 module Html=Reader.Html
 module Sign=Sign
-let source="zhihu"
 type group=string
 type cursor=string
 let field k = function `Assoc pairs->Option.value(List.assoc_opt k pairs)~default:`Null|_->`Null
@@ -43,7 +42,6 @@ module Make(H:R.Http.S)=struct
  type t={cookies:string->(string*string)list;cache:(string,D.article)Hashtbl.t}
  type nonrec group=group
  type nonrec cursor=cursor
- let source=source
  let create ~cookies ()={cookies;cache=Hashtbl.create 128}
  let request t ~referer url=
   let cookies=t.cookies url in

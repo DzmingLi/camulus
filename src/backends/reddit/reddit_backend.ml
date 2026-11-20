@@ -67,7 +67,6 @@ module Make (Transport : Http.S) = struct
   type t = { config : config; now : unit -> float; sleep : float -> unit;
              lock : Eio.Mutex.t; mutable token : token option;
              mutable next_request : float; mutable challenge : (string * float) option }
-  let source = "reddit"
 
   let create ~config ~now ~sleep =
     validate_config config;

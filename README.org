@@ -2,14 +2,14 @@
 
 Camulus 是 Emacs 的统一阅读器，把邮件、论坛讨论和个人订阅放进同一个阅读界面。
 
-支持 *x86_64 Linux 上的 Emacs 31*。
+需要 *Emacs 31*。Nix 构建目标包括 x86-64 Linux、ARM64 Linux 和 Apple Silicon macOS。
 
 * 核心抽象
 ** 后端
 后端接入一种服务或数据格式，提供浏览和阅读能力。一个后端可以提供多个 group 和订阅源。
 
 ** Group
-Group 是主动浏览的入口。刷新 group 拉取列表，打开其中一项时才按需加载正文和回复。用 =camulus-groups= 注册入口后，可从首页的后端按钮或组目录进入。
+Group 是后端提供的浏览入口，由后端定义如何定位。刷新组会拉取列表，打开条目时按需加载正文和回复。用 =camulus-groups= 注册后，可从首页的后端按钮或组目录进入。
 
 ** 订阅源
 订阅源为个人收件箱提供文章和讨论的新进展，可以来自一个选定的 group，也可以来自个人通知流。订阅同步负责把正文和完整回复树保存到本地，随后打开条目即可读取。当前部分讨论仍在打开时加载完整回复树。[[file:docs/ENTRIES.org][浏览入口与订阅配置]]
@@ -41,7 +41,7 @@ emacsWithPackages (epkgs: [
 * 配置
 使用 =M-x customize-group RET camulus= 管理组选项和后端设置。也可以直接在 Emacs 配置中设置。
 
-用 =camulus-groups= 声明浏览入口，首页按 =B= 打开组目录。首页按 =U= 查看订阅源；各来源的配置方式、可用入口和订阅优先级见 [[file:docs/ENTRIES.org][浏览入口与订阅配置]]。
+用 =camulus-groups= 声明浏览入口，首页按 =B= 打开组目录。首页按 =U= 查看订阅源。各后端的配置方式和订阅优先级见 [[file:docs/ENTRIES.org][浏览入口与订阅配置]]。
 
 默认状态数据库为 =~/.local/state/camulus/state.sqlite3=，遵循 =XDG_STATE_HOME=。已读、收件箱进展、收藏归属和正文归档分别持久保存。阅读时可以先展示本地内容，收藏条目可离线打开。
 

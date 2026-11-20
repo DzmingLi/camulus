@@ -1,7 +1,6 @@
 module Http = Reader.Http
 module Transport : Http.S
 module Decode = Decode
-val source : string
 val source_of_site : string -> string
 val site_of_source : string -> string
 val is_source : string -> bool

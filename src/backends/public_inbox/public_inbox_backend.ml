@@ -2,7 +2,6 @@ module C=Reader.Content
 module R=Rss_backend
 module D=R.Decode
 module Mime=Mu_backend.Mime
-let source="public-inbox"
 type group=string
 type cursor=string
 let group url=
@@ -69,7 +68,6 @@ module Make(H:R.Http.S)=struct
  type t={cache:(string,article)Hashtbl.t}
  type nonrec group=group
  type nonrec cursor=cursor
- let source=source
  let create()={cache=Hashtbl.create 128}
  let load t url=
   let url=canonical url in

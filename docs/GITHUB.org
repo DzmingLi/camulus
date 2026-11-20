@@ -7,9 +7,9 @@ GitHub 后端位于 =src/backends/github/=，支持 Issues、Pull Requests、Dis
 
 #+begin_src elisp
 (setopt camulus-groups
-        '(((name . "Camulus Issues") (source . "github")
+        '(((name . "Camulus Issues") (backend . "github")
            (group . "DzmingLi/camulus/issues"))
-          ((name . "Camulus PRs") (source . "github")
+          ((name . "Camulus PRs") (backend . "github")
            (group . "DzmingLi/camulus/pulls"))))
 (setopt camulus-github-notifications t)
 #+end_src

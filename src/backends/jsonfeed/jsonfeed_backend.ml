@@ -49,7 +49,6 @@ let parse ~url:base input =
   let next=match text (Jsonfeed.next_url feed) with "" -> None | value -> Some (resolve base value) in
   articles,next
 
-let source = "jsonfeed"
 let is_source = String.starts_with ~prefix:"jsonfeed:"
 let source_of_url url = "jsonfeed:" ^ R.Http.validate url
 let url_of_source source =
@@ -61,7 +60,6 @@ module Make(H:R.Http.S) = struct
     articles:((string*string),R.Decode.article) Hashtbl.t }
   type group = string
   type cursor = string
-  let source=source
   let create () =
     {feed=Feed.create_cache ~decode:parse ();articles=Hashtbl.create 64}
   let cursor root = function

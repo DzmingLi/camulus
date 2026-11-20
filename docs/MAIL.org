@@ -23,7 +23,7 @@
 原生阅读界面采用文本 / SHR，Olivetti 已加载时会启用它。*约定的默认 WebKit 整树阅读尚未接入*。界面、窗口、撰写和草稿回调均使用 Ecaml。
 
 * 阅读与身份
-=Mu_backend= 直接提供阅读、发送和邮件专属 draft/receipt。由 =mu_emacs.ml= 注册会话和执行能力，公共运行时通过 worker 接口调用，可与 Reddit 共用同一个工作 domain。整体关系见 [[file:hacking.org][架构文档]]。
+=Mu_backend= 直接提供阅读、发送和邮件专属 draft/receipt。由 =mu_emacs.ml= 注册会话和执行能力，公共运行时通过 worker 接口调用，可与 Reddit 共用同一个工作 domain。整体关系见 [[file:HACKING.org][架构文档]]。
 
 列表只读索引元数据，按当前 Maildir 查询并校验结果范围。按 Message-ID / 引用关系合并 summary 条目，不以相同主题合并讨论；列表以当前结果中最新的一封作为打开入口。邮件的 =thread_id= 保持 =None=，=Thread= 参数是入口邮件 ID，不是永久 thread ID。
 

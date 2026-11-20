@@ -12,14 +12,14 @@ let pending : int String.Table.t = String.Table.create ()
 let confirmed : (int * D.reaction) String.Table.t = String.Table.create ()
 let redraw () =
  List.iter(Buffer.all_live()) ~f:(fun buffer->Current_buffer.set_temporarily Sync buffer ~f:(fun()->
-  if truth(call "derived-mode-p"[sym "camulus-reader-article-mode"]) && String.equal(text(get "camulus-reader--source"))"douban" then
+  if truth(call "derived-mode-p"[sym "camulus-reader-article-mode"]) && String.equal(text(get "camulus-reader--backend-key"))"douban" then
    run "camulus-reader--render" []))
 let prepare ~notify:_ =
  let browser=firefox_cookie_provider () in
  Some {drain=(fun()->[]);close=(fun()->Hashtbl.clear pending;Hashtbl.clear confirmed);
   create=(fun ~net:_ ~now:_ ~sleep:_ ~groups:_ ~revisions:_ ~article:_ ->
    let backend=D.create_live ~cookies:(Reader.Credentials.Firefox.get browser) () in
-   {matches_source=String.equal ("douban");all_pages=false;refresh_membership=`Merge;
+   {storage_prefix="douban";key_available=String.equal "douban";all_pages=false;refresh_membership=`Merge;
     page=(fun ~source:_ group ~after->D.Live.list backend group ~after,[]);
     archive=(fun ~source:_ ~refresh:_ target id ~native_thread:_ ~add->
      match target with
@@ -52,7 +52,7 @@ let install_protocol () =
    | P.Data(request,Douban_liked(id,reaction)) when Option.equal Int.equal (Hashtbl.find pending id)(Some request.id)->
      Hashtbl.set confirmed ~key:id ~data:(barrier,reaction);
      List.iter(Buffer.all_live()) ~f:(fun buffer->Current_buffer.set_temporarily Sync buffer ~f:(fun()->
-      if truth(call "derived-mode-p"[sym "camulus-reader-article-mode"]) && String.equal(text(get "camulus-reader--source"))"douban" && not(truth(get "camulus-reader--archive")) then
+      if truth(call "derived-mode-p"[sym "camulus-reader-article-mode"]) && String.equal(text(get "camulus-reader--backend-key"))"douban" && not(truth(get "camulus-reader--archive")) then
        let table=get "camulus-reader--messages" in let item=call "gethash"[s id;table] in
        if truth item then run "puthash"[s id;overlay item reaction;table]));
      redraw ();message (if reaction.liked then "豆瓣：已赞" else "豆瓣：已取消赞") []
@@ -65,7 +65,7 @@ let install_protocol () =
    | _->());[])::!event_observers
 let install ~submit () =
  let like liked =
-  if not(truth(call "derived-mode-p"[sym "camulus-reader-article-mode"])) || not(String.equal(text(get "camulus-reader--source"))"douban") || truth(get "camulus-reader--archive") then
+  if not(truth(call "derived-mode-p"[sym "camulus-reader-article-mode"])) || not(String.equal(text(get "camulus-reader--backend-key"))"douban") || truth(get "camulus-reader--archive") then
    user_error "请打开豆瓣的在线文章或评论";
   let id=text(field "id"(call "camulus-reader--selected"[])) in
   ignore(D.like_target id liked : string * (string * string) list * bool);
@@ -77,7 +77,7 @@ let install ~submit () =
   message "正在提交豆瓣点赞操作…" [] in
  define0 ~interactive:true "camulus-douban-like" (fun()->like true);
  define0 ~interactive:true "camulus-douban-unlike" (fun()->like false);
- register_local_groups ~option:"camulus-douban-subscriptions" ~source:(fun _->"douban") ~accepts:all_groups { (base ~name:"douban" ~matches:(String.equal "douban") ~threaded:true
+ register_local_groups ~option:"camulus-douban-subscriptions" ~accepts:all_groups { (base ~id:"douban" ~name:"douban" ~threaded:true
   ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_->Douban(Read id))) with
   attachment=Some(fun ~source:_ ~id ~group:_ ~part ~destination->i(submit (Douban(Attachment(id,part,destination)))));
   controls=[{key="l";hint="赞 · l";command="camulus-douban-like"};{key="L";hint="取消赞 · L";command="camulus-douban-unlike"}];

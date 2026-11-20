@@ -4,9 +4,15 @@ module type S = sig
   type t
   type group
   type cursor
-  val source : string
   val list : t -> group -> after:cursor option -> Content.page
 end
+
+(* Stored identities are backend-qualified. A suffix, when present, belongs
+   to the backend and may identify a server, account, or feed. *)
+let key_backend key =
+  match String.index_opt key ':' with
+  | None -> key
+  | Some separator -> String.sub key 0 separator
 
 (** Optional capabilities: a backend need not implement them to be readable. *)
 module type Threading = sig

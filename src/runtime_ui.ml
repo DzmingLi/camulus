@@ -60,8 +60,13 @@ let start_runtime process =
         ~revisions:(fun ~source ~group ~id ~through ->
           storage(fun db -> CS.revisions db ~source ~group ~id ~through))
         ~article:(fun ~source ~id -> storage(fun db -> CS.local_article db ~source ~id))) in
-      let worker source=List.find workers ~f:(fun w -> w.Reader_backend.matches_source source)
-        |> Option.value_exn ~message:"Source is not configured" in
+      let workers_by_backend = String.Table.create () in
+      List.iter workers ~f:(fun (worker : Reader_backend.worker) ->
+        Hashtbl.add_exn workers_by_backend ~key:worker.storage_prefix ~data:worker);
+      let worker source =
+        match Hashtbl.find workers_by_backend (Reader.Backend.key_backend source) with
+        | Some worker when worker.key_available source -> worker
+        | _ -> failwith "Backend is not configured for this content" in
       let archived ~refresh source target id =
         let articles=Stdlib.Hashtbl.create 64 in
         let add (a:CS.archived) =
@@ -98,7 +103,7 @@ let start_runtime process =
         | Unfavorite(source,target,id,folder) ->
           storage(fun db -> CS.remove_favorite db ~source ~target ~id ~folder);changed()
         | Archive(source,target,id) ->
-          reply emit "archive" ["source",`String source;"id",`String id;
+          reply emit "archive" ["backend_key",`String source;"id",`String id;
             "articles",storage(fun db -> CS.load_archive db ~source ~target ~id)]
         | Attachment(source,id,part,destination) ->
           let data=match storage(fun db -> CS.attachment_archive db ~source ~id ~part) with

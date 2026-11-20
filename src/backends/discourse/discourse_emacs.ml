@@ -16,7 +16,7 @@ let prepare ~notify:_ =
     let forum site=match Stdlib.Hashtbl.find_opt forums site with
       | Some backend -> backend
       | None -> let backend=Discourse.Live.create(Discourse.config site) in Stdlib.Hashtbl.add forums site backend;backend in
-    {matches_source=Discourse.is_source;all_pages=false;refresh_membership=`Merge;
+    {storage_prefix="discourse";key_available=Discourse.is_source;all_pages=false;refresh_membership=`Merge;
      page=(fun ~source group ~after ->
        let backend=forum(Discourse.site_of_source source) and group=Discourse.group_of_string group in
        Discourse.Live.list backend group ~after,[]);
@@ -45,7 +45,7 @@ let prepare ~notify:_ =
            try Discourse.Live.Subscription.set backend target (Discourse.tracking_of_string s)
            with Discourse.Uncertain_write -> failwith "Tracking update outcome is uncertain; read remote state before retrying");
          let current=match Discourse.Live.Subscription.get backend target with Regular -> "regular" | Tracking -> "tracking" | Watching -> "watching" | Muted -> "muted" in
-         reply emit "subscription" ["source",`String source;"target",`String target;"setting",`String current;
+         reply emit "subscription" ["backend_key",`String source;"target",`String target;"setting",`String current;
            "choices",`List(List.map ["regular";"tracking";"watching";"muted"] ~f:(fun s -> `String s))];true
        | _ -> false)})}
 
@@ -103,7 +103,7 @@ let composer ~submit =
         run "run-at-time" [i 0;nil;lambda0 choose]) in
   let authenticated ()=List.map (values(get "camulus-discourse--authenticated-sites")) ~f:text in
   let in_group entry =
-    let site=Discourse.site_of_source(text(field "source" entry)) in
+    let site=Discourse.site_of_source(text(field "backend_key" entry)) in
     if not(List.mem (authenticated ()) site ~equal:String.equal) then
       Some(fun () -> user_error "Authorize this Discourse site before posting")
     else match Discourse.group_of_string(text(field "group" entry)) with
@@ -116,18 +116,20 @@ let composer ~submit =
 let install ~submit () =
   let submit=request_discourse ~submit in
   Interaction_emacs.install ();
-  register { (base ~name:"Discourse" ~matches:(String.is_prefix ~prefix:"discourse:") ~threaded:true
+  register { (base ~id:"discourse" ~name:"Discourse" ~threaded:true
     ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Discourse(String.drop_prefix source 10,Discourse_backend.Thread id))) with
+    group_key=(fun entry -> Discourse.source_of_site (string_field "site" entry));
+    group_context=(fun key -> ["site",s (Discourse.site_of_source key)]);
     start=Interaction_emacs.setup;
     followed=Some(fun () ->
       Interaction_emacs.registered_sites ()
       |> List.filter ~f:(fun (site,_) -> List.exists(values(get "camulus-discourse--authenticated-sites")) ~f:(Value.equal(s site)))
       |> List.map ~f:(fun (site,entry) ->
         alist["name",s(text(field "name" entry)^" · 通知");
-          "source",s(Discourse_backend.source_of_site site);"group",s "notifications"]));
+          "backend_key",s(Discourse_backend.source_of_site site);"group",s "notifications"]));
     normalize=(fun entry ->
-      let source=Discourse_backend.source_of_site(String.drop_prefix(text(field "source" entry))10) in
-      Interaction_emacs.assign "source" (s source) (call "copy-alist" [entry]));
+      let source=Discourse_backend.source_of_site(String.drop_prefix(text(field "backend_key" entry))10) in
+      Interaction_emacs.assign "backend_key" (s source) (call "copy-alist" [entry]));
     attachment=Some (fun ~source ~id ~group ~part ~destination -> ignore group; Value.of_int_exn (submit (String.drop_prefix source 10) (Discourse_backend.Attachment(id,part,destination))));
     events=["discourse"];subscription_target=Some (fun ~source:_ ~selected ->
       let id=text(field "id"(selected ()))in

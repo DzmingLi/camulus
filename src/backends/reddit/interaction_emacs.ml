@@ -9,12 +9,12 @@ let vote_label message=
  mark^(if Value.eq status(sym "pending")then " pending"else if Value.eq status(sym "rejected")then " failed"else if Value.eq status(sym "uncertain")then " unknown"else "")
 let redraw _id=
  List.iter(Buffer.all_live())~f:(fun buffer->Current_buffer.set_temporarily Sync buffer ~f:(fun()->
-  if String.is_prefix(text(get "camulus-reader--source"))~prefix:"reddit:"then
+  if String.is_prefix(text(get "camulus-reader--backend-key"))~prefix:"reddit:"then
    if truth(call "derived-mode-p"[sym "camulus-reader-article-mode"])then run "camulus-reader--render"[]
    else if truth(call "derived-mode-p"[sym "camulus-reader-feed-mode"]) && truth(call "hash-table-p"[get "camulus-reader--rows"])then
     run "camulus-reader--set-rows"[call "hash-table-values"[get "camulus-reader--rows"]]))
 let vote direction=
- let source=get "camulus-reader--source"in
+ let source=get "camulus-reader--backend-key"in
  if not(String.is_prefix(text source)~prefix:"reddit:") || truth(get "camulus-reader--archive")then user_error "Open live Reddit content";
  let row=call "camulus-reader--selected"[]in let id=field "id"row in
  let m=if truth(call "derived-mode-p"[sym "camulus-reader-article-mode"])then call "gethash"[id;get "camulus-reader--messages"]else row in

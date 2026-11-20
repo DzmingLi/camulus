@@ -21,12 +21,15 @@ type topic_tracking = {
   change : source:string -> target:string -> setting:string option -> Value.t;
 }
 type t = {
+  id : string;
+  storage_prefix : string;
   name : string;
   start : unit -> unit;
   on_refresh : unit -> unit;
   inline_attachments : bool;
   normalize : Value.t -> Value.t;
-  matches : string -> bool;
+  group_key : Value.t -> string;
+  group_context : string -> (string * Value.t) list;
   threaded : bool;
   thread_contains_bodies : bool;
   available : string -> bool;
@@ -54,15 +57,19 @@ type t = {
 }
 let registry : t list ref = ref []
 let register backend =
-  registry := List.filter !registry ~f:(fun b -> not (String.equal b.name backend.name)) @ [backend]
+  registry := List.filter !registry ~f:(fun b -> not (String.equal b.id backend.id)) @ [backend]
 let all () = !registry
-let find source = List.find !registry ~f:(fun b -> b.matches source)
+let find_id id = List.find !registry ~f:(fun b -> String.equal b.id id)
+let owns_key backend key =
+  String.equal backend.storage_prefix (Reader.Backend.key_backend key)
+let find key = List.find !registry ~f:(fun backend -> owns_key backend key)
 let call name args = Value.funcallN (Value.intern name) args
 let run name args = ignore (call name args : Value.t)
 let s = Value.of_utf8_bytes
 let alist fields = Value.list (List.map fields ~f:(fun (k,v) -> call "cons" [Value.intern k;v]))
-let base ~name ~matches ~threaded ~read = {
-  name;start=(fun()->());on_refresh=(fun()->());inline_attachments=true;normalize=Fn.id;matches;threaded;read;thread_contains_bodies=false;
+let base ~id ~name ~threaded ~read = {
+  id;storage_prefix=id;name;start=(fun()->());on_refresh=(fun()->());inline_attachments=true;
+  normalize=Fn.id;group_key=(fun _ -> id);group_context=(fun _ -> []);threaded;read;thread_contains_bodies=false;
   available=(fun _ -> true);attachment=None;controls=[];list_controls=[];composer=None;article_marks=(fun _->"");row_title=(fun row->Value.funcallN(Value.intern "alist-get")[Value.intern "title";row]);browser=None;entrances=(fun () -> []);followed=None;
   subscription_target=None;topic_tracking=None;subscription_option=None;can_subscribe_group=(fun ~source:_ ~group:_ -> false);delete=None;events=[];
   reconcile=(fun ~source:_ ~existing:_ ~request:_ ~archived:_ message -> message)
@@ -99,6 +106,31 @@ let set name v=run "set"[sym name;v]
 let local name v=run "make-local-variable"[sym name];set name v
 let field name v=call "alist-get"[sym name;v]
 let text v=if truth v then Value.to_utf8_bytes_exn v else ""
+let string_field field_name entry =
+  let v = field field_name entry in
+  if truth (call "stringp" [v]) then text v else ""
+let group_backend entry =
+  find_id (string_field "backend" entry)
+let resolve_group entry =
+  let configured = truth (field "backend" entry) in
+  let owner = if configured then group_backend entry else find (string_field "backend_key" entry) in
+  match owner with
+  | None -> invalid_arg "Specify a registered backend for this group"
+  | Some backend ->
+    let key =
+      if configured then backend.group_key entry
+      else string_field "backend_key" entry in
+    if not (owns_key backend key) then invalid_arg "Group key belongs to another backend";
+    let entry =
+      if String.equal key (string_field "backend_key" entry) then entry
+      else call "cons" [call "cons" [sym "backend_key";s key];entry] in
+    backend.normalize entry
+let group_reference entry =
+  let key = string_field "backend_key" entry in
+  match find key with
+  | None -> invalid_arg "Unknown group backend"
+  | Some backend ->
+    alist (["backend",s backend.id; "group",field "group" entry] @ backend.group_context key)
 let firefox_cookie_provider () =
  let configured=get "camulus-firefox-profile" in
  let profile=if truth configured then Some(text(call "expand-file-name" [configured])) else None in
@@ -107,6 +139,10 @@ let integer v=Value.to_int_exn v
 let i=Value.of_int_exn
 let b v=if v then sym "t"else nil
 let values v=Value.to_list_exn v ~f:Fn.id
+let configured_groups () =
+  List.filter_map (values (get "camulus-groups")) ~f:(fun entry ->
+    Option.bind (group_backend entry) ~f:(fun _ ->
+      try Some (resolve_group entry) with Invalid_argument _ -> None))
 let in_buffer value f=Current_buffer.set_temporarily Sync (Buffer.of_value_exn value) ~f
 let live v=truth(call "buffer-live-p"[v])
 let message fmt args=run "message"(s fmt::args)
@@ -140,24 +176,27 @@ let custom ?(kind=Customization.Type.Sexp) name default docstring =
 (* Local subscriptions are backend-owned Emacs options. Discovery reads the
    current option on the owner thread; no worker state or second file is involved. *)
 let all_groups ~source:_ ~group:_ = true
-let register_local_groups ~option ~source ~accepts backend =
+let register_local_groups ?key_for_group ~option ~accepts backend =
+  let key_for_group = Option.value key_for_group ~default:(fun _ -> backend.storage_prefix) in
   custom ~kind:Customization.Type.(Repeat String) option nil
     (backend.name^" groups included in Home. Configure with setopt or Customize; registering a browsing group does not subscribe it.");
-  let accepts ~source ~group=backend.matches source && accepts ~source ~group in
+  let accepts ~source ~group=owns_key backend source && accepts ~source ~group in
   let followed () =
     let groups=values(get option) |> List.map ~f:(fun value->
       let group=Value.to_utf8_bytes_exn value in
       if String.is_empty group || String.contains group '\000' then invalid_arg("Invalid subscription in "^option);
       group) |> List.dedup_and_sort ~compare:String.compare in
     List.map groups ~f:(fun group->
-      let source=source group in
+      let source=key_for_group group in
       if not(accepts ~source ~group)then invalid_arg("Unsupported subscription in "^option);
-      alist["name",s(backend.name^" · "^group);"source",s source;"group",s group]) in
-  register {backend with can_subscribe_group=accepts;subscription_option=Some option;followed=Some followed}
+      alist["name",s(backend.name^" · "^group);"backend_key",s source;"group",s group]) in
+  register {backend with group_key=(fun entry -> key_for_group (string_field "group" entry));
+    can_subscribe_group=accepts;subscription_option=Some option;followed=Some followed}
 
 (* Worker sessions contain only OCaml data and run on the Eio domain. *)
 type worker = {
-  matches_source : string -> bool;
+  storage_prefix : string;
+  key_available : string -> bool;
   all_pages : bool;
   (* Local directory listings can authoritatively replace the view's
      membership. Remote pages supply observations to merge into it. *)

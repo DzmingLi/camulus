@@ -23,11 +23,11 @@ let worktree owner repo =
 
 let selected () =
   let row=call "camulus-reader--selected" [] in
-  if not(String.equal(text(field "source" row)) G.source) then
+  if not(String.equal(text(field "backend_key" row)) G.source) then
     user_error "Select GitHub content";
   if truth(call "derived-mode-p" [sym "camulus-reader-article-mode"]) then
     let message=call "gethash" [field "id" row;get "camulus-reader--messages"] in
-    if truth message then call "cons" [call "cons" [sym "source";s G.source];message] else row
+    if truth message then call "cons" [call "cons" [sym "backend_key";s G.source];message] else row
   else row
 
 let selected_topic () =

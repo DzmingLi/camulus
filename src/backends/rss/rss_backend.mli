@@ -5,7 +5,6 @@ module Http = Reader.Http
 module Transport : Http.S
 module Decode = Decode
 module Feed_xml = Feed_xml
-val source : string
 val source_of_url : string -> string
 val url_of_source : string -> string
 val is_source : string -> bool

@@ -2,7 +2,6 @@ module C=Reader.Content
 module R=Rss_backend
 module D=R.Decode
 module Html=Reader.Html
-let source="janestreet"
 type group=string
 type cursor=string
 let feed_url="https://blog.janestreet.com/feed.xml"
@@ -39,7 +38,6 @@ module Make(H:R.Http.S)=struct
  type t={feed:Feed.t;full:(string,D.article) Hashtbl.t;lock:Eio.Mutex.t}
  type nonrec group=group
  type nonrec cursor=cursor
- let source=source
  let create ()={feed=Feed.create ~decode ();full=Hashtbl.create 64;lock=Eio.Mutex.create ()}
  let list t group ~after=validate_group group;Feed.list t.feed feed_url ~after
  let read t group id =

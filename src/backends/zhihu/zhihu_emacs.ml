@@ -18,5 +18,5 @@ let install_protocol () =
   source_providers:=(fun()->Some "zhihu")::!source_providers
 
 let install ~submit () =
-  register_local_groups ~option:"camulus-zhihu-subscriptions" ~source:(fun _->"zhihu") ~accepts:all_groups
+  register_local_groups ~option:"camulus-zhihu-subscriptions" ~accepts:all_groups
     (Rss_emacs.publication_backend ~submit ~source:"zhihu" ~threaded:false)

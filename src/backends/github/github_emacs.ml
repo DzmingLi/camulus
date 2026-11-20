@@ -13,7 +13,7 @@ let prepare ~notify:_ =
  let config= !credentials in
  Some {drain=(fun()->[]);close=(fun()->());create=(fun ~net:_ ~now ~sleep:_ ~groups:_ ~revisions ~article:_ ->
   let t=G.Live.create ~now config in
-  {matches_source=String.equal G.source;all_pages=false;refresh_membership=`Merge;
+  {storage_prefix="github";key_available=String.equal G.source;all_pages=false;refresh_membership=`Merge;
    page=(fun ~source:_ group ~after->let group=G.group_of_string group in G.Live.list t group ~after,[]);
    archive=(fun ~source:_ ~refresh:_ target id ~native_thread ~add ->
     match target with CS.Article->add(G.Live.archive_article t (G.Live.read t id));true
@@ -23,7 +23,7 @@ let prepare ~notify:_ =
     let result kind fields=emit(Presentation("github",`Assoc(("kind",`String kind)::fields)))in
     let subscription id setting=
       Option.iter setting ~f:(fun s->G.Subscription.set t id (G.tracking s));
-      result "subscription" ["source",`String G.source;"target",`String id;
+      result "subscription" ["backend_key",`String G.source;"target",`String id;
         "setting",`String(G.tracking_string(G.Subscription.get t id));
         "choices",`List(List.map [G.Subscribed;Unsubscribed;Ignored]~f:(fun s->`String(G.tracking_string s)))] in
     match work with
@@ -171,7 +171,7 @@ let install ~submit () =
    else "" in
   credentials:=G.config token in
  let browse group=ignore(G.group_of_string group:G.group);
-  run "camulus-reader-browse-entry"[alist["name",s("GitHub · "^group);"source",s G.source;"group",s group]]in
+  run "camulus-reader-browse-entry"[alist["name",s("GitHub · "^group);"backend",s "github";"group",s group]]in
  let send_draft ~complete =
   let meta=to_json(get "camulus-github--draft-meta")in
   let id=G.required "id"meta and kind=G.required "kind"meta in
@@ -209,12 +209,12 @@ let install ~submit () =
     Hashtbl.remove completions id;let ok=Value.eq(call "nth"[i 2;event])(sym "completed")in
     if not ok then message "GitHub: %s"[call "nth"[i 3;event]];f ok));nil);
  hook "camulus-probe-event-hook" "camulus-github--event";
- register { (base ~name:"GitHub" ~matches:(String.equal G.source) ~threaded:true
+ register { (base ~id:"github" ~name:"GitHub" ~threaded:true
    ~read:(fun ~source:_ ~id ~thread_id ~group:_->Github(Thread(Option.value thread_id~default:id)))) with
   start=setup;thread_contains_bodies=true;events=["github"];
   normalize=(fun row->ignore(G.group_of_string(text(field "group"row)):G.group);row);
   followed=Some(fun()->if truth(get "camulus-github-notifications")then
-   [alist["name",s "GitHub · 通知";"source",s G.source;"group",s "notifications"]]else []);
+   [alist["name",s "GitHub · 通知";"backend_key",s G.source;"group",s "notifications"]]else []);
   subscription_target=Some(fun ~source:_ ~selected->let row=selected()in
    Some(text(let v=field "thread_id"row in if truth v then v else field "id"row)));
   browser=Some("GitHub","camulus-github");
@@ -225,7 +225,7 @@ let install ~submit () =
    ignore(request ~done_:(fun ok->complete(if ok then Ok Dismiss_notification else Error "GitHub could not mark the notification Done"))
      (Done(text(field "id"row),integer(field "revision"row)))ignore:int)) };
  define0 ~interactive:true "camulus-github"(fun()->
-  let entries=List.filter(values(get "camulus-groups"))~f:(fun e->String.equal(text(field "source"e))G.source)in
+  let entries=List.filter(configured_groups ())~f:(fun e->String.equal(text(field "backend_key"e))G.source)in
   if List.is_empty entries then user_error "Register a GitHub group with C / camulus-groups first";
   let chosen=call "completing-read"[s "GitHub group: ";Value.list(List.map entries~f:(field "name"));nil;sym "t"]in
   Option.iter(List.find entries~f:(fun e->Value.equal(field "name"e)chosen))~f:(fun e->run "camulus-reader-browse-entry"[e]));

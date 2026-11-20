@@ -56,7 +56,7 @@ let prepare ~notify:_ =
     Voting.clear votes;
     {drain=(fun () -> []);close=(fun () -> ());create=(fun ~net:_ ~now ~sleep ~groups:_ ~revisions:_ ~article:_ ->
       let backend=Reddit_backend.Live.create ~config ~now ~sleep in
-      {matches_source=String.equal ("reddit:"^config.username);all_pages=false;refresh_membership=`Merge;
+      {storage_prefix="reddit";key_available=String.equal ("reddit:"^config.username);all_pages=false;refresh_membership=`Merge;
        page=(fun ~source:_ group ~after ->
          let group=if String.equal group "notifications" then Reddit_backend.Notifications
            else if String.is_prefix group ~prefix:"post:" then Reddit_backend.Post(String.drop_prefix group 5)
@@ -143,14 +143,14 @@ let composer ~submit ~configured =
       ~submit:(fun ~subject ~body ~complete ->
         Writing.request (submit(Reddit_backend.Submit(name,subject,body))) ~expect:"submit" ~complete) in
   let in_group entry =
-    let source=text(field "source" entry) and group=text(field "group" entry) in
+    let source=text(field "backend_key" entry) and group=text(field "group" entry) in
     if not(configured source) || String.equal group "notifications" then None
     else Option.map (subreddit_name group) ~f:(post source) in
   let destinations () =
     let source="reddit:"^text(get "camulus-reddit-username") in
     if not(configured source) then [] else
-    let names=List.filter_map (values(get "camulus-groups")) ~f:(fun entry ->
-      if String.equal (text(field "source" entry)) source then Some(text(field "group" entry)) else None)
+    let names=List.filter_map (configured_groups ()) ~f:(fun entry ->
+      if String.equal (text(field "backend_key" entry)) source then Some(text(field "group" entry)) else None)
       @ List.map (values(get "camulus-reddit-subscriptions")) ~f:text in
     let names=List.filter_map names ~f:(fun name ->
       if String.equal name "notifications" then None else subreddit_name name)
@@ -168,7 +168,7 @@ let install ~submit ~configured () =
   custom ~kind:Customization.Type.File "camulus-reddit-token-file" (call "expand-file-name" [s "~/News/nnreddit/refresh-token"]) "Backend configuration option.";
   custom ~kind:Customization.Type.String "camulus-reddit-client-id" (s "5oagOpX2_NKVDej_iuZjFA") "Backend configuration option.";
   custom ~kind:Customization.Type.String "camulus-reddit-redirect-uri" (s "http://127.0.0.1:17973") "Backend configuration option.";
-  register_local_groups ~option:"camulus-reddit-subscriptions" ~source:(fun _->"reddit:"^text(get "camulus-reddit-username")) ~accepts:all_groups { (base ~name:"Reddit" ~matches:(String.is_prefix ~prefix:"reddit:") ~threaded:true
+  register_local_groups ~option:"camulus-reddit-subscriptions" ~key_for_group:(fun _->"reddit:"^text(get "camulus-reddit-username")) ~accepts:all_groups { (base ~id:"reddit" ~name:"Reddit" ~threaded:true
     ~read:(fun ~source:_ ~id ~thread_id ~group:_ ->
       Reddit(Reddit_backend.Thread (Option.value thread_id ~default:id)))) with
     start=(fun()->if truth(get "camulus-reddit-username")then run "camulus-reddit-configure"[get "camulus-reddit-username";get "camulus-reddit-token-file";get "camulus-reddit-client-id";get "camulus-reddit-redirect-uri"]);
@@ -185,4 +185,4 @@ let install ~submit ~configured () =
      if Value.eq username Value.nil then run "user-error" [s "Configure a Reddit account first"];
      match subreddit_name subreddit with
      | None -> user_error "Enter a subreddit name"
-     | Some name -> run "camulus-reader-browse-entry" [alist ["name",s ("r/"^name);"source",s ("reddit:"^Value.to_utf8_bytes_exn username);"group",s name]])
+     | Some name -> run "camulus-reader-browse-entry" [alist ["name",s ("r/"^name);"backend",s "reddit";"group",s name]])

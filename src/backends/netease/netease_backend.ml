@@ -2,7 +2,6 @@ module C=Reader.Content
 module R=Rss_backend
 module D=R.Decode
 module Html=Reader.Html
-let source="netease"
 type group=string
 type cursor=string
 let field k=function `Assoc xs->Option.value(List.assoc_opt k xs)~default:`Null|_->`Null
@@ -37,7 +36,6 @@ module Make(H:R.Http.S)=struct
  type t={cache:(string,D.article)Hashtbl.t}
  type nonrec group=group
  type nonrec cursor=cursor
- let source=source
  let create ()={cache=Hashtbl.create 64}
  let list t group ~after=
   let uid=user group in

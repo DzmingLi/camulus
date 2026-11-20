@@ -22,12 +22,12 @@ let request data callback=
 let callback f=lambda2(fun data reason->f data(if truth reason then Some(text reason)else None);nil)
 let for_readers source f=
  List.iter(Buffer.all_live())~f:(fun buffer->Current_buffer.set_temporarily Sync buffer~f:(fun()->
-  if truth(call "derived-mode-p"[sym "camulus-reader-article-mode"]) && Value.equal(get "camulus-reader--source")source then f()))
+  if truth(call "derived-mode-p"[sym "camulus-reader-article-mode"]) && Value.equal(get "camulus-reader--backend-key")source then f()))
 (* Discover forum identities for credentials without validating unrelated groups.
    Invalid forum URLs are reported when their group is opened. *)
 let registered_sites () =
- List.filter_map (values(get "camulus-groups")) ~f:(fun entry ->
-  let source=field "source" entry in
+ List.filter_map (configured_groups ()) ~f:(fun entry ->
+  let source=field "backend_key" entry in
   if not(truth(call "stringp" [source])) || not(Discourse_backend.is_source(text source)) then None else
   try Some(Discourse_backend.site_of_source(text source),entry) with Invalid_argument _ -> None)
  |> List.stable_dedup ~compare:(fun (a,_) (b,_) -> String.compare a b)
@@ -51,9 +51,9 @@ let setup ()=
 let browse site group=
  let site=Discourse_backend.Decode.site site in
  if not(List.exists(values(get "camulus-discourse-sites"))~f:(Value.equal(s site)))then set "camulus-discourse-sites"(call "cons"[s site;get "camulus-discourse-sites"]);
- run "camulus-reader-browse-entry"[alist["name",s("Discourse: "^site);"source",s("discourse:"^site);"group",s group]]
+ run "camulus-reader-browse-entry"[alist["name",s("Discourse: "^site);"backend",s "discourse";"site",s site;"group",s group]]
 let like unlike=
- let source=get "camulus-reader--source"in
+ let source=get "camulus-reader--backend-key"in
  if not(truth(call "derived-mode-p"[sym "camulus-reader-article-mode"])) || not(String.is_prefix(text source)~prefix:"discourse:") || truth(get "camulus-reader--archive")then user_error "Open a live Discourse article";
  let id=field "id"(call "camulus-reader--selected"[])in let key=Value.list[source;id]in
  let item=call "gethash"[id;get "camulus-reader--messages"]in let previous=field "liked"item and liked=not unlike in
@@ -92,14 +92,14 @@ let install ()=
      let reason=call "nth"[i 3;event]in ignore(Value.funcallN f[nil;reason]:Value.t);message "Discourse: %s"[reason])));nil);
  hook "camulus-probe-event-hook""camulus-discourse--event";
  Defun.defun(Symbol.intern "camulus-discourse--apply-like")[%here]~docstring:"Reconcile like responses with pending edits."(Returns Value.Type.value)
-  (let open Defun.Let_syntax in let%map_open item=required "message"value and source=required "source"value and request=required "request"value in apply_like item source request);
+  (let open Defun.Let_syntax in let%map_open item=required "message"value and source=required "backend_key"value and request=required "request"value in apply_like item source request);
  Defun.defun(Symbol.intern "camulus-reader-discourse")[%here]~docstring:"Browse a Discourse group."
   ~interactive:(Prompt "Discourse forum URL: ")(Returns Value.Type.unit)
   (let open Defun.Let_syntax in let%map_open site=required "site"string and group=optional_with_nil "group"value in browse site(if truth group then text group else "latest"));
  optional ~interactive:true "camulus-reader-discourse-refresh"(fun more->if truth more then run "camulus-reader-more"[]else run "camulus-reader-refresh"[];nil);
  define0 ~interactive:true "camulus-reader-discourse-more"(fun()->run "camulus-reader-more"[]);
  define0 ~interactive:true "camulus-reader-discourse-categories"(fun()->
-  let buffer=Buffer.to_value(Current_buffer.get())and source=get "camulus-reader--source"in
+  let buffer=Buffer.to_value(Current_buffer.get())and source=get "camulus-reader--backend-key"in
   ignore(request(alist["op",s "categories";"site",s(String.drop_prefix(text source)10)])(callback(fun data reason->
    if Option.is_none reason && live buffer && member "categories"data then(
     let choices=List.map(values(field "rows"data))~f:(fun row->text(field "name"row)^" ["^text(call "format"[s "%s";field "id"row])^"]",field "group"row)in

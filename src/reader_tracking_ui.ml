@@ -20,7 +20,7 @@ let watch id receive finished=
  table_put "camulus-reader--requests" id (callback receive);
  table_put "camulus-reader--completions" id (callback finished)
 let header ()=
- let filters=(managed(text(get "camulus-reader--source"))).filters in
+ let filters=(managed(text(get "camulus-reader--backend-key"))).filters in
  let filter=text(get_local "filter")in
  let label=Option.value(List.Assoc.find filters filter ~equal:String.equal)~default:filter in
  let status=if truth(get_local "error")then "Error: "^text(get_local "error")
@@ -33,10 +33,10 @@ let header ()=
 let render ()=
  let selected=call "tabulated-list-get-id" []in
  let table=call "make-hash-table" [sym ":test";sym "equal"]in
- let source=get "camulus-reader--source"in
+ let source=get "camulus-reader--backend-key"in
  let entries=List.map(values(get_local "rows"))~f:(fun row->
    let id=field "id" row in
-   let row=call "cons" [call "cons" [sym "source";source];row]in
+   let row=call "cons" [call "cons" [sym "backend_key";source];row]in
    run "puthash" [id;row;table];
    Value.list [id;call "vector" [field "setting" row;field "title" row]])in
  local "camulus-reader--rows" table;
@@ -57,7 +57,7 @@ let refresh more=
  if more && not(truth(get_local "after"))then user_error "No further topics";
  cancel ();
  let buffer=current () and generation=get_local "generation" in
- let source=text(get "camulus-reader--source")and filter=text(get_local "filter")in
+ let source=text(get "camulus-reader--backend-key")and filter=text(get_local "filter")in
  let after=if more then Some(text(get_local "after"))else None in
  set_local "error" nil;
  let received=ref false in
@@ -80,11 +80,11 @@ let refresh more=
  with exn->set_local "request" nil;set_local "error"(s(Exn.to_string exn));header ();raise exn
 let changed source=
  List.iter(Buffer.all_live ())~f:(fun buffer->in_buffer(Buffer.to_value buffer)(fun()->
-  if truth(call "derived-mode-p"[sym "camulus-tracking-mode"]) && String.equal(text(get "camulus-reader--source"))source
+  if truth(call "derived-mode-p"[sym "camulus-tracking-mode"]) && String.equal(text(get "camulus-reader--backend-key"))source
      && not(truth(get_local "busy")) then refresh false))
 let filter ()=
  if truth(get_local "busy")then user_error "Wait for the tracking change to finish";
- let filters=(managed(text(get "camulus-reader--source"))).filters in
+ let filters=(managed(text(get "camulus-reader--backend-key"))).filters in
  let choices=List.map filters~f:(fun(key,label)->key^" · "^label)in
  let choice=text(call "completing-read"[s "Show topics: ";Value.list(List.map choices~f:s);nil;sym "t"])in
  let key=List.find_mapi filters~f:(fun n (key,_)->if String.equal choice(List.nth_exn choices n)then Some key else None)|>Option.value_exn in
@@ -92,7 +92,7 @@ let filter ()=
 let change ~on_changed ()=
  if truth(get_local "busy")then user_error "A tracking change is already in progress";
  let row=call "camulus-reader--selected" []in
- let source=text(field "source" row) and target=text(field "id" row)in
+ let source=text(field "backend_key" row) and target=text(field "id" row)in
  let manager=managed source and buffer=current ()in
  cancel ();
  let generation=get_local "generation" and selected=ref false in
@@ -127,25 +127,25 @@ let change ~on_changed ()=
  with exn->fail(s(Exn.to_string exn));raise exn
 let open_ requested=
  run "camulus-reader-start" [];
- let sources=values(get "camulus-groups")|>List.map ~f:(fun entry->text(field "source"entry))
+ let sources=configured_groups ()|>List.map ~f:(fun entry->text(field "backend_key"entry))
    |>List.stable_dedup ~compare:String.compare
    |>List.filter ~f:(fun source->Option.exists(find source)~f:(fun b->Option.is_some b.topic_tracking))in
  let source=if truth requested then text requested else
    let entry=call "get-text-property"[call "point"[];sym "camulus-reader-entry"]in
-   let candidate=if truth(field "source" entry)then field "source"entry else get "camulus-reader--source"in
+   let candidate=if truth(field "backend_key" entry)then field "backend_key"entry else get "camulus-reader--backend-key"in
    if truth candidate && List.mem sources(text candidate)~equal:String.equal then text candidate
    else if List.is_empty sources then(user_error "Register a source with remote subscription management first";assert false)
    else text(call "completing-read"[s "Manage subscriptions for: ";Value.list(List.map sources~f:s);nil;sym "t"])in
  let source=Option.value_map (find source) ~default:source ~f:(fun backend ->
-   text(field "source" (backend.normalize(alist["source",s source])))) in
+   text(field "backend_key" (backend.normalize(alist["backend_key",s source])))) in
  let manager=managed source in
  let filter=fst(List.hd_exn manager.filters)in
  let buffer=Buffer.find_or_create ~name:("*Camulus tracking: "^source^"*")in
  run "switch-to-buffer" [Buffer.to_value buffer];
  if not(truth(call "derived-mode-p"[sym "camulus-tracking-mode"]))then(
    run "camulus-tracking-mode" [];
-   local "camulus-reader--source"(s source);
-   local "camulus-reader--entry"(alist["source",s source]);
+   local "camulus-reader--backend-key"(s source);
+   local "camulus-reader--entry"(alist["backend_key",s source]);
    set_local "filter"(s filter));
  refresh false
 let install ~on_changed=

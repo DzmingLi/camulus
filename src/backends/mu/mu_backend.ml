@@ -58,7 +58,6 @@ type submit = profile:string -> sender:string -> recipients:string list -> strin
 type snapshot = { group : string; rows : M.message list }
 type t = { config : config; run : run; submit : submit; headers : (string,header) Hashtbl.t;
            snapshots : (string,snapshot) Hashtbl.t; mutable serial : int; mutations : Eio.Mutex.t }
-let source="mail"
 let create ~config ~run ~submit =
   validate_config config;
   {config;run;submit;headers=Hashtbl.create 256;snapshots=Hashtbl.create 8;serial=0;mutations=Eio.Mutex.create ()}

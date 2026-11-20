@@ -2,7 +2,6 @@ module R=Rss_backend
 module D=R.Decode
 module C=Reader.Content
 module Html=Reader.Html
-let source="blogger"
 type group=string
 type cursor=string
 let host group =
@@ -32,7 +31,6 @@ module Make(H:R.Http.S)=struct
    full:((group*string),D.article)Hashtbl.t;lock:Eio.Mutex.t}
  type nonrec group=group
  type nonrec cursor=cursor
- let source=source
  let create ()=
   let decode ~url body=
    let articles,links=D.atom_page ~url body in

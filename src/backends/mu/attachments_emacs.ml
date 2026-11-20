@@ -61,7 +61,7 @@ let save_all () =
 let refresh ?(force=false) () =
   let owner=Buffer.to_value(Current_buffer.get()) in
   if truth(call "derived-mode-p" [sym "camulus-reader-article-mode"]) then (
-    let source=text(get "camulus-reader--source") in
+    let source=text(get "camulus-reader--backend-key") in
     let id=call "get-text-property" [call "point" [];sym "camulus-reader-id"] in
     let id=if truth id then id else call "get-text-property" [call "point-min" [];sym "camulus-reader-id"] in
     let parts=if String.is_prefix source ~prefix:"maildir:" && truth id then

@@ -1,4 +1,3 @@
-val source : string
 type group = string
 type cursor = string
 val feed_url : group -> string

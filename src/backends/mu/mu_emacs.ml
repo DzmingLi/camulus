@@ -30,7 +30,7 @@ let prepare ~notify =
            |> Option.value_exn ~message:"Configure an SMTP profile before sending" in
          Mu_backend.Smtp.send ~net ~sleep smtp ~sender ~recipients message in
        let backend=Mu_backend.create ~config ~run ~submit in
-       {matches_source=String.equal ("maildir:"^config.root);all_pages=false;refresh_membership=`Replace;
+       {storage_prefix="maildir";key_available=String.equal ("maildir:"^config.root);all_pages=false;refresh_membership=`Replace;
         page=(fun ~source:_ group ~after -> Mu_backend.list backend group ~after,[]);
         archive=(fun ~source:_ ~refresh:_ target id ~native_thread:_ ~add ->
           let capture (a:Mu_backend.article) =
@@ -129,7 +129,7 @@ let sync ~submit ~manual () =
        if Option.equal Int.equal !sync_request (Some id) then (
          sync_request:=None;
          if Value.eq (call "nth" [i 2;event]) (sym "completed") then (
-           run "camulus-reader--refresh-source" [source];
+           run "camulus-reader--refresh-backend-key" [source];
            if manual then message "Mail synchronized and indexed" [])
          else message "Mail sync: %s" [call "nth" [i 3;event]]);
        nil)) in
@@ -157,14 +157,14 @@ let install ~submit ~configured ~request_state () =
   custom ~kind:Customization.Type.Integer "camulus-mail-sync-interval" (i 0) "Backend configuration option.";
   define0 ~interactive:true "camulus-mail-sync" (fun () ->
     run "camulus-reader-start" [];sync ~submit ~manual:true ());
-  register_local_groups ~option:"camulus-mu-subscriptions" ~source:(fun _->"maildir:"^text(get "camulus-mail-root")) ~accepts:all_groups { (base ~name:"Mu" ~matches:(String.is_prefix ~prefix:"maildir:") ~threaded:true
+  register_local_groups ~option:"camulus-mu-subscriptions" ~key_for_group:(fun _->"maildir:"^text(get "camulus-mail-root")) ~accepts:all_groups { (base ~id:"mu" ~name:"Mu" ~threaded:true
     ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_ -> Mail(Mu_backend.Thread id))) with
     start=(fun()->if truth(get "camulus-mail-sender")then(
       run "camulus-mail-configure"[get "camulus-mail-root";get "camulus-mail-muhome";get "camulus-mail-sender";
        (let mu=call "executable-find"[s "mu"]in if truth mu then mu else s "mu");get "camulus-mail-account"];
       List.iter(values(get "camulus-mail-smtp-profiles"))~f:(fun row->run "apply"[sym "camulus-mail-configure-smtp";row]);
       List.iter(values(get "camulus-mail-accounts"))~f:(fun row->run "apply"[sym "camulus-mail-configure-account";row])));
-    inline_attachments=false;
+    storage_prefix="maildir";inline_attachments=false;
     on_refresh=(fun () -> if truth(get "camulus-mail-sender") then
       try sync ~submit ~manual:false () with ex -> message "Mail sync: %s" [s(Exn.to_string ex)]);
     attachment=Some (fun ~source:_ ~id ~group:_ ~part ~destination -> Value.of_int_exn (submit (Mu_backend.Attachment(id,part,destination))));

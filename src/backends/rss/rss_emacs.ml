@@ -11,6 +11,7 @@ type operation = Read of string * string | Attachment of string * string * int *
    remain owned by their respective backend modules. *)
 module type Feed = sig
   type t
+  val id : string
   val all_pages : bool
   val is_source : string -> bool
   val source_of_url : string -> string
@@ -38,7 +39,7 @@ module Connect (F:Feed) = struct
       let cached url id =
         if F.local_articles then Option.map (article ~source:(F.source_of_url url) ~id) ~f:R.article_of_json
         else None in
-      {matches_source=F.is_source;all_pages=F.all_pages;refresh_membership=`Merge;
+      {storage_prefix=F.id;key_available=F.is_source;all_pages=F.all_pages;refresh_membership=`Merge;
        page=(fun ~source group ~after ->
          if not(String.equal (F.url_of_source source) group) then invalid_arg "Feed source and entry URL differ";
          F.page backend group ~after);
@@ -66,6 +67,7 @@ end
 module Connection = Connect(struct
   include R.Live
   let create ()=R.Live.create ()
+  let id="rss"
   let all_pages=false
   let local_articles=true
   let page t url ~after =
@@ -84,7 +86,7 @@ let install_protocol = Connection.install_protocol
 type Protocol.work += Publication_read of string * string * string option
   | Publication_attachment of string * string * string option * int * string
 let publication_backend ~submit ~source ~threaded =
-  { (base ~name:source ~matches:(String.equal source) ~threaded
+  { (base ~id:source ~name:source ~threaded
       ~read:(fun ~source:_ ~id ~thread_id:_ ~group ->
         Publication_read(source,id,group))) with
     attachment=Some(fun ~source:_ ~id ~group ~part ~destination ->
@@ -92,7 +94,7 @@ let publication_backend ~submit ~source ~threaded =
     events=["rss"] }
 let publication_worker ?(all_pages=false) ~source ~group ~page ~read ~archive ~attachment ~refresh
     ?thread () =
-  {matches_source=String.equal source;all_pages;refresh_membership=`Merge;
+  {storage_prefix=source;key_available=String.equal source;all_pages;refresh_membership=`Merge;
    page=(fun ~source:_ group ~after -> page group ~after);
    archive=(fun ~source:_ ~refresh:reload target id ~native_thread:_ ~add ->
      let group=group id None in
@@ -122,9 +124,9 @@ let install ~submit () =
     ~interactive:(Prompt "RSS / Atom feed URL: ") (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open url=required "url" string in
      run "camulus-reader-browse-entry" [alist ["name",s ("RSS / Atom: "^url);
-       "source",s (R.source_of_url url);"group",s url]]);
-  register_local_groups ~option:"camulus-rss-subscriptions" ~source:R.source_of_url
-    ~accepts:(fun ~source ~group->String.equal (R.url_of_source source) group) { (base ~name:"RSS / Atom" ~matches:(String.is_prefix ~prefix:"rss:") ~threaded:false
+       "backend",s "rss";"group",s url]]);
+  register_local_groups ~option:"camulus-rss-subscriptions" ~key_for_group:R.source_of_url
+    ~accepts:(fun ~source ~group->String.equal (R.url_of_source source) group) { (base ~id:"rss" ~name:"RSS / Atom" ~threaded:false
     ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Connection.Request(Read(String.drop_prefix source 4,id)))) with
     attachment=Some (fun ~source ~id ~group ~part ~destination -> ignore group; Value.of_int_exn (submit (Attachment(String.drop_prefix source 4,id,part,destination))));
     events=["rss"];

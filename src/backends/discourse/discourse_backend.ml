@@ -3,7 +3,6 @@ module Transport = struct let request r = Http.request ~policy:Http.Https_or_loo
 module Decode=Decode
 module D=Decode
 module C=Reader.Content
-let source="discourse"
 let source_of_site site="discourse:"^D.site site
 let is_source=String.starts_with ~prefix:"discourse:"
 let site_of_source source=
@@ -44,7 +43,6 @@ module Make(H:Http.S)=struct
  type t={config:config;categories:(int,string) Hashtbl.t;lock:Eio.Mutex.t}
  type nonrec group=group
  type nonrec cursor=cursor
- let source=source
  let create config={config;categories=Hashtbl.create 16;lock=Eio.Mutex.create ()}
  let headers t=["Accept","application/json"] @
    (if t.config.api_key="" then [] else ["User-Api-Key",t.config.api_key;"User-Api-Client-Id",t.config.client_id])
@@ -290,6 +288,6 @@ let result_json = function
      "rows",`List(List.map(fun (row : (_,_) Reader.Backend.subscription_entry)->
        `Assoc["id",`String row.target;"title",`String row.title;"setting",`String(tracking_string row.settings)])rows);
      "after",(match after with None->`Null | Some value->`String value)]
- | Subscription_state(source,id,setting)->`Assoc["kind",`String "subscription";"source",`String source;"target",`String id;
+ | Subscription_state(source,id,setting)->`Assoc["kind",`String "subscription";"backend_key",`String source;"target",`String id;
      "setting",`String(tracking_string setting);"choices",`List(List.map(fun value->`String(tracking_string value))[Watching;Tracking;Regular;Muted])]
  | Saved path -> `Assoc["kind",`String "saved";"path",`String path]
