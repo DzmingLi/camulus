@@ -23,7 +23,7 @@ let view_string label value =
 
 let view_binding key =
   let key=call "kbd" [s key] in
-  if integer (call "length" [key]) <> 1 then fail "A home view shortcut must be a single key";
+  if integer (call "length" [key]) <> 1 then fail "A home shortcut must be a single key";
   key
 
 let parse_view value =
@@ -63,22 +63,40 @@ let parse_view value =
        fail "Subscription and state filters require an inbox view");
   {name;key;destination}
 
-let home_views () =
+type home_action = { label : string; shortcut : string; command : Value.t }
+
+let home_config () =
+  let actions=List.map (values (get "camulus-home-actions")) ~f:(fun item ->
+    match values item with
+    | [key;label;command] when truth (call "commandp" [command]) ->
+      {shortcut=view_string "action key" key; label=view_string "action label" label; command}
+    | _ -> fail "A home action requires (KEY LABEL INTERACTIVE-COMMAND)") in
   let views=List.map (values (get "camulus-home-views")) ~f:parse_view in
-  let reserved=List.map ["B";"G";"C";"U";"V";"f";"g";"h";"e";"q";"RET";"TAB";"<backtab>";"C-c";"C-g"]
-      ~f:(fun key -> call "kbd" [s key]) in
-  ignore (List.fold views ~init:([],reserved) ~f:(fun (names,keys) {name;key;_} ->
-    if List.mem names name ~equal:String.equal then fail ("Duplicate home view name "^name);
-    let keys=match key with
-      | None -> keys
-      | Some shortcut ->
-        let key=view_binding shortcut in
-        if List.mem keys key ~equal:Value.equal then fail ("Unavailable home view shortcut "^shortcut);
-        key::keys in
-    name::names,keys) : string list * Value.t list);
-  views
+  let names=List.map views ~f:(fun view -> view.name) in
+  Option.iter (List.find_a_dup names ~compare:String.compare) ~f:(fun name ->
+    fail ("Duplicate home view name "^name));
+  let reserved=List.map ["h";"e";"q";"RET";"TAB";"<backtab>";"C-c";"C-g"] ~f:view_binding in
+  let shortcuts=List.map actions ~f:(fun a -> a.shortcut) @ List.filter_map views ~f:(fun v -> v.key) in
+  ignore (List.fold shortcuts ~init:reserved ~f:(fun keys shortcut ->
+    let key=view_binding shortcut in
+    if List.mem keys key ~equal:Value.equal then fail ("Unavailable home shortcut "^shortcut);
+    key::keys) : Value.t list);
+  actions,views
 
 let setup_variables ()=
+ custom ~kind:(Customization.Type.Repeat (List [String;String;Function])) "camulus-home-actions"
+   (Value.list (List.map [
+     "C","Compose a message","camulus-reader-compose";
+     "B","Browse groups","camulus-reader-browse-groups";
+     "G","Jump to a group","camulus-groups";
+     "U","View subscriptions","camulus-subscriptions";
+     "f","Open favorite folders","camulus-reader-folders";
+     "V","Choose a view","camulus-open-view";
+     "g","Refresh subscriptions","camulus-home-refresh"
+   ] ~f:(fun (key,label,command) -> Value.list [s key;s label;sym command])))
+   "Ordered actions on the Camulus home page. Each entry is (KEY LABEL COMMAND).
+KEY is a single Emacs key description and COMMAND is interactive. Reopen the
+home page to apply changes. Use nil to hide the Actions section.";
  custom ~kind:(Customization.Type.Repeat Sexp) "camulus-home-views"
    (Value.list [
       Value.list [sym ":name";s "Unread";sym ":key";s "i";sym ":inbox";sym "t";sym ":unread-only";sym "t"];

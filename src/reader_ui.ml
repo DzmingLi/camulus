@@ -472,6 +472,10 @@ let groups_reload () =
 
 let home_buffer () = Buffer.find_or_create ~name:"*Camulus*"
 let home_views : Reader_config.view list ref = ref []
+let home_actions : Reader_config.home_action list ref = ref []
+let read_home_config () =
+  let actions,views=Reader_config.home_config () in
+  home_actions:=actions;home_views:=views
 let find_view name =
   List.find !home_views ~f:(fun view -> String.equal view.name name)
 let subscription_key entry = text "backend_key" entry,text "group" entry
@@ -497,11 +501,8 @@ let home_progress () =
   let done_=number(get "camulus-reader-home--done") and total=number(get "camulus-reader-home--total") in
   let failures=List.length (values (get "camulus-reader-home--errors")) in
   set "header-line-format" (list [
-     s "Camulus  ";header_link "[Groups · B]" "camulus-reader-browse-groups";s "  ";
-     header_link "[Folders · f]" "camulus-reader-folders";s "  ";
-     header_link "[Subscriptions · U]" "camulus-subscriptions";
-     s (Printf.sprintf "   %d/%d refreshed%s   C: compose  V: views  g: refresh  C-c e: configure"
-       done_ total (if failures=0 then "" else Printf.sprintf " · %d failed" failures));
+     s (Printf.sprintf "Camulus   %d/%d subscriptions refreshed%s" done_ total
+       (if failures=0 then "" else Printf.sprintf " · %d failed" failures));
      (if failures=0 then nil else header_link "  [Errors · e]" "camulus-reader-home-errors")]);
   run "force-mode-line-update" []
 let home_current buffer token = alive buffer && in_buffer buffer (fun () ->
@@ -609,7 +610,7 @@ let discover_subscriptions ~on_error =
     | Some followed -> try followed () with exn -> on_error backend exn)
 let home_refresh ?(restart=false) () =
   let target=home_buffer () in
-  if restart then home_views:=Reader_config.home_views ();
+  if restart then read_home_config ();
   in_buffer target (fun () ->
     let running=flag "camulus-reader-home--jobs" in
     if restart || not running then (
@@ -1047,32 +1048,41 @@ let open_view (view:Reader_config.view) =
   | Group entry -> browse_entry entry
   | Folder folder -> open_folder (s folder)
 let render_home () =
-  let anchor=property (point ()) "camulus-home-view" in
+  let anchor=property (point ()) "camulus-home-entry" in
   let selected=ref None in
   let map=call "copy-keymap" [get "camulus-home-mode-map"] in
   let counts=get "camulus-reader-home--counts" in
+  let row id key label command =
+    let start=point () in
+    Point.insert "  ";
+    let location=point () in
+    let prefix=Option.value_map key ~default:"    " ~f:(Printf.sprintf "[%s] ") in
+    button (prefix^label) (fun () -> run "call-interactively" [command]);
+    Point.insert "\n";
+    properties start (point ()) [sym "camulus-home-entry";id];
+    if Value.equal anchor id then selected:=Some location;
+    Option.iter key ~f:(fun shortcut -> run "define-key" [map;call "kbd" [s shortcut];command]) in
+  let heading title=insert_value (styled title "camulus-reader-heading");Point.insert "\n" in
   writable (fun () ->
     Current_buffer.erase ();
-    Point.insert "Views\n\n";
-    List.iter !home_views ~f:(fun (view:Reader_config.view) ->
-      let start=point () in
-      let name=s view.name in
-      let shortcut=Option.value view.key ~default:"" in
-      Point.insert (if String.is_empty shortcut then "     " else "  "^shortcut^"  ");
-      let location=point () in
-      button view.name (fun () -> open_view view);
-      if truth counts then (
-        let count=find counts name in
-        if truth count then
-          Point.insert (Printf.sprintf "  %d unread / %d" (number(field "unread" count)) (number(field "total" count))));
-      Point.insert "\n";
-      properties start (point ()) [sym "camulus-home-view";name];
-      if Value.equal anchor name then selected:=Some location;
-      Option.iter view.key ~f:(fun shortcut ->
+    if not (List.is_empty !home_actions) then (
+      heading "Actions";
+      List.iter !home_actions ~f:(fun (action:Reader_config.home_action) ->
+        row (cons (sym "action") (s action.shortcut)) (Some action.shortcut) action.label action.command);
+      Point.insert "\n");
+    if not (List.is_empty !home_views) then (
+      heading "Views";
+      List.iter !home_views ~f:(fun (view:Reader_config.view) ->
+        let name=s view.name in
+        let count=if truth counts then find counts name else nil in
+        let label=if truth count then Printf.sprintf "%s  %d unread / %d" view.name
+          (number(field "unread" count)) (number(field "total" count)) else view.name in
         let command=Function.to_value (Defun.lambda_nullary_nil [%here] ~interactive:No_arg
           (fun () -> open_view view)) in
-        run "define-key" [map;Reader_config.view_binding shortcut;command]));
-    if List.is_empty !home_views then Point.insert "No views configured. Press C-c e to add one.\n";
+        row (cons (sym "view") name) view.key label command);
+      Point.insert "\n");
+    let settings=sym "camulus-edit-home-views" in
+    row settings (Some "C-c e") "Configure home" settings;
     Point.goto_min ();
     match !selected with Some position -> goto position | None ->
       let first=call "next-button" [i (point ())] in
@@ -1081,7 +1091,7 @@ let render_home () =
   Current_buffer.set_modified false;
   home_progress ()
 let home_open () =
-  home_views:=Reader_config.home_views ();
+  read_home_config ();
   let target=home_setup () in
   run "switch-to-buffer" [bv target];
   render_home ();
@@ -1089,7 +1099,7 @@ let home_open () =
   home_refresh ()
 let choose_view name =
   run "camulus-reader-start" [];
-  home_views:=Reader_config.home_views ();
+  read_home_config ();
   let home=home_setup () in
   if not (in_buffer home (fun () -> flag "camulus-reader-home--ready")) then (
     home_refresh ();
@@ -1326,13 +1336,12 @@ let install_modes () =
     bind mode ["RET","camulus-reader-open";"b","camulus-reader-open-original";"d","camulus-reader-delete";"g","camulus-reader-refresh";"f","camulus-reader-folders";"h","camulus"]);
   List.iter ["camulus-reader-feed-mode";"camulus-reader-folder-mode";"camulus-reader-article-mode"] ~f:(fun mode ->
     bind mode ["r","camulus-reader-refile";"m","camulus-reader-move";"u","camulus-reader-unmark";"x","camulus-reader-execute-marks"]);
-  List.iter ["camulus-home-mode";"camulus-reader-feed-mode";"camulus-reader-article-mode";"camulus-reader-groups-mode"] ~f:(fun mode ->
+  List.iter ["camulus-reader-feed-mode";"camulus-reader-article-mode";"camulus-reader-groups-mode"] ~f:(fun mode ->
     bind mode ["C","camulus-reader-compose";"V","camulus-open-view"]);
   List.iter ["camulus-reader-folder-mode";"camulus-reader-folders-mode"] ~f:(fun mode ->
     bind mode ["V","camulus-open-view"]);
   bind "camulus-home-mode" ["RET","push-button";"TAB","forward-button";"<backtab>","backward-button";
-    "h","camulus";"g","camulus-home-refresh";"q","quit-window";"B","camulus-reader-browse-groups";"G","camulus-groups";
-    "U","camulus-subscriptions";"f","camulus-reader-folders";"e","camulus-reader-home-errors";
+    "h","camulus";"q","quit-window";"e","camulus-reader-home-errors";
     "C-c e","camulus-edit-home-views";"C-c C-k","camulus-reader-cancel"];
   bind "camulus-reader-feed-mode" ["s","camulus-reader-subscription";"S","camulus-reader-group-subscription";"G","camulus-groups";"C-c e","camulus-reader-edit-config";"n","camulus-reader-more";"C-c C-k","camulus-reader-cancel";
     "U","camulus-subscriptions";"B","camulus-reader-browse-groups";"C-c b","camulus-reader-home-browse-source";"e","camulus-reader-home-errors"];
@@ -1391,7 +1400,10 @@ let install () =
   define0 "camulus-reader--cancel-home" home_cancel;
   define0 ~interactive:true "camulus-home-refresh" home_reload;
   define0 ~interactive:true "camulus-edit-home-views" (fun () ->
-    Customization.customize_variable (Symbol.intern "camulus-home-views"));
+    run "require" [sym "cus-edit"];
+    let option name=list [sym name;sym "custom-variable"] in
+    run "custom-buffer-create" [list (List.map ["camulus-home-actions";"camulus-home-views"] ~f:option);
+      s "*Customize Camulus Home*"]);
   optional ~interactive:true "camulus-open-view" (fun name -> choose_view name;nil);
   define0 ~interactive:true "camulus-reader-home-browse-source" browse_source;
   define0 ~interactive:true "camulus-reader-home-errors" home_errors;

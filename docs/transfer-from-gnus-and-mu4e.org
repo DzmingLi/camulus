@@ -18,6 +18,8 @@
 Gnus 撰写键的引入见 [[https://github.com/DzmingLi/camulus/commit/104c084][提交 104c084]]。上游绑定见 [[https://www.gnu.org/software/emacs/manual/html_mono/gnus.html][Gnus 手册]]、[[https://www.gnu.org/software/emacs/manual/html_node/message/Sending.html][Emacs Message 手册]]、[[https://www.djcbsoftware.nl/code/mu/mu4e/Keybindings.html][mu4e 列表按键]] 和 [[https://www.djcbsoftware.nl/code/mu/mu4e/Composer-Keybindings.html][mu4e 编辑按键]]。
 
 * 收件箱、组目录和阅读
+
+首页借鉴 [[https://github.com/djcb/mu/blob/master/mu4e/mu4e-main.el][mu4e 主界面]]，在正文中列出带快捷键的操作和带计数的视图。下表给出默认绑定，操作和视图快捷键分别由 =camulus-home-actions= 和 =camulus-home-views= 设置。
 | 按键                | 位置和作用                                                                                                  |
 |---------------------+-------------------------------------------------------------------------------------------------------------|
 | =M-x camulus= / =h= | 打开或返回首页。                                                                                      |
@@ -28,7 +30,7 @@ Gnus 撰写键的引入见 [[https://github.com/DzmingLi/camulus/commit/104c084]
 | =n=                 | 在内容列表加载下一页；在正文跳到下一条已加载的未读消息。                                                    |
 | =C-c C-k=           | 在内容列表取消当前加载任务。                                                                                |
 | =RET=               | 打开光标处的内容、组或文件夹。                                                                              |
-| =TAB= / =S-TAB=     | 在组目录、订阅面板或收藏夹目录移动到下一个 / 上一个按钮。                                                   |
+| =TAB= / =S-TAB=     | 在首页、组目录、订阅面板或收藏夹目录移动到下一个 / 上一个按钮。                                                   |
 | =r=                 | 用已配置的规则确定目的地并打标记。                                                                          |
 | =m=                 | 手动选择收藏夹或当前后端提供的文件夹并打标记。列表操作整条讨论，正文操作光标所在的一楼。                    |
 | =f=                 | 打开收藏夹目录。                                                                                            |
@@ -39,7 +41,7 @@ Gnus 撰写键的引入见 [[https://github.com/DzmingLi/camulus/commit/104c084]
 | =V=                 | 按名称选择视图，首页也可直接使用配置的快捷键。                                                              |
 | =s= / =S=           | 内容列表的 =s= 管理当前内容的订阅或追踪，=S= 管理当前组的订阅。在组目录或订阅面板，两键都针对光标处的来源。 |
 | =T=                 | 打开支持此功能的后端的远端话题追踪面板。                                                                    |
-| =C-c e=             | 在内容列表编辑阅读器配置，在组目录编辑浏览入口配置。                                                        |
+| =C-c e=             | 在首页编辑操作和视图，在内容列表编辑阅读器配置，在组目录编辑浏览入口配置。                                                        |
 | =e=                 | 查看首页的来源刷新错误。                                                                                    |
 
 追踪面板中，=RET= 打开条目，=s= 修改追踪级别，=/= 选择筛选条件，=g= 刷新，=n= 加载下一页，=q= 关闭窗口。

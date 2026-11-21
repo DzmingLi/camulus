@@ -254,22 +254,6 @@ let event_value =
     in
     Value.list [sym "finished"; int r.id; sym state; Value.of_utf8_bytes message]
 
-let drain ~receive ~publish_values () =
-  let t = get_runtime () in
-  let rec loop remaining acc =
-    if remaining = 0 then List.rev acc
-    else match Runtime.take_event t with
-    | None -> List.rev acc
-    | Some event ->
-      let update = List.concat_map !Reader_backend.event_observers ~f:(fun f -> f ~barrier:!next_id event) in
-      let value=event_value event in
-      receive value;
-      let acc = if publish_values then value :: acc else acc in
-      let acc = List.fold (if publish_values then update else []) ~init:acc ~f:(fun acc update -> update :: acc) in
-      loop (remaining - 1) acc
-  in
-  List.concat_map !backend_hosts ~f:(fun host -> host.drain ()) @ loop 64 []
-
 let status () =
   ensure_ui ();
   match !runtime with
@@ -308,16 +292,42 @@ let run name args=ignore(call name args : Value.t)
 let get name=Current_buffer.symbol_value (Symbol.intern name)
 let set name value=run "set" [sym name;value]
 let truth value=not(Value.eq value nil)
-let publishing = ref false
+let drain t ~on_event =
+  let hooks = truth (get "camulus-probe-event-hook") in
+  let publish_hook event = run "run-hook-with-args" [sym "camulus-probe-event-hook";event] in
+  List.iter !backend_hosts ~f:(fun host ->
+    List.iter (host.drain ()) ~f:(fun event ->
+      if not (truth (call "camulus-host-handle-event" [event])) && hooks then publish_hook event));
+  let rec loop remaining =
+    if remaining = 0 then true else
+    match Runtime.take_event t with
+    | None -> false
+    | Some event ->
+      let updates = List.concat_map !Reader_backend.event_observers ~f:(fun f -> f ~barrier:!next_id event) in
+      let value = event_value event in
+      on_event value;
+      if hooks then List.iter (value :: updates) ~f:publish_hook;
+      loop (remaining - 1)
+  in
+  loop 64
+
+(* Emacs may consume several wake bytes in one filter call, or run the filter
+   recursively while a callback waits for input. Re-arm the pipe on return. *)
+let delivery = ref `Idle
 let publish ~on_event () =
-  if not !publishing && not(String.equal (status ()) "idle") then (
-    publishing:=true;
-    Exn.protect ~finally:(fun () -> publishing:=false) ~f:(fun () ->
-      let publish_values=truth(get "camulus-probe-event-hook") in
-      let events=drain ~receive:on_event ~publish_values () in
-      List.iter events ~f:(fun event ->
-        if not(truth(call "camulus-host-handle-event" [event])) then
-          run "run-hook-with-args" [sym "camulus-probe-event-hook";event])))
+  match !runtime, !delivery with
+  | None, _ -> ()
+  | Some _, (`Draining | `Notified) -> delivery := `Notified
+  | Some t, `Idle ->
+    delivery := `Draining;
+    let finish more =
+      let wake = more || Poly.equal !delivery `Notified in
+      delivery := `Idle;
+      if wake then Option.iter !wake_fd ~f:(fun fd -> ignore (Reader.Host.notify fd : bool)) in
+    match drain t ~on_event with
+    | more -> finish more
+    | exception ex -> finish true; raise ex
+
 let await predicate timeout =
   let deadline=Os.gettimeofday () +. timeout in
   while not(predicate ()) do
@@ -329,23 +339,20 @@ let start () =
   let process=call "make-pipe-process" [sym ":name";s "camulus-events";sym ":buffer";nil;
     sym ":coding";sym "binary";sym ":noquery";sym "t";sym ":filter";sym "camulus-probe--receive"] in
   set "camulus-probe--process" process;
-  try start_runtime process;
-    set "camulus-probe--timer" (call "run-at-time" [Value.of_float 0.02;Value.of_float 0.02;sym "camulus-probe--publish"])
+  try start_runtime process
   with exn -> run "delete-process" [process];set "camulus-probe--process" nil;raise exn
 let stop () =
   if not(String.equal (status ()) "idle") then (
     Reader.Runtime.request_stop (get_runtime ());
     await reap 5.);
-  if truth(call "timerp" [get "camulus-probe--timer"]) then run "cancel-timer" [get "camulus-probe--timer"];
   run "camulus-host-cancel-all" [];
   if truth(call "process-live-p" [get "camulus-probe--process"]) then run "delete-process" [get "camulus-probe--process"];
-  set "camulus-probe--timer" nil;set "camulus-probe--process" nil
+  set "camulus-probe--process" nil
 let install ~on_event ~on_start ~on_stop =
-  List.iter ["camulus-probe--process";"camulus-probe--timer";"camulus-probe-event-hook"]
+  List.iter ["camulus-probe--process";"camulus-probe-event-hook"]
     ~f:(fun name->Reader_backend.variable name nil);
   let publish=publish ~on_event in
   let define name f=Defun.defun_nullary_nil (Symbol.intern name) [%here] ~docstring:"Camulus event-loop operation." f in
-  define "camulus-probe--publish" publish;
   define "camulus-probe-session-start" (fun () -> start ();on_start ());
   define "camulus-probe-session-stop" (fun () -> on_stop ();stop ());
   run "add-hook"[sym "kill-emacs-hook";sym "camulus-probe-session-stop"];

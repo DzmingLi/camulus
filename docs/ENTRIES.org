@@ -43,7 +43,18 @@ Discourse 使用服务器的会话通知和追踪机制。已注册且已认证�
 
 Discourse 启动时从已注册分组发现有效站点并读取认证信息，不再将它们写回站点配置。无效的论坛 URL 在打开对应分组时报错。
 
-* 首页视图
+* 首页操作和视图
+
+首页正文的 =Actions= 列出常用命令。=camulus-home-actions= 每项由快捷键、显示名称和 Emacs 交互命令组成。点击、按 =RET= 和按条目旁的键都会调用同一个命令。列表顺序就是显示顺序，设为 =nil= 可隐藏整个操作区。例如：
+
+#+begin_src emacs-lisp
+(setopt camulus-home-actions
+        '(("B" "Browse groups" camulus-reader-browse-groups)
+          ("C" "Compose a message" camulus-reader-compose)
+          ("s" "Open subscriptions" camulus-subscriptions)))
+#+end_src
+
+首页按 =C-c e= 编辑操作和视图，重新打开 =M-x camulus= 即可应用。两类入口共享首页的单键，修改首页快捷键只作用于首页。
 
 =camulus-home-views= 按配置的顺序在首页显示各视图的本地未读数和总数。每项提供 =:name= 和可选的单键 =:key=，并从下表选择一种入口。首页按 =RET= 或点击进入视图，也可直接使用配置的快捷键。=V= 按名称选择视图，=h= 返回首页。
 

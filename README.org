@@ -2,7 +2,7 @@
 
 Camulus 是 Emacs 的统一阅读器，把邮件、论坛讨论和个人订阅放进同一个界面。它延续 [[https://www.gnu.org/software/emacs/manual/gnus.html][Gnus]] 的分组与讨论串阅读方式，借鉴 [[https://github.com/emacs-elfeed/elfeed][Elfeed]] 的订阅阅读体验，以及 [[https://www.djcbsoftware.nl/code/mu/mu4e/Bookmarks-and-Maildirs.html][mu4e]] 的主界面和操作方式。
 
-需要 *Emacs 31*。Nix 构建目标包括 x86-64 Linux、ARM64 Linux 和 Apple Silicon macOS。
+需要 *Emacs 31*。
 
 * 核心抽象
 ** 后端
@@ -51,7 +51,7 @@ emacsWithPackages (epkgs: [
 * 配置
 使用 =M-x customize-group RET camulus= 管理组选项和后端设置。也可以直接在 Emacs 配置中设置。
 
-用 =camulus-home-views= 设置首页视图和快捷键，用 =camulus-groups= 声明浏览组。首页按 =C-c e= 编辑视图，按 =g= 刷新订阅并更新计数。[[file:docs/ENTRIES.org][视图、浏览入口与订阅配置]]
+首页正文中的每个入口都可以点击或按 =RET= 打开。用 =camulus-home-actions= 设置常用命令、排列顺序和快捷键，用 =camulus-home-views= 定义常看的视图。首页按 =C-c e= 可一起编辑这两项。[[file:docs/ENTRIES.org][视图、浏览入口与订阅配置]]
 
 默认状态数据库为 =~/.local/state/camulus/state.sqlite3=，遵循 =XDG_STATE_HOME=。已读、收件箱进展、收藏归属和正文归档分别持久保存。阅读时可以先展示本地内容，收藏条目可离线打开。
 
