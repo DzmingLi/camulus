@@ -498,13 +498,17 @@ let timeline_header () =
        "   RET: read  b: original  C: compose  r: refile  m: move  d: mark delete  u: unmark  x: execute  g: refresh  n: more")]);
   run "force-mode-line-update" []
 let home_progress () =
-  let done_=number(get "camulus-reader-home--done") and total=number(get "camulus-reader-home--total") in
-  let failures=List.length (values (get "camulus-reader-home--errors")) in
-  set "header-line-format" (list [
-     s (Printf.sprintf "Camulus   %d/%d subscriptions refreshed%s" done_ total
-       (if failures=0 then "" else Printf.sprintf " · %d failed" failures));
-     (if failures=0 then nil else header_link "  [Errors · e]" "camulus-reader-home-errors")]);
-  run "force-mode-line-update" []
+  let pos=get "camulus-reader-home--progress-position" in
+  if truth pos then Current_buffer.save_excursion Sync (fun () -> writable (fun () ->
+    goto (number pos);
+    run "delete-region" [pos;call "line-end-position" []];
+    let finished=number(get "camulus-reader-home--done") and total=number(get "camulus-reader-home--total") in
+    let failures=List.length (values (get "camulus-reader-home--errors")) in
+    Point.insert (Printf.sprintf "%d/%d checked" finished total);
+    if failures > 0 then (
+      Point.insert (Printf.sprintf " · %d failed  " failures);
+      button "[e] Show errors" (fun () -> run "camulus-reader-home-errors" []));
+    Current_buffer.set_modified false))
 let home_current buffer token = alive buffer && in_buffer buffer (fun () ->
   derived "camulus-home-mode" && Value.eq token (get "camulus-reader-home--token"))
 let home_cancel () =
@@ -1048,45 +1052,78 @@ let open_view (view:Reader_config.view) =
   | Group entry -> browse_entry entry
   | Folder folder -> open_folder (s folder)
 let render_home () =
-  let anchor=property (point ()) "camulus-home-entry" in
+  let previous=point () and anchor=property (point ()) "camulus-home-entry" in
   let selected=ref None in
   let map=call "copy-keymap" [get "camulus-home-mode-map"] in
   let counts=get "camulus-reader-home--counts" in
-  let row id key label command =
+  let heading title =
+    Point.insert "\n  ";
+    insert_value (propertize (s title) [sym "face";list [sym "bold";sym "font-lock-type-face"]]);
+    Point.insert "\n\n" in
+  let row ~mnemonic id key label command =
+    Point.insert "\t* ";
     let start=point () in
-    Point.insert "  ";
-    let location=point () in
-    let prefix=Option.value_map key ~default:"    " ~f:(Printf.sprintf "[%s] ") in
-    button (prefix^label) (fun () -> run "call-interactively" [command]);
-    Point.insert "\n";
+    let before,after=match key with
+      | Some key when mnemonic && String.length key=1 && Char.is_alpha key.[0] ->
+        (match String.lfindi label ~f:(fun idx c ->
+           (idx=0 || Char.equal label.[idx-1] ' ') &&
+           Char.equal (Char.lowercase c) (Char.lowercase key.[0])) with
+         | Some idx -> String.prefix label idx,String.drop_prefix label (idx+1)
+         | None -> "", " "^label)
+      | Some _ -> "", " "^label
+      | None -> "",label in
+    let hint=Option.value_map key ~default:"" ~f:(Printf.sprintf "[%s]") in
+    run "insert-text-button" [s (before^hint^after);sym "face";sym "default";
+      sym "follow-link";b true;sym "action";callback_unit(fun _ -> run "call-interactively" [command])];
+    Option.iter key ~f:(fun key ->
+      let offset=start + number(call "length" [s before]) + 1 in
+      properties offset (offset + number(call "length" [s key])) [sym "face";sym "highlight"];
+      run "define-key" [map;call "kbd" [s key];command]);
     properties start (point ()) [sym "camulus-home-entry";id];
-    if Value.equal anchor id then selected:=Some location;
-    Option.iter key ~f:(fun shortcut -> run "define-key" [map;call "kbd" [s shortcut];command]) in
-  let heading title=insert_value (styled title "camulus-reader-heading");Point.insert "\n" in
+    if Value.equal anchor id then selected:=Some start in
+  let section (a:Reader_config.home_action) =
+    if List.exists ["camulus-reader-browse-groups";"camulus-groups";"camulus-reader-folders"]
+         ~f:(fun name -> Value.eq a.command (sym name)) then `Places
+    else if Value.eq a.command (sym "camulus-home-refresh") then `Misc
+    else `Basics in
+  let actions where=List.filter !home_actions ~f:(fun a -> Poly.equal (section a) where) in
+  let action (a:Reader_config.home_action) =
+    row ~mnemonic:true (cons (sym "action") (s a.shortcut)) (Some a.shortcut) a.label a.command;
+    Point.insert "\n" in
+  let bookmarks,places=List.partition_tf !home_views ~f:(fun v ->
+    match v.destination with Reader_config.Inbox _ -> true | Group _ | Folder _ -> false) in
+  let width v=number(call "string-width" [s v.Reader_config.name]) +
+    Option.value_map v.key ~default:0 ~f:(fun k -> 3 + number(call "string-width" [s k])) in
+  let widest=List.fold !home_views ~init:0 ~f:(fun n v -> Int.max n (width v)) in
+  let shortcut (v:Reader_config.view) =
+    let name=s v.name in
+    let command=Function.to_value (Defun.lambda_nullary_nil [%here] ~interactive:No_arg (fun () -> open_view v)) in
+    row ~mnemonic:false (cons (sym "view") name) v.key v.name command;
+    let count=if truth counts then find counts name else nil in
+    if truth count then (
+      Point.insert (String.make (2+widest-width v) ' ');
+      let num key=number(field key count) in
+      insert_value (propertize (s (Int.to_string (num "unread"))) [sym "face";sym "bold";sym "help-echo";s "Unread"]);
+      Point.insert (Printf.sprintf "/%d" (num "total")));
+    Point.insert "\n" in
   writable (fun () ->
     Current_buffer.erase ();
-    if not (List.is_empty !home_actions) then (
-      heading "Actions";
-      List.iter !home_actions ~f:(fun (action:Reader_config.home_action) ->
-        row (cons (sym "action") (s action.shortcut)) (Some action.shortcut) action.label action.command);
-      Point.insert "\n");
-    if not (List.is_empty !home_views) then (
-      heading "Views";
-      List.iter !home_views ~f:(fun (view:Reader_config.view) ->
-        let name=s view.name in
-        let count=if truth counts then find counts name else nil in
-        let label=if truth count then Printf.sprintf "%s  %d unread / %d" view.name
-          (number(field "unread" count)) (number(field "total" count)) else view.name in
-        let command=Function.to_value (Defun.lambda_nullary_nil [%here] ~interactive:No_arg
-          (fun () -> open_view view)) in
-        row (cons (sym "view") name) view.key label command);
-      Point.insert "\n");
-    let settings=sym "camulus-edit-home-views" in
-    row settings (Some "C-c e") "Configure home" settings;
-    Point.goto_min ();
-    match !selected with Some position -> goto position | None ->
-      let first=call "next-button" [i (point ())] in
-      if truth first then run "goto-char" [call "button-start" [first]]);
+    Point.insert "* ";insert_value (styled "Camulus" "bold");
+    insert_value (styled " — news and mail for Emacs\n" "font-lock-type-face");
+    if not (List.is_empty (actions `Basics)) then (
+      heading "Basics";List.iter (actions `Basics) ~f:action);
+    if not (List.is_empty bookmarks) then (heading "Bookmarks";List.iter bookmarks ~f:shortcut);
+    if not (List.is_empty places && List.is_empty (actions `Places)) then (
+      heading "Groups and folders";List.iter places ~f:shortcut;List.iter (actions `Places) ~f:action);
+    heading "Misc";
+    List.iter (actions `Misc) ~f:action;
+    List.iter ["C-c e","Configure home","camulus-edit-home-views";"q","Quit","quit-window"]
+      ~f:(fun (k,label,cmd) -> row ~mnemonic:true (sym cmd) (Some k) label (sym cmd);Point.insert "\n");
+    heading "Info";
+    let info key=Point.insert "\t* ";insert_value (styled (Printf.sprintf "%-18s" key) "font-lock-type-face");Point.insert " : " in
+    info "registered groups";Point.insert (Int.to_string (number(call "length" [get "camulus-groups"]))^"\n");
+    info "subscription sync";set "camulus-reader-home--progress-position" (i (point ()));Point.insert "\n";
+    goto (Option.value !selected ~default:(Int.min previous (max_point ()))));
   run "use-local-map" [map];
   Current_buffer.set_modified false;
   home_progress ()
@@ -1302,9 +1339,10 @@ let install_modes () =
   run "require" [sym "tabulated-list"];
   List.iter ["entries";"errors"] ~f:(fun name -> local_default ("camulus-reader-subscriptions--"^name) nil);
   local_default "camulus-reader-groups--backend" nil;
-  List.iter ["entries";"cursors";"token";"jobs";"queue";"errors";"ready";"counts";"count-request";"count-dirty"] ~f:(fun name -> local_default ("camulus-reader-home--"^name) nil);
+  List.iter ["entries";"cursors";"token";"jobs";"queue";"errors";"ready";"counts";"progress-position";"count-request";"count-dirty"] ~f:(fun name -> local_default ("camulus-reader-home--"^name) nil);
   List.iter ["done";"total"] ~f:(fun name -> local_default ("camulus-reader-home--"^name) (i 0));
   mode "camulus-home-mode" "special-mode" "Camulus" None "" (fun () ->
+    local "header-line-format" nil;
     List.iter ["kill-buffer-hook";"change-major-mode-hook"] ~f:(fun hook ->
       run "add-hook" [sym hook;sym "camulus-reader--cancel-home";nil;b true]));
   mode "camulus-reader-feed-mode" "tabulated-list-mode" "Feed"

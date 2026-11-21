@@ -96,7 +96,7 @@ let setup_variables ()=
    ] ~f:(fun (key,label,command) -> Value.list [s key;s label;sym command])))
    "Ordered actions on the Camulus home page. Each entry is (KEY LABEL COMMAND).
 KEY is a single Emacs key description and COMMAND is interactive. Reopen the
-home page to apply changes. Use nil to hide the Actions section.";
+home page to apply changes. Browse commands appear under Groups and folders, refresh under Misc, and other commands under Basics.";
  custom ~kind:(Customization.Type.Repeat Sexp) "camulus-home-views"
    (Value.list [
       Value.list [sym ":name";s "Unread";sym ":key";s "i";sym ":inbox";sym "t";sym ":unread-only";sym "t"];
