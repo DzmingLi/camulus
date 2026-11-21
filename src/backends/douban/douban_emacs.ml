@@ -74,11 +74,17 @@ let install_protocol () =
         |P.Failed reason->message "豆瓣点赞失败：%s" [s reason])
      |_->())
    | _->());[])::!event_observers
+let load_categories ~submit slug complete =
+ Writing.request (submit (Douban(Categories slug))) ~expect:"categories" ~complete:(fun result ->
+   complete (Result.map result ~f:(fun data ->
+     List.map (values(field "rows" data)) ~f:(fun row -> text(field "name" row),text(field "id" row)))))
+
 let composer ~submit =
  let group_name entry =
    if not(String.equal (text(field "backend_key" entry)) "douban") then None else
-   Option.map (String.chop_prefix (text(field "group" entry)) ~prefix:"group.") ~f:(fun slug ->
-     text(field "name" entry),D.group_slug slug) in
+   Option.map (D.forum_group (text(field "group" entry))) ~f:(fun (slug,_) ->
+     let root=field "category_root" entry in
+     text(field "name" (if truth root then root else entry)),slug) in
  let in_group entry = Some(fun () ->
    let current=group_name entry in
    let groups () = Option.to_list current @ List.filter_map (configured_groups ()) ~f:group_name in
@@ -99,10 +105,9 @@ let composer ~submit =
      | Some rows -> Option.value rows ~default:[]
      | None ->
        Hashtbl.set known_categories ~key:slug ~data:None;
-       Writing.request (submit (Douban(Categories slug))) ~expect:"categories" ~complete:(function
+       load_categories ~submit slug (function
          | Error _ -> Hashtbl.remove known_categories slug
-         | Ok data ->
-           let rows=List.map (values(field "rows" data)) ~f:(fun row -> text(field "name" row),text(field "id" row)) in
+         | Ok rows ->
            Hashtbl.set known_categories ~key:slug ~data:(Some rows));
        [] in
    let complete_fields = function
@@ -117,8 +122,10 @@ let composer ~submit =
    let name,identity=match current with
      | None -> "广播","douban/broadcast"
      | Some (name,slug) -> name,"douban/group:"^slug in
+   let category=Option.bind (D.forum_group (text(field "group" entry))) ~f:snd in
+   let identity=Option.value_map category ~default:identity ~f:(fun id -> identity^"/category:"^id) in
    Writing.post_draft ~destination:("豆瓣 · "^name) ~identity
-     ~fields:["Douban",name] ~optional_fields:["Category",""] ~complete_fields
+     ~fields:["Douban",name] ~optional_fields:["Category",Option.value category ~default:""] ~complete_fields
      ~submit:(fun ~targets ~subject ~body ~complete ->
        let dest=List.Assoc.find_exn targets "Douban" ~equal:String.equal in
        let destination=match group_target dest with
@@ -152,10 +159,15 @@ let install ~submit () =
    let group=D.group_of_target target in
    run "camulus-reader-browse-entry" [alist["name",s ("豆瓣小组 · "^String.drop_prefix group 6);
      "backend",s "douban";"group",s group]]);
- register_local_groups ~option:"camulus-douban-subscriptions" ~accepts:all_groups { (base ~id:"douban" ~name:"douban" ~threaded:true
+ register_local_feeds ~option:"camulus-douban-subscriptions" ~accepts:all_groups { (base ~id:"douban" ~name:"douban" ~threaded:true
   ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_->Douban(Read id))) with
   browser=Some("豆瓣","camulus-douban-group");
   composer=Some(composer ~submit);
+  categories=(fun entry -> Option.map (D.forum_group (text(field "group" entry))) ~f:(fun (slug,_) ->
+    let root="group."^slug in
+    {all_topics={listing=root;name="豆瓣小组 · "^slug};load=(fun complete ->
+      load_categories ~submit slug (fun result -> complete (Result.map result ~f:(fun rows ->
+        List.map rows ~f:(fun (name,id) -> {name;listing=root^".category."^id})))))}));
   attachment=Some(fun ~source:_ ~id ~group:_ ~part ~destination->i(submit (Douban(Attachment(id,part,destination)))));
   controls=[{key="l";hint="赞 · l";command="camulus-douban-like"};{key="L";hint="取消赞 · L";command="camulus-douban-unlike"}];
   article_marks=(fun item->if truth(field "like-count" item) then " · "^text(call "number-to-string"[field "like-count" item])^" 赞" else "");

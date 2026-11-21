@@ -11,6 +11,13 @@ type composer = {
   in_group : Value.t -> (unit -> unit) option;
   default : unit -> (unit -> unit) option;
 }
+(* Listing keys are opaque to the reader. A category shares its parent group's
+   backend identity, so messages keep their read and favorite state across views. *)
+type category = { name : string; listing : string }
+type categories = {
+  all_topics : category;
+  load : ((category list, string) Result.t -> unit) -> unit;
+}
 type folder_move = {
   list : item:Value.t -> receive:(string list -> unit) -> unit;
   move : item:Value.t -> folder:string -> unit;
@@ -31,7 +38,8 @@ type t = {
   on_refresh : unit -> unit;
   inline_attachments : bool;
   normalize : Value.t -> Value.t;
-  group_key : Value.t -> string;
+  group_key : (Value.t -> string) option;
+  feed_entry : (name:string option -> string -> Value.t) option;
   threaded : bool;
   thread_contains_bodies : bool;
   available : string -> bool;
@@ -40,6 +48,7 @@ type t = {
   attachment : (source:string -> id:string -> group:string option -> part:int -> destination:string -> Value.t) option;
   controls : control list;
   list_controls : control list;
+  categories : Value.t -> categories option;
   composer : composer option;
   refile : item:Value.t -> (string * (unit -> unit)) option;
   folder_move : folder_move option;
@@ -50,8 +59,8 @@ type t = {
   row_title : Value.t -> Value.t;
   browser : (string * string) option;
   entrances : unit -> entrance list;
-  (* Read configured sources on the UI thread; fetching content is worker work. *)
-  followed : (unit -> Value.t list) option;
+  (* Enumerate the feeds currently subscribed to on the UI thread. The worker fetches their content. *)
+  subscribed_feeds : (unit -> Value.t list) option;
   can_subscribe_group : source:string -> group:string -> bool;
   subscription_option : string option;
   subscription_target : (source:string -> selected:(unit -> Value.t) -> string option) option;
@@ -73,8 +82,8 @@ let s = Value.of_utf8_bytes
 let alist fields = Value.list (List.map fields ~f:(fun (k,v) -> call "cons" [Value.intern k;v]))
 let base ~id ~name ~threaded ~read = {
   id;storage_prefix=id;name;start=(fun()->());on_refresh=(fun()->());inline_attachments=true;
-  normalize=Fn.id;group_key=(fun _ -> id);threaded;read;thread_contains_bodies=false;
-  available=(fun _ -> true);attachment=None;controls=[];list_controls=[];composer=None;refile=(fun ~item:_ -> None);article_marks=(fun _->"");row_title=(fun row->Value.funcallN(Value.intern "alist-get")[Value.intern "title";row]);browser=None;entrances=(fun () -> []);followed=None;
+  normalize=Fn.id;group_key=Some (fun _ -> id);feed_entry=None;threaded;read;thread_contains_bodies=false;
+  available=(fun _ -> true);attachment=None;controls=[];list_controls=[];categories=(fun _ -> None);composer=None;refile=(fun ~item:_ -> None);article_marks=(fun _->"");row_title=(fun row->Value.funcallN(Value.intern "alist-get")[Value.intern "title";row]);browser=None;entrances=(fun () -> []);subscribed_feeds=None;
   subscription_target=None;topic_tracking=None;subscription_option=None;can_subscribe_group=(fun ~source:_ ~group:_ -> false);delete=None;folder_move=None;events=[];
   reconcile=(fun ~source:_ ~existing:_ ~request:_ ~archived:_ message -> message)
 }
@@ -122,7 +131,9 @@ let resolve_group entry =
   | None -> invalid_arg "Specify a registered backend for this group"
   | Some backend ->
     let key =
-      if configured then backend.group_key entry
+      if configured then (match backend.group_key with
+        | Some key -> key entry
+        | None -> invalid_arg (backend.name^" provides feeds; use a feed reference"))
       else string_field "backend_key" entry in
     if not (owns_key backend key) then invalid_arg "Group key belongs to another backend";
     let entry =
@@ -137,8 +148,11 @@ let integer v=Value.to_int_exn v
 let i=Value.of_int_exn
 let b v=if v then sym "t"else nil
 let values v=Value.to_list_exn v ~f:Fn.id
+let registered_group_entries () =
+  List.filter (values (get "camulus-groups")) ~f:(fun entry ->
+    not (Option.exists (group_backend entry) ~f:(fun backend -> Option.is_none backend.group_key)))
 let configured_groups () =
-  List.filter_map (values (get "camulus-groups")) ~f:(fun entry ->
+  List.filter_map (registered_group_entries ()) ~f:(fun entry ->
     Option.bind (group_backend entry) ~f:(fun _ ->
       try Some (resolve_group entry) with Invalid_argument _ -> None))
 let in_buffer value f=Current_buffer.set_temporarily Sync (Buffer.of_value_exn value) ~f
@@ -174,22 +188,33 @@ let custom ?(kind=Customization.Type.Sexp) name default docstring =
 (* Local subscriptions are backend-owned Emacs options. Discovery reads the
    current option on the owner thread; no worker state or second file is involved. *)
 let all_groups ~source:_ ~group:_ = true
-let register_local_groups ?key_for_group ~option ~accepts backend =
+let local_subscription value =
+  if truth (call "consp" [value]) then (
+    let name=Value.to_utf8_bytes_exn (call "car" [value]) in
+    if String.is_empty (String.strip name) then invalid_arg "Empty subscription name";
+    Some name,Value.to_utf8_bytes_exn (call "cdr" [value]))
+  else None,Value.to_utf8_bytes_exn value
+
+let register_local_feeds ?key_for_group ?(groups=true) ?feed_name ~option ~accepts backend =
   let key_for_group = Option.value key_for_group ~default:(fun _ -> backend.storage_prefix) in
-  custom ~kind:Customization.Type.(Repeat String) option nil
-    (backend.name^" groups included in the inbox. Configure with setopt or Customize; registering a browsing group does not subscribe it.");
+  custom ~kind:Customization.Type.(Repeat (Choice [Cons (String,String);String])) option nil
+    (backend.name^" inbox subscriptions. Each entry is a (DISPLAY-NAME . IDENTIFIER) pair or a bare identifier.");
   let accepts ~source ~group=owns_key backend source && accepts ~source ~group in
-  let followed () =
-    let groups=values(get option) |> List.map ~f:(fun value->
-      let group=Value.to_utf8_bytes_exn value in
-      if String.is_empty group || String.contains group '\000' then invalid_arg("Invalid subscription in "^option);
-      group) |> List.dedup_and_sort ~compare:String.compare in
-    List.map groups ~f:(fun group->
-      let source=key_for_group group in
-      if not(accepts ~source ~group)then invalid_arg("Unsupported subscription in "^option);
-      alist["name",s(backend.name^" · "^group);"backend_key",s source;"group",s group]) in
-  register {backend with group_key=(fun entry -> key_for_group (string_field "group" entry));
-    can_subscribe_group=accepts;subscription_option=Some option;followed=Some followed}
+  let feed_entry ~name group =
+    if String.is_empty group || String.contains group '\000' then invalid_arg ("Invalid feed in "^option);
+    let source=key_for_group group in
+    if not (accepts ~source ~group) then invalid_arg ("Unsupported feed in "^option);
+    let default_name=Option.map feed_name ~f:(fun describe -> describe group) in
+    let name=Option.first_some name default_name in
+    alist (Option.to_list (Option.map name ~f:(fun label -> "name",s label)) @
+           ["backend_key",s source;"group",s group]) in
+  let subscribed_feeds () =
+    List.map (values (get option)) ~f:(fun value ->
+      let name,id=local_subscription value in feed_entry ~name id) in
+  register {backend with
+    group_key=(if groups then Some (fun entry -> key_for_group (string_field "group" entry)) else None);
+    feed_entry=Some feed_entry;can_subscribe_group=(fun ~source ~group -> groups && accepts ~source ~group);
+    subscription_option=Some option;subscribed_feeds=Some subscribed_feeds}
 
 (* Worker sessions contain only OCaml data and run on the Eio domain. *)
 type worker = {

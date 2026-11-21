@@ -73,18 +73,20 @@ let install_protocol ~ensure_ui ~idle ~submit =
     ~docstring:"Submit an operation described by an Emacs alist." (Returns Value.Type.int)
     (let open Defun.Let_syntax in let%map_open request=required "request" value in
      let j=Reader_backend.to_json request in request_discourse ~submit (Discourse.Decode.site (Discourse.Decode.str "site" j)) (Discourse.operation_of_json j))
+let load_categories ~submit site complete =
+  Writing.request (submit site Discourse.Categories) ~expect:"categories" ~complete:(fun result ->
+    complete (Result.map result ~f:(fun data ->
+      List.map (values(field "rows" data)) ~f:(fun row ->
+        text(field "name" row),integer(field "id" row)))))
+
 let composer ~submit =
   let authenticated ()=List.map (values(get "camulus-discourse--authenticated-sites")) ~f:text in
   let known_categories=String.Table.create () in
   let categories site complete =
-    Writing.request (submit site Discourse.Categories) ~expect:"categories" ~complete:(function
-      | Error reason -> complete(Error reason)
-      | Ok data ->
-        let choices=List.map (values(field "rows" data)) ~f:(fun row ->
-          let category=integer(field "id" row) in
-          Printf.sprintf "%s [%d]" (text(field "name" row)) category,category) in
-        Hashtbl.set known_categories ~key:site ~data:(List.map choices ~f:snd);
-        complete(Ok choices)) in
+    load_categories ~submit site (fun result ->
+      complete (Result.map result ~f:(fun rows ->
+        Hashtbl.set known_categories ~key:site ~data:(List.map rows ~f:snd);
+        List.map rows ~f:(fun (name,id) -> Printf.sprintf "%s [%d]" name id,id)))) in
   let post site category label =
     Writing.post_draft ~destination:("Discourse · "^site^" · "^label)
       ~identity:(Discourse.source_of_site site^"/category:"^Int.to_string category)
@@ -146,9 +148,9 @@ let install ~submit () =
   Interaction_emacs.install ();
   register { (base ~id:"discourse" ~name:"Discourse" ~threaded:true
     ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Discourse(String.drop_prefix source 10,Discourse_backend.Thread id))) with
-    group_key=(fun entry -> Discourse.source_of_site (string_field "site" entry));
+    group_key=Some (fun entry -> Discourse.source_of_site (string_field "site" entry));
     start=Interaction_emacs.setup;
-    followed=Some(fun () ->
+    subscribed_feeds=Some(fun () ->
       Interaction_emacs.registered_sites ()
       |> List.filter ~f:(fun (site,_) -> List.exists(values(get "camulus-discourse--authenticated-sites")) ~f:(Value.equal(s site)))
       |> List.map ~f:(fun (site,entry) ->
@@ -168,7 +170,13 @@ let install ~submit () =
       change=(fun ~source ~target ~setting -> i(submit (String.drop_prefix source 10)
         (Discourse_backend.Subscription_change(target,Option.map setting ~f:Discourse_backend.tracking_of_string)))) };
     composer=Some(composer ~submit);
-    list_controls=[{key="c";hint="c: categories";command="camulus-reader-discourse-categories"}];
+    categories=(fun entry -> match Discourse.group_of_string (text(field "group" entry)) with
+      | Latest | Category _ ->
+        let site=Discourse.site_of_source (text(field "backend_key" entry)) in
+        Some {all_topics={name=site;listing="latest"};load=(fun complete ->
+          load_categories ~submit site (fun result -> complete (Result.map result ~f:(fun rows ->
+            List.map rows ~f:(fun (name,id) -> {name;listing="category:"^Int.to_string id})))) )}
+      | Topic _ | Notifications -> None);
     controls=[{key="l";hint="l: like / C-u l: unlike";command="camulus-reader-discourse-like"}];
     browser=Some ("Discourse", "camulus-reader-discourse");
     entrances=(fun () ->

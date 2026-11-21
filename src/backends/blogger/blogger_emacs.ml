@@ -13,7 +13,7 @@ let prepare ~notify:_ =
 let install ~submit () =
   worker_factories := prepare :: !worker_factories;
   let backend=Rss_emacs.publication_backend ~submit ~source:"blogger" ~threaded:false in
-  register_local_groups ~option:"camulus-blogger-subscriptions" ~accepts:all_groups {backend with name="Blogger";browser=Some("Blogger","camulus-blogger")};
+  register_local_feeds ~option:"camulus-blogger-subscriptions" ~accepts:all_groups {backend with name="Blogger";browser=Some("Blogger","camulus-blogger")};
   Defun.defun (Symbol.intern "camulus-blogger") [%here] ~docstring:"Browse a source without adding it to the timeline."
     ~interactive:(Prompt "Blogger host: ") (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open target=required "target" string in

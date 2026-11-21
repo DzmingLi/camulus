@@ -98,12 +98,5 @@ let install ()=
   (let open Defun.Let_syntax in let%map_open site=required "site"string and group=optional_with_nil "group"value in browse site(if truth group then text group else "latest"));
  optional ~interactive:true "camulus-reader-discourse-refresh"(fun more->if truth more then run "camulus-reader-more"[]else run "camulus-reader-refresh"[];nil);
  define0 ~interactive:true "camulus-reader-discourse-more"(fun()->run "camulus-reader-more"[]);
- define0 ~interactive:true "camulus-reader-discourse-categories"(fun()->
-  let buffer=Buffer.to_value(Current_buffer.get())and source=get "camulus-reader--backend-key"in
-  ignore(request(alist["op",s "categories";"site",s(String.drop_prefix(text source)10)])(callback(fun data reason->
-   if Option.is_none reason && live buffer && member "categories"data then(
-    let choices=List.map(values(field "rows"data))~f:(fun row->text(field "name"row)^" ["^text(call "format"[s "%s";field "id"row])^"]",field "group"row)in
-    let choice=text(call "completing-read"[s "Category: ";Value.list(List.map choices~f:(fun(k,_)->s k));nil;sym "t"])in
-    Option.iter(List.Assoc.find choices choice~equal:String.equal)~f:(fun group->in_buffer buffer(fun()->browse(String.drop_prefix(text source)10)(text group)))))):Value.t));
  Defun.defun(Symbol.intern "camulus-reader-discourse-like")[%here]~docstring:"Like the current article; prefix removes the like."
   ~interactive:Raw_prefix(Returns Value.Type.unit)(let open Defun.Let_syntax in let%map_open unlike=optional_with_nil "unlike"value in like(truth unlike))

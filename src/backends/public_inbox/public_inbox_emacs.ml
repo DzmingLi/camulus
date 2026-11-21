@@ -14,4 +14,4 @@ let prepare ~notify:_ =
 let install ~submit () =
   worker_factories := prepare :: !worker_factories;
   let backend=Rss_emacs.publication_backend ~submit ~source:"public-inbox" ~threaded:true in
-  register_local_groups ~option:"camulus-public-inbox-subscriptions" ~accepts:all_groups backend
+  register_local_feeds ~option:"camulus-public-inbox-subscriptions" ~accepts:all_groups backend

@@ -1,6 +1,6 @@
 #+title: Discourse 后端
 
-后端位于 =src/backends/discourse/=。原生接口实现 =Backend.S=、=Threading=、=Liking=、=Writing=、=Subscription=、=Topic_tracking=；Discourse topic 身份、楼层回复关系、User API 身份及 HTTP 操作由本后端管理。=interaction_emacs.ml= 使用 Ecaml 实现认证、浏览、分类与点赞命令，不依赖 Gnus，也不调用旧后端抓取内容。
+后端位于 =src/backends/discourse/=。原生接口实现 =Backend.S=、=Threading=、=Liking=、=Writing=、=Subscription=、=Topic_tracking=；Discourse topic 身份、楼层回复关系、User API 身份及 HTTP 操作由本后端管理。=interaction_emacs.ml= 使用 Ecaml 实现认证、浏览与点赞命令，不依赖 Gnus，也不调用旧后端抓取内容。
 
 * 远端追踪管理
 在 Discourse 组目录中，每个已注册站点下都有“远端追踪管理...”按钮。也可以在组目录、订阅页或阅读界面按 =T=，或执行 =M-x camulus-manage-subscriptions= 选择站点。
@@ -36,7 +36,7 @@
 
 =M-x camulus-reader-discourse= 可以先浏览，不自动订阅。列表支持：
 
-- =c= 选择分类。
+- 在站点最新话题或分类列表中按 =c= 选择分区，选 =All categories= 返回站点最新话题。
 - =n= 取下一页，=g= 从第一页刷新。
 - =RET= 在右侧打开默认展开的回复树；兄弟楼层按发布时间排列。
 - =m= 选择收藏夹，=x= 确认。列表收藏整个讨论，阅读窗口内只收藏当前楼层。

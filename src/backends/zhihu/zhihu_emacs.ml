@@ -18,5 +18,8 @@ let install_protocol () =
   source_providers:=(fun()->Some "zhihu")::!source_providers
 
 let install ~submit () =
-  register_local_groups ~option:"camulus-zhihu-subscriptions" ~accepts:all_groups
+  let feed_name id =
+    let kind,_,user=Z.parts id in
+    user^" · "^(if String.equal kind "answers" then "回答" else "文章") in
+  register_local_feeds ~groups:false ~feed_name ~option:"camulus-zhihu-subscriptions" ~accepts:all_groups
     (Rss_emacs.publication_backend ~submit ~source:"zhihu" ~threaded:false)

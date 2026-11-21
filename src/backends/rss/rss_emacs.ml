@@ -125,7 +125,7 @@ let install ~submit () =
     (let open Defun.Let_syntax in let%map_open url=required "url" string in
      run "camulus-reader-browse-entry" [alist ["name",s ("RSS / Atom: "^url);
        "backend",s "rss";"group",s url]]);
-  register_local_groups ~option:"camulus-rss-subscriptions" ~key_for_group:R.source_of_url
+  register_local_feeds ~option:"camulus-rss-subscriptions" ~key_for_group:R.source_of_url
     ~accepts:(fun ~source ~group->String.equal (R.url_of_source source) group) { (base ~id:"rss" ~name:"RSS / Atom" ~threaded:false
     ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Connection.Request(Read(String.drop_prefix source 4,id)))) with
     attachment=Some (fun ~source ~id ~group ~part ~destination -> ignore group; Value.of_int_exn (submit (Attachment(String.drop_prefix source 4,id,part,destination))));

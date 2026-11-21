@@ -105,7 +105,8 @@ Gnus 撰写键的引入见 [[https://github.com/DzmingLi/camulus/commit/104c084]
 | 邮件附件面板        | =RET= / =o=、=s=、=S=、=q=   | 打开、保存当前附件、保存全部、关闭面板。                                                  |
 | RSS / Atom 收件箱   | =d= 后 =x=                   | 删除本地副本并记录条目 ID。组内标记执行后移除当前进展。                                    |
 | Reddit 组列表或正文 | =+= / =-= / =0=              | 赞成、反对、取消投票。                                                                      |
-| Discourse           | 列表 =c=，正文 =l= / =C-u l= | 选择分类，赞或取消赞。                                                                    |
+| 支持分区的组       | 列表 =c=，分区内 =C= | 选择分区或返回全组，在当前分区撰写。分区选择是 Camulus 的通用操作。 |
+| Discourse           | 正文 =l= / =C-u l= | 赞或取消赞。                                                                    |
 | 豆瓣正文            | =l= / =L=                    | 赞或取消赞。                                                                              |
 | GitHub 组列表或正文 | =F= / =M= / =v=              | 在 Forge 打开话题、打开本地 Magit status、进入 PR review。组列表用 =D= 打开草稿。         |
 

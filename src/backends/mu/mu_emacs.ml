@@ -165,7 +165,7 @@ let install ~submit ~configured ~request_state () =
     "Destination Maildir relative to the configured mail root, written as /Account/Archive. A function receives the refile item plist and returns a Maildir or nil to use the common refile behavior.";
   define0 ~interactive:true "camulus-mail-sync" (fun () ->
     run "camulus-reader-start" [];sync ~submit ~manual:true ());
-  register_local_groups ~option:"camulus-mu-subscriptions" ~key_for_group:(fun _->"maildir:"^text(get "camulus-mail-root")) ~accepts:all_groups { (base ~id:"mu" ~name:"Mu" ~threaded:true
+  register_local_feeds ~option:"camulus-mu-subscriptions" ~key_for_group:(fun _->"maildir:"^text(get "camulus-mail-root")) ~accepts:all_groups { (base ~id:"mu" ~name:"Mu" ~threaded:true
     ~read:(fun ~source:_ ~id ~thread_id:_ ~group:_ -> Mail(Mu_backend.Thread id))) with
     start=(fun()->if truth(get "camulus-mail-sender")then(
       run "camulus-mail-configure"[get "camulus-mail-root";get "camulus-mail-muhome";get "camulus-mail-sender";

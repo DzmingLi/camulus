@@ -20,26 +20,26 @@
            (group . "latest"))))
 #+end_src
 
-本地订阅由各后端的 =defcustom= 选项声明。对应选项保存后端能识别的组标识，由后端生成收件箱使用的订阅入口。修改选项后刷新主页即可，不需要重启后台 worker，也不再读取或写入 JSON 订阅文件。
+本地订阅由各后端的 =defcustom= 选项声明。每项可以写成 =(显示名称 . 订阅标识)=，也可以只写标识。订阅标识由后端解释。修改选项后刷新主页即可，不需要重启后台 worker，也不再读取或写入 JSON 订阅文件。
 
 #+begin_src elisp
-(setopt camulus-rss-subscriptions '("https://example.org/feed.xml")
+(setopt camulus-rss-subscriptions '(("Example Blog" . "https://example.org/feed.xml"))
         camulus-jsonfeed-subscriptions '("https://example.org/feed.json")
         camulus-reddit-subscriptions '("ocaml" "emacs")
         camulus-mu-subscriptions '("/work/Inbox")
         camulus-theatlantic-subscriptions '("author.ian-bogost")
         camulus-janestreet-subscriptions '("posts")
-        camulus-blogger-subscriptions '("posts.example.blogspot.com")
+        camulus-blogger-subscriptions '(("Example Blog" . "posts.example.blogspot.com"))
         camulus-zhihu-subscriptions '("answers.example-user")
-        camulus-douban-subscriptions '("timeline.12345")
+        camulus-douban-subscriptions '(("Alice" . "timeline.12345"))
         camulus-netease-subscriptions '("events.12345")
         camulus-public-inbox-subscriptions
         '("https://list.example.org/list/message-id/"))
 #+end_src
 
-列表默认为 =nil=。已注册但没有列入订阅的组仍可浏览；订阅源也可以不单独注册，届时使用后端提供的默认名称。Mu 根据 =camulus-mail-root= 定位本地索引，Reddit 使用当前配置的账户。
+列表默认为 =nil=。具名订阅直接出现在 =U=。显示名称可以更改，已读和收藏仍按原条目标识关联。只写标识时，优先采用对应注册组的名称，否则显示后端名称和标识。=B= 和 =G= 只列出显式注册的浏览组。Mu 根据 =camulus-mail-root= 定位本地索引，Reddit 使用当前配置的账户。
 
-订阅视图或组目录中的 =s= 对本地订阅打开当前后端的 Customize 选项。通过 Customize 保存，或在自己的 Emacs / Nix 配置中维护 =setopt=；阅读器不会另外写一份订阅状态。=U= 列出各后端当前提供的订阅来源，=g= 重新读取选项。
+订阅视图或组目录中的 =s= 对本地订阅打开当前后端的 Customize 选项。通过 Customize 保存，或在自己的 Emacs / Nix 配置中维护 =setopt=；阅读器不会另外写一份订阅状态。=U= 列出各后端当前已订阅的 Feed，=g= 重新读取选项。
 
 Discourse 使用服务器的会话通知和追踪机制。已注册且已认证的站点提供通知时间线，=T= 打开远端会话追踪面板；阅读讨论时的 =s= 修改远端通知级别。全站、分类等浏览组没有本地订阅开关。取消一个话题的追踪通过服务器接口完成。
 
@@ -53,7 +53,7 @@ Discourse 启动时从已注册分组发现有效站点并读取认证信息，�
 (setopt camulus-home-actions
         '(("B" "Browse groups" camulus-reader-browse-groups)
           ("C" "Compose a message" camulus-reader-compose)
-          ("s" "Open subscriptions" camulus-subscriptions)))
+          ("s" "View subscribed feeds" camulus-subscriptions)))
 #+end_src
 
 首页按 =C-c e= 编辑操作和视图，重新打开 =M-x camulus= 即可应用。两类入口共享首页的单键，修改首页快捷键只作用于首页。
@@ -64,9 +64,10 @@ Discourse 启动时从已注册分组发现有效站点并读取认证信息，�
 |-----------------------------------+------------------------------------------------|
 | =:inbox t=                        | 从本地订阅收件箱读取，按讨论串合并并按发布时间排列。 |
 | =:group GROUP=                    | 进入指定浏览组。组的格式与 =camulus-groups= 相同。 |
+| =:feed ((backend . "zhihu") (feed . "answers.example-user"))= | 按需浏览指定 Feed，可用于尚未订阅的内容。 |
 | =:folder "Reading/Later"=          | 直接打开收藏夹。                                |
 
-收件箱视图可叠加过滤条件。=:backends= 按后端 ID 筛选，=:subscriptions= 按精确的订阅引用筛选，同时设置时取交集。订阅引用只需后端、组和必要的定位信息，例如站点。=:unread-only t= 只显示未读讨论串，=:favorite-only t= 只显示已收藏的讨论串，=:days N= 按最近 N 天内的条目时间筛选。
+收件箱视图可叠加过滤条件。=:backends= 按后端 ID 筛选，=:subscriptions= 按精确的订阅引用筛选，同时设置时取交集。本地 Feed 可用 =((backend . BACKEND) (feed . ID))= 引用，组引用使用后端、组和必要的定位信息。=:unread-only t= 只显示未读讨论串，=:favorite-only t= 只显示已收藏的讨论串，=:days N= 按最近 N 天内的条目时间筛选。
 
 #+begin_src emacs-lisp
 (setopt camulus-home-views
@@ -78,7 +79,7 @@ Discourse 启动时从已注册分组发现有效站点并读取认证信息，�
                             (group . "notifications"))))
           (:name "Reading list" :key ?l :folder "Reading/Later")
           (:name "OCaml" :key ?o :group ((backend . "reddit") (group . "ocaml")))
-          (:name "All subscriptions" :key ?a :inbox t)))
+          (:name "All subscribed feeds" :key ?a :inbox t)))
 #+end_src
 
 打开首页或按 =g= 时异步同步全部已订阅入口。打开收件箱视图会使用本地结果，=n= 只续载当前视图包含且仍有下一页的订阅。浏览组可用自己的刷新操作。多个视图共享已读、收藏和收件箱移除状态。在一个收件箱视图用 =d= 标记并按 =x= 后，其他收件箱视图也会隐藏这次进展。
@@ -87,7 +88,7 @@ Discourse 启动时从已注册分组发现有效站点并读取认证信息，�
 
 按 =d= 标记移除，再按 =x=。普通条目在收件箱视图中移除当前进展，后续新更新仍可出现；组内移除只影响该入口。邮件由 Mu 移动到相应账户的 Trash；收藏夹内移除会取消当前收藏归属。
 
-后端扩展通过 =Reader_backend.register_local_groups= 提供选项名及可订阅的组规则。需要区分站点、账户或订阅 URL 的后端还可以指定如何生成持久键。该函数在 Emacs 主线程读取 Customize 选项并生成订阅入口。远端讨论串追踪使用独立的可选能力。
+后端扩展通过 =Reader_backend.register_local_feeds= 声明本地订阅选项和 Feed 标识的校验规则。需要区分站点、账户或订阅 URL 的后端还可以指定如何生成持久键。该函数在 Emacs 主线程读取 Customize 选项并生成订阅入口。远端讨论串追踪使用独立的可选能力。
 
 * 后端一览
 | 后端                                | 当前范围                                                                                                                                                               |
@@ -101,5 +102,5 @@ Discourse 启动时从已注册分组发现有效站点并读取认证信息，�
 | Blogger                             | 不指定每批数量，自动加载全部 Atom 列表、打开时提取公开网页全文、图片归档                                                                                               |
 | The Atlantic / Jane Street          | 作者 feed 或文章列表、网页正文与图片                                                                                                                                   |
 | 知乎 / 豆瓣                         | 作者或个人入口、正文与图片；豆瓣支持渐进评论树及[[file:DOUBAN.org][广播、帖子和评论点赞]]；两者均使用 Camulus 的[[file:FIREFOX_COOKIES.org][公共 Firefox Cookie 能力]] |
-| 网易云                              | 公开动态、图片与歌曲链接；不下载歌曲音源                                                                                                                               |
+| 网易云                              | 用户动态 Feed（=events.USER-ID=）、图片与歌曲链接                                                                                                                               |
 | Public Inbox                        | 原生 gzip / mboxrd / MIME 解析，以邮件回复关系重建讨论树                                                                                                               |

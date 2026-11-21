@@ -14,7 +14,7 @@ end)
 let install_protocol = Connection.install_protocol
 let install ~submit () =
   let submit=Connection.request ~submit in
-  register_local_groups ~option:"camulus-jsonfeed-subscriptions" ~key_for_group:Jsonfeed_backend.source_of_url
+  register_local_feeds ~option:"camulus-jsonfeed-subscriptions" ~key_for_group:Jsonfeed_backend.source_of_url
     ~accepts:(fun ~source ~group->String.equal (Jsonfeed_backend.url_of_source source) group) { (base ~id:"jsonfeed" ~name:"JSON Feed" ~threaded:false
     ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Connection.Request(Rss_emacs.Read(Jsonfeed_backend.url_of_source source,id)))) with
     attachment=Some (fun ~source ~id ~group:_ ~part ~destination ->

@@ -145,7 +145,7 @@ let composer ~submit ~configured =
         | "Subreddit" ->
           let groups=List.filter_map (configured_groups ()) ~f:(fun entry ->
             if String.equal (text(field "backend_key" entry)) source then Some(text(field "group" entry)) else None) in
-          name::(groups @ List.map (values(get "camulus-reddit-subscriptions")) ~f:text)
+          name::(groups @ List.map (values(get "camulus-reddit-subscriptions")) ~f:(fun entry -> snd (local_subscription entry)))
           |> List.filter_map ~f:(fun group -> if String.equal group "notifications" then None else subreddit_name group)
           |> List.dedup_and_sort ~compare:String.compare
         | _ -> [])
@@ -165,7 +165,7 @@ let install ~submit ~configured () =
   custom ~kind:Customization.Type.File "camulus-reddit-token-file" (call "expand-file-name" [s "~/News/nnreddit/refresh-token"]) "Backend configuration option.";
   custom ~kind:Customization.Type.String "camulus-reddit-client-id" (s "5oagOpX2_NKVDej_iuZjFA") "Backend configuration option.";
   custom ~kind:Customization.Type.String "camulus-reddit-redirect-uri" (s "http://127.0.0.1:17973") "Backend configuration option.";
-  register_local_groups ~option:"camulus-reddit-subscriptions" ~key_for_group:(fun _->"reddit:"^text(get "camulus-reddit-username")) ~accepts:all_groups { (base ~id:"reddit" ~name:"Reddit" ~threaded:true
+  register_local_feeds ~option:"camulus-reddit-subscriptions" ~key_for_group:(fun _->"reddit:"^text(get "camulus-reddit-username")) ~accepts:all_groups { (base ~id:"reddit" ~name:"Reddit" ~threaded:true
     ~read:(fun ~source:_ ~id ~thread_id ~group:_ ->
       Reddit(Reddit_backend.Thread (Option.value thread_id ~default:id)))) with
     start=(fun()->if truth(get "camulus-reddit-username")then run "camulus-reddit-configure"[get "camulus-reddit-username";get "camulus-reddit-token-file";get "camulus-reddit-client-id";get "camulus-reddit-redirect-uri"]);

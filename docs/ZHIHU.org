@@ -11,6 +11,6 @@
 
 更改 profile 路径后重启 Camulus 运行时。同一 profile 中的 Cookie 更新无需重启：每次远端请求重新读取有效 Cookie。Camulus 只读 Firefox 数据库，不写回 Cookie，也不维护独立登录会话。原生扫码、密码、短信登录入口和会话文件选项已移除；旧版保存的会话文件不再读取。
 
-注册的组支持 =answers.USER=、=articles.people.USER= 和 =articles.org.USER=。注册与订阅仍独立；收藏继续持久保存正文和图片。API 请求由 OCaml 签名，图片下载不携带 Cookie。
+用户回答、个人文章和机构文章分别由 =answers.USER=、=articles.people.USER= 和 =articles.org.USER= 三种 Feed 提供。用 =camulus-zhihu-subscriptions= 选择收件箱接收的 Feed。只想浏览时，用首页的 =:feed= 书签打开它。收藏继续持久保存正文和图片。API 请求由 OCaml 签名，图片下载不携带 Cookie。
 
 缺少 =d_c0=、登录过期或遇到服务端验证时会报告错误。请在配置的 Firefox profile 中登录或完成验证，然后重新刷新，不会将认证失败当成空列表。

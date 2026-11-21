@@ -213,7 +213,7 @@ let install ~submit () =
    ~read:(fun ~source:_ ~id ~thread_id ~group:_->Github(Thread(Option.value thread_id~default:id)))) with
   start=setup;thread_contains_bodies=true;events=["github"];
   normalize=(fun row->ignore(G.group_of_string(text(field "group"row)):G.group);row);
-  followed=Some(fun()->if truth(get "camulus-github-notifications")then
+  subscribed_feeds=Some(fun()->if truth(get "camulus-github-notifications")then
    [alist["name",s "GitHub · Notifications";"backend_key",s G.source;"group",s "notifications"]]else []);
   subscription_target=Some(fun ~source:_ ~selected->let row=selected()in
    Some(text(let v=field "thread_id"row in if truth v then v else field "id"row)));

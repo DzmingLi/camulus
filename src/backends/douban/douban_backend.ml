@@ -35,10 +35,17 @@ let group_of_target target =
      | _ -> invalid_arg "Expected a Douban group URL")
   | _ -> invalid_arg "Expected a Douban group URL, ID or slug" in
  "group."^group_slug slug
-let parts group=match String.split_on_char '.' group with
- | ["group";slug] -> "group",group_slug slug
- | [kind;n] when List.mem kind ["timeline";"replies";"topic";"group-topic"] -> kind,numeric n
- | _->invalid_arg "Douban expects group.ID, timeline.USER, replies.ACCOUNT, topic.ID or group-topic.ID"
+let forum_group group=match String.split_on_char '.' group with
+ | ["group";slug] -> Some(group_slug slug,None)
+ | ["group";slug;"category";id] -> Some(group_slug slug,Some(numeric id))
+ | _ -> None
+let listing group=match forum_group group with
+ | Some (slug,category) -> `Forum(slug,category)
+ | None -> match String.split_on_char '.' group with
+   | ["timeline";id] -> `Timeline(numeric id)
+   | ["replies";id] -> `Replies(numeric id)
+   | [("topic"|"group-topic" as kind);id] -> `Topic(kind^":"^numeric id)
+   | _ -> invalid_arg "Unknown Douban listing"
 let root_id id=List.hd(String.split_on_char '/' id)
 let root_parts id=match String.split_on_char ':' (root_id id) with
  | [kind;n] when List.mem kind ["status";"topic";"group-topic"]->kind,numeric n
@@ -181,8 +188,9 @@ module Make(H:R.Http.S)=struct
   else let html=fst(request t (root_url id)) in
    remember_reaction t id (topic_reaction id html);topic id html in
   if a.message.id<>id then failwith "Douban returned another discussion";remember t a
- let group_topics t slug offset =
+ let group_topics t slug category offset =
   let url=Printf.sprintf "https://m.douban.com/rexxar/api/v2/group/%s/topics?start=%d&count=20" slug offset in
+  let url=match category with None -> url | Some id -> url^"&topic_tag_id="^id in
   let j=json t url in
   let next=match field "start" j,field "count" j,field "total" j with
    | `Int start,`Int count,`Int total when start=offset && count>0 && total>=0 ->
@@ -200,14 +208,13 @@ module Make(H:R.Http.S)=struct
     Some {summary with html=None;activity=Some(str "update_time" topic^":"^str "comments_count" topic)}) topics in
   messages,next
  let list t group ~after=
-  let kind,n=parts group in
   let offset=match after with None->0|Some s->(match Yojson.Safe.from_string s with
    | `List[`String g;`Int v] when g=group && v>0->v|_->invalid_arg "Invalid Douban cursor") in
   let article_rows articles more = List.map(fun(a:D.article)->a.message)articles,
     (if more then Some(offset+20) else None) in
-  let messages,next=match kind with
-  | "group" -> group_topics t n offset
-  | "timeline" ->
+  let messages,next=match listing group with
+  | `Forum(slug,category) -> group_topics t slug category offset
+  | `Timeline n ->
    let j=json t (Printf.sprintf "https://m.douban.com/rexxar/api/v2/status/user_timeline/%s?start=%d&count=20" n offset) in
    let items=match field "items" j with `List xs->xs|_->failwith "Douban timeline data missing" in
    let articles=List.filter_map(fun wrapper->
@@ -217,7 +224,7 @@ module Make(H:R.Http.S)=struct
       (match (if str "type" card="topic" then target(str "url" card) else None) with
       | Some id->Some(read_root t id) | None->let a=status s in remember_reaction t a.message.id (json_reaction s);Some(remember t a)))items in
    article_rows articles (if field "total" j<>`Null then offset+List.length items<num "total" j else List.length items=20)
-  | "replies" ->
+  | `Replies n ->
    let cookies=t.cookies "https://www.douban.com/reply_notify/" in
    let account=List.assoc_opt "dbcl2" cookies |> Option.value ~default:"" |> String.trim in
    let account=String.split_on_char ':' account |> List.hd |> String.split_on_char '"' |> String.concat "" in
@@ -243,8 +250,8 @@ module Make(H:R.Http.S)=struct
     let a=read_root t id in
     {a with message={a.message with activity=Some(Html.attr "id" node)}})nodes in
    article_rows articles (List.length nodes>=20)
-  | _->if after<>None then invalid_arg "Single Douban topic has no next page";
-    article_rows [read_root t ((if kind="topic" then "topic:" else "group-topic:")^n)] false in
+  | `Topic id -> if after<>None then invalid_arg "Single Douban topic has no next page";
+    article_rows [read_root t id] false in
   let unique=Hashtbl.create 32 in
   let messages=List.filter(fun(m:C.message)->if Hashtbl.mem unique m.id then false else (Hashtbl.add unique m.id ();true))messages in
   {C.messages;after=Option.map(fun offset->Yojson.Safe.to_string(`List[`String group;`Int offset]))next}
