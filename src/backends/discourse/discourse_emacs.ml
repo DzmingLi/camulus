@@ -173,7 +173,7 @@ let install ~submit () =
     browser=Some ("Discourse", "camulus-reader-discourse");
     entrances=(fun () ->
       Interaction_emacs.registered_sites () |> List.map ~f:(fun (site,_) ->
-        {label=site^" · latest (c: categories)";open_=(fun () -> run "camulus-reader-discourse" [s site;s "latest"])}));
+        {label=site^" · latest";open_=(fun () -> run "camulus-reader-discourse" [s site;s "latest"])}));
     reconcile=(fun ~source ~existing ~request ~archived message ->
       if archived then message else (
         let message=if Value.eq existing Value.nil then message else
