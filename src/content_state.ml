@@ -457,7 +457,7 @@ let embedded_attachment article part =
     Option.bind (List.find_opt (fun attachment -> member "part" attachment=`Int part) parts)
       (fun attachment ->
         let url=member "url" attachment |> to_string in
-        Option.bind (Html.embedded_image ~url (Html.parse html)) Html.embedded_image_bytes)
+        Option.bind (Html.embedded_image ~url html) Html.embedded_image_bytes)
   | _ -> None
 let attachment_archive db ~source ~id ~part =
   let archived () =

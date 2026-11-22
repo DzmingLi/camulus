@@ -41,9 +41,6 @@ let decode ~url body =
   {D.message={a.message with title=String.trim(Html.text(Html.parse a.message.title));html=Some(Html.render tree);body=""};enclosures}) articles
 let cover tree =
  Html.find (fun node -> Html.tag node="img" && Html.attr "data-camulus-image-url" node<>"") tree
-let saved_image html url =
- Html.embedded_image ~url (Html.parse html) |> Option.map (fun node ->
-   Html.attr "src" node,Html.attr "data-camulus-cover-revision" node)
 let preserve_cover ~download ~previous (article:D.article) =
  let html=Option.get article.message.html in
  let tree=Html.parse html in
@@ -55,7 +52,7 @@ let preserve_cover ~download ~previous (article:D.article) =
    let saved=Option.bind (previous article.message.id) (fun cached ->
     let open Yojson.Safe.Util in
     match cached |> member "message" |> member "html" with
-    | `String html -> saved_image html url
+    | `String html -> Html.embedded_image ~url html
     | _ -> None) in
    let image=match saved with
     | Some (_,cached_revision) when cached_revision=revision -> saved
@@ -64,10 +61,11 @@ let preserve_cover ~download ~previous (article:D.article) =
        | Some data -> Some(data,revision)
        | None -> saved
        with Failure _ | R.Http.Transport_error _ -> saved) in
-   Option.iter (fun (data,revision) ->
-     Html.set_attr "src" data node;
-     Html.set_attr "data-camulus-cover-revision" revision node) image;
-   {article with message={article.message with html=Some(Html.render tree)}}
+   match image with
+   | None -> article
+   | Some (data,revision) ->
+     Html.set_attr "data-camulus-cover-revision" revision node;
+     {article with message={article.message with html=Some(Html.render_with_cover tree node data)}}
 module Make(H:R.Http.S)=struct
  module Feed=R.Make(H)
  type t=Feed.t
@@ -86,7 +84,7 @@ module Make(H:R.Http.S)=struct
 
  let download_for (article:D.article) url =
   let saved=Option.bind article.message.html (fun html ->
-    Option.bind (Html.embedded_image ~url (Html.parse html)) Html.embedded_image_bytes) in
+    Option.bind (Html.embedded_image ~url html) Html.embedded_image_bytes) in
   match saved with Some bytes -> bytes | None -> Feed.download_url url
  let archive_local article=R.Article.archive ~download:(download_for article) article
  let attachment_local article=R.Article.attachment ~download:(download_for article) article
