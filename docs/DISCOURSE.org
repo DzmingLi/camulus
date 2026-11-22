@@ -4,6 +4,8 @@
 
 * 远端追踪管理
 在 Discourse 组目录中，每个已注册站点下都有“远端追踪管理...”按钮。也可以在组目录、订阅页或阅读界面按 =T=，或执行 =M-x camulus-manage-subscriptions= 选择站点。
+在 =U= 选中论坛的通知 Feed 后按 =s=，默认显示本站的 Watching 话题。按 =+= 输入话题编号或本站话题链接，回车确认默认的 =watching=。选中已有话题按 =s= 可改为 =regular=、=tracking= 或 =muted=；服务器确认后会刷新列表。
+
 
 - 默认显示 =watching=（所有回复通知）的会话；=/= 切换 =tracking=（追踪未读数量）或 =muted=（免打扰）。这些是同一个远端会话追踪功能的不同级别，不是独立浏览组。
 - =watching= 对每条新回复发通知；=tracking= 记录未读数量，对回复自己和提及发通知。=regular= 不追踪未读数量，仍可收到回复和提及。
@@ -21,6 +23,14 @@
 读取通知和本地 =d= 不提交远端标为已读操作，也不改变追踪级别。没有关联会话的通知（如徽章）直接忽略，不生成文章、不缓存，也不扫描通知历史。分页仍按服务器返回的总数推进，即使某一页过滤后没有会话通知，也可以继续下一页。
 
 列表使用本站点 =/latest.json?state=...= 的远端过滤，不抓取全部话题后本地筛选。游标绑定站点和过滤级别；服务器给出的下一页 URL 只作为是否还有下一页的提示，不直接携带认证信息跟随它。
+
+** 追踪面板的列
+支持 =:setting=、=:id= 和 =:title=。本例隐藏话题编号，适用于各站点的 Watching、Tracking 和 Muted 视图。 列按配置顺序显示，省略字段即可隐藏。宽度为正整数，最后一列可用 =nil= 完整显示。执行 =setopt= 会立即重排已打开的对应面板。
+
+#+begin_src emacs-lisp
+(setopt camulus-discourse-tracking-fields
+        '((:setting . 10) (:title . nil)))
+#+end_src
 
 * 使用
 在 [[file:ENTRIES.org][入口配置]] 中声明论坛来源（例如 =discourse:https://discourse.nixos.org=）及组，然后从组目录或配置好的视图进入：

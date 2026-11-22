@@ -24,6 +24,20 @@ let site url =
   let u=if Uri.scheme u=Some "https" && Uri.port u=Some 443 then Uri.with_port u None else u in
   Uri.with_path u (if parts=[] then "" else "/"^String.concat "/" parts) |> Uri.to_string
 let topic_id n = "topic:"^string_of_int(positive n)
+let topic_target ~site input =
+  let input=String.trim input in
+  if String.for_all (function '0'..'9' -> true | _ -> false) input then topic_id(number input)
+  else
+    let path=Uri.path(Uri.of_string input) and prefix=Uri.path(Uri.of_string site)^"/t/" in
+    if not(Http.same_origin site input && String.starts_with ~prefix path) then
+      invalid_arg "Enter a topic number or a topic URL from this forum";
+    let rest=String.sub path (String.length prefix) (String.length path-String.length prefix) in
+    let id=match String.split_on_char '/' rest |> List.filter ((<>) "") with
+      | [id] -> id
+      | [first;second] -> if String.for_all (function '0'..'9' -> true | _ -> false) first then first else second
+      | [_slug;id;_post] -> id
+      | _ -> invalid_arg "Invalid Discourse topic URL" in
+    topic_id(number id)
 let article_id topic floor = topic_id topic ^ "/post:" ^ string_of_int(positive floor)
 let parse_id id = match String.split_on_char '/' id with
   | [t] when String.starts_with ~prefix:"topic:" t -> number(String.sub t 6 (String.length t-6)),None

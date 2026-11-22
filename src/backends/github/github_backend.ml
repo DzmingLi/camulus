@@ -115,6 +115,12 @@ module Make(H:Http.S) = struct
   if data=`Null then failwith "GitHub repository unavailable";
   let conn=field (connection k) data in
   {C.messages=List.map message(nodes conn);after=Option.map(cursor scope)(next conn)}
+ let has_next_page response =
+  match List.assoc_opt "link" response.Http.headers with
+  | None -> false
+  | Some links -> List.exists (fun link -> String.ends_with ~suffix:"rel=\"next\"" (String.trim link))
+                    (String.split_on_char ',' links)
+
  let notification_page t page =
   let cached=Hashtbl.find_opt t.notifications page in
   match cached with
@@ -124,8 +130,7 @@ module Make(H:Http.S) = struct
     let r=request t ~headers ("/notifications?all=true&is_done=false&per_page=50&page="^page) in
     let interval=Option.bind(List.assoc_opt "x-poll-interval" r.headers) int_of_string_opt |> Option.value ~default:60 |> max 1 in
     let data,more=if r.status=304 then match cached with Some(_,_,j,m)->j,m|None->failwith "Unexpected GitHub 304" else
-      let more=match List.assoc_opt "link" r.headers with None->false|Some s->
-       List.exists(fun part->String.ends_with ~suffix:"rel=\"next\"" (String.trim part))(String.split_on_char ',' s) in json r,more in
+      json r,has_next_page r in
     let modified=match List.assoc_opt "last-modified" r.headers,cached with None,Some(_,m,_,_)->m|m,_->m in
     Hashtbl.replace t.notifications page (t.now()+.float interval,modified,data,more);data,more
  let list_notifications t ~after =
@@ -261,9 +266,58 @@ module Make(H:Http.S) = struct
   type nonrec t=t
   type target=string
   type settings=tracking
-  let get t id = let j,_=root t id in tracking(required "viewerSubscription" j)
+  let fields = "id title url viewerSubscription repository { nameWithOwner } number"
+  let subscribed_rows topics =
+   List.filter_map (fun topic ->
+     if str "viewerSubscription" topic <> "SUBSCRIBED" then None else
+     let id=required "id" topic in
+     let kind=match required "__typename" topic with "PullRequest" -> "PR" | name -> name in
+     let repository=required "nameWithOwner" (field "repository" topic) in
+     let number=Printf.sprintf "#%d" (Yojson.Safe.Util.to_int (field "number" topic)) in
+     Some (`Assoc ["id",js id;"type",js kind;"repository",js repository;"number",js number;
+       "title",js (required "title" topic);"url",field "url" topic;"setting",js "SUBSCRIBED"])) topics
+
+  let list t ~filter ~after =
+   let after=scope_cursor filter after in
+   if filter="repositories" then (
+     let page=Option.fold ~none:1 ~some:int_of_string after in
+     if page<1 then invalid_arg "Invalid repository page";
+     let response=request t (Printf.sprintf "/user/subscriptions?per_page=50&page=%d" page) in
+     let rows=Yojson.Safe.Util.to_list (json response) |> List.map (fun repo ->
+       let name=required "full_name" repo in
+       `Assoc ["id",js ("repo:"^name);"repository",js name;"description",js (str "description" repo)]) in
+     rows,(if has_next_page response then Some(cursor filter (string_of_int(page+1))) else None))
+   else if filter="issues" then (
+     let page=Option.fold ~none:1 ~some:int_of_string after in
+     if page<1 then invalid_arg "Invalid subscription page";
+     let r=request t (Printf.sprintf "/issues?filter=subscribed&state=all&sort=updated&per_page=50&page=%d" page) in
+     let ids=List.map (fun row -> js (required "node_id" row)) (Yojson.Safe.Util.to_list (json r)) in
+     let topics=if ids=[] then [] else
+       graphql t ("query($ids:[ID!]!){nodes(ids:$ids){__typename ... on Issue { "^fields^
+         " } ... on PullRequest { "^fields^" }}}") ["ids",`List ids] |> field "nodes" |> Yojson.Safe.Util.to_list in
+     subscribed_rows topics,(if has_next_page r then Some(cursor filter (string_of_int(page+1))) else None))
+   else match group_of_string filter with
+   | Repository(owner,repo,Discussion) ->
+     let repo_data=graphql t ("query($owner:String!,$repo:String!,$after:String){repository(owner:$owner,name:$repo){"^
+       "discussions(first:50,after:$after,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{__typename "^fields^"} "^page_info^"}}}")
+       ["owner",js owner;"repo",js repo;"after",optional after] |> field "repository" in
+     if repo_data=`Null then failwith "GitHub repository unavailable";
+     let conn=field "discussions" repo_data in
+     subscribed_rows (Yojson.Safe.Util.to_list(field "nodes" conn)),Option.map(cursor filter)(next conn)
+   | _ -> invalid_arg "Choose subscribed issues and PRs, or a repository's discussions"
+
+  let subject t target =
+   if String.starts_with ~prefix:"repo:" target then
+     match String.split_on_char '/' (String.sub target 5 (String.length target-5)) with
+     | [owner;repo] when segment owner && segment repo ->
+       let data=graphql t "query($owner:String!,$repo:String!){repository(owner:$owner,name:$repo){id viewerSubscription}}"
+         ["owner",js owner;"repo",js repo] |> field "repository" in
+       if data=`Null then failwith "GitHub repository unavailable";data
+     | _ -> invalid_arg "Enter a GitHub repository as owner/repo"
+   else fst (root t target)
+  let get t id = tracking(required "viewerSubscription" (subject t id))
   let set t id settings =
-   let j,_=root t id in
+   let j=subject t id in
    ignore(graphql t "mutation($id:ID!,$state:SubscriptionState!){updateSubscription(input:{subscribableId:$id,state:$state}){subscribable{id}}}"
     ["id",field "id" j;"state",js(tracking_string settings)])
  end

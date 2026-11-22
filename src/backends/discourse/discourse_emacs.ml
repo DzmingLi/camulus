@@ -145,7 +145,17 @@ let composer ~submit =
 
 let install ~submit () =
   let submit=request_discourse ~submit in
+  let topic_columns=define_tracking_columns "camulus-discourse-tracking-fields"
+    ["setting","Policy",Some 12;"id","Topic ID",Some 16;"title","Topic",None] in
   Interaction_emacs.install ();
+  define0 ~interactive:true "camulus-discourse-watch-topic"(fun()->
+    let source=text(get "camulus-reader--backend-key") in
+    if not(Discourse.is_source source && truth(call "derived-mode-p"[sym "camulus-tracking-mode"]))then
+      user_error "Open the Discourse tracking panel for the forum first";
+    let site=Discourse.site_of_source source in
+    let input=text(call "read-string"[s ("Topic number or URL on "^site^": ")]) in
+    let target=Discourse.Decode.topic_target ~site input in
+    run "camulus-tracking-change"[s target;s "watching"]);
   register { (base ~id:"discourse" ~name:"Discourse" ~threaded:true
     ~read:(fun ~source ~id ~thread_id:_ ~group:_ -> Discourse(String.drop_prefix source 10,Discourse_backend.Thread id))) with
     group_key=Some (fun entry -> Discourse.source_of_site (string_field "site" entry));
@@ -164,6 +174,10 @@ let install ~submit () =
       let id=text(field "id"(selected ()))in
       if String.is_prefix id ~prefix:"topic:"then Some id else None);
     topic_tracking=Some {
+      layout=(fun _ -> topic_layout ~shortcuts:[
+        {key="+";hint="+: watch topic";command="camulus-discourse-watch-topic"}]
+        topic_columns);
+      resolve_filter=Fn.id;
       filters=["watching","Watching";"tracking","Tracking";"muted","Muted"];
       list=(fun ~source ~filter ~after -> i(submit (String.drop_prefix source 10)
         (Discourse_backend.Subscriptions(Discourse_backend.tracking_of_string filter,after))));

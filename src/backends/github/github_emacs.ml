@@ -7,7 +7,7 @@ module CS=Reader.Content_state
 let credentials=ref(G.config "")
 type operation = Thread of string | Done of string * int | Reply of G.draft
  | Review of string | Submit_review of G.review | Resolve of string * bool | Review_reply of string * string
- | Tracking of string * string option
+ | Tracking of string * string option | Tracked_topics of string * string option
  type P.work += Github of operation
 let prepare ~notify:_ =
  let config= !credentials in
@@ -41,6 +41,9 @@ let prepare ~notify:_ =
        | Submit_review review->result "sent" ["review",G.Live.submit_review t review]
        | Resolve(id,value)->G.Live.resolve_thread t id value;result "resolved" []
        | Review_reply(id,body)->G.Live.reply_review t id body;result "sent" []
+       | Tracked_topics(filter,after)->
+         let rows,after=G.Subscription.list t ~filter ~after in
+         result "subscription-page" ["rows",`List rows;"after",G.optional after]
        | Tracking(id,setting)->subscription id setting);true
     | _->false)})}
 let install_protocol ~ensure_ui:_ ~idle:_ ~submit:_ = worker_factories:=prepare :: !worker_factories
@@ -150,6 +153,10 @@ let render_review data =
   insert (Printf.sprintf "Saved draft comments: %d" (List.length(review_comments state))));
  local "buffer-read-only"(sym "t");run "goto-char"[i 1]
 let install ~submit () =
+ let topic_columns=define_tracking_columns "camulus-github-tracking-fields"
+   ["type","Type",Some 11;"repository","Repository",Some 32;"number","Number",Some 8;"title","Title",None] in
+ let watched_columns=define_tracking_columns "camulus-github-watched-repositories-fields"
+   ["repository","Repository",Some 40;"description","Description",None] in
  let request=request ~submit in
  run "require"[sym "auth-source"];run "require"[sym "diff-mode"];
  custom "camulus-github-auth-user" nil "Optional auth-source login at api.github.com. Nil reuses Forge/ghub's GitHub user and token.";
@@ -215,6 +222,29 @@ let install ~submit () =
   normalize=(fun row->ignore(G.group_of_string(text(field "group"row)):G.group);row);
   subscribed_feeds=Some(fun()->if truth(get "camulus-github-notifications")then
    [alist["name",s "GitHub · Notifications";"backend_key",s G.source;"group",s "notifications"]]else []);
+  topic_tracking=Some {
+    layout=(function
+      | "repositories" -> {heading="Watched repositories";units="repositories";
+          columns=watched_columns;
+          visit="camulus-github-visit-repository";shortcuts=[
+            {key="+";hint="+: watch repository";command="camulus-github-watch-repository"};
+            {key="T";hint="T: topics";command="camulus-github-tracked-topics"}]}
+      | _ -> topic_layout ~shortcuts:[{key="W";hint="W: watched repos";command="camulus-github-watched-repositories"}]
+          topic_columns);
+    filters=["issues","Subscribed issues and pull requests";"discussions","Subscribed discussions in a repository";"repositories","Watched repositories"];
+    resolve_filter=(function
+      | "discussions" ->
+        let repositories=List.filter_map (configured_groups ()) ~f:(fun entry ->
+          if String.equal (string_field "backend_key" entry) G.source then
+            match G.group_of_string (string_field "group" entry) with
+            | Repository(owner,repo,_) -> Some(owner^"/"^repo) | Notifications -> None
+          else None) |> List.dedup_and_sort ~compare:String.compare in
+        let repo=text(call "completing-read" [s "GitHub repository (owner/repo): ";Value.list(List.map repositories ~f:s)]) in
+        let group=repo^"/discussions" in
+        ignore(G.group_of_string group:G.group);group
+      | filter -> filter);
+    list=(fun ~source:_ ~filter ~after -> i(submit(Github(Tracked_topics(filter,after)))));
+    change=(fun ~source:_ ~target ~setting -> i(submit(Github(Tracking(target,setting))))) };
   subscription_target=Some(fun ~source:_ ~selected->let row=selected()in
    Some(text(let v=field "thread_id"row in if truth v then v else field "id"row)));
   browser=Some("GitHub","camulus-github");
@@ -224,6 +254,21 @@ let install ~submit () =
    if not(String.equal(text(field "group"entry))"notifications")then user_error "Done applies to GitHub notifications; browse-only topics are not deleted";
    ignore(request ~done_:(fun ok->complete(if ok then Ok Dismiss_notification else Error "GitHub could not mark the notification Done"))
      (Done(text(field "id"row),integer(field "revision"row)))ignore:int)) };
+ define0 ~interactive:true "camulus-github-tracked-topics"(fun()->run "camulus-manage-subscriptions"[s G.source]);
+ define0 ~interactive:true "camulus-github-watched-repositories"(fun()->
+   run "camulus-manage-subscriptions"[s G.source;s "repositories"]);
+ define0 ~interactive:true "camulus-github-visit-repository"(fun()->
+   let repo=string_field "repository" (call "camulus-reader--selected" []) in
+   let section=text(call "completing-read"[s (repo^": ");Value.list(List.map ["issues";"pulls";"discussions"] ~f:s);nil;sym "t"]) in
+   browse (repo^"/"^section));
+ define0 ~interactive:true "camulus-github-watch-repository"(fun()->
+   if not(truth(call "derived-mode-p"[sym "camulus-tracking-mode"]) &&
+          Value.equal(get "camulus-reader--backend-key")(s G.source) &&
+          Value.equal(get "camulus-tracking--filter")(s "repositories"))then
+     run "camulus-github-watched-repositories" [];
+   let repo=text(call "read-string"[s "Watch repository (owner/repo): "]) in
+   ignore(G.group_of_string (repo^"/issues"):G.group);
+   run "camulus-tracking-change"[s ("repo:"^repo);s "SUBSCRIBED"]);
  define0 ~interactive:true "camulus-github"(fun()->
   let entries=List.filter(configured_groups ())~f:(fun e->String.equal(text(field "backend_key"e))G.source)in
   if List.is_empty entries then user_error "Register a GitHub group with C / camulus-groups first";

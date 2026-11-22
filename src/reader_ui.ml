@@ -1248,22 +1248,28 @@ let choose_subscription ?(label="Following policy") submit =
             List.iter (Buffer.all_live ()) ~f:(fun target -> in_buffer target (fun () ->
               if derived "camulus-subscriptions-mode" then subscriptions_refresh ()));
             message ("Following policy: "^text "setting" result))))))))
+let feed_settings () =
+  let entry=property (point ()) "camulus-reader-entry" in
+  if not (truth entry) then user_error "Select a subscribed feed";
+  let source=field "backend_key" entry in
+  match capability source with
+  | Some {topic_tracking=Some _;_} -> Reader_tracking_ui.open_ source
+  | Some {subscription_option=Some option;_} -> Customization.customize_variable (Symbol.intern option)
+  | _ -> user_error "This feed does not offer settings"
+
 let group_subscription () =
   run "camulus-reader-start" [];
   let entry=if derived "camulus-reader-groups-mode" then property (point ()) "camulus-reader-entry"
     else if flag "camulus-reader--inbox" then inbox_entry (selected ()) else get "camulus-reader--entry" in
   if not(truth entry) then user_error "Select or open a registered group";
   let entry=Reader_config.entry entry in
-  if derived "camulus-subscriptions-mode" && not(can_subscribe_entry entry) &&
-     Option.exists(capability(field "backend_key" entry))~f:(fun backend->Option.is_some backend.topic_tracking)
-  then Reader_tracking_ui.open_ (field "backend_key" entry) else (
   if not(can_subscribe_entry entry)then user_error "This group is browse-only; its backend does not offer group subscription settings";
   let source=field "backend_key" entry in
   match capability source with
   | Some backend -> (match backend.subscription_option with
     | Some option -> Customization.customize_variable(Symbol.intern option)
     | None -> user_error "This backend does not offer local group subscription options")
-  | None -> user_error "This backend does not offer group subscription settings")
+  | None -> user_error "This backend does not offer group subscription settings"
 let subscription () =
   if derived "camulus-reader-groups-mode" then group_subscription () else (
     let source=if flag "camulus-reader--inbox" then field "backend_key" (selected ()) else get "camulus-reader--backend-key" in
@@ -1466,7 +1472,7 @@ let install_modes () =
   bind "camulus-reader-folder-mode" ["D","camulus-reader-delete-folder"];
   bind "camulus-reader-folders-mode" ["RET","push-button";"TAB","forward-button";"<backtab>","backward-button";"g","camulus-reader-folders-refresh";"h","camulus"];
   bind "camulus-reader-article-mode" ["s","camulus-reader-subscription";"n","camulus-reader-next-unread";"b","camulus-reader-open-original";"h","camulus"];
-  bind "camulus-subscriptions-mode" ["g","camulus-subscriptions-refresh";"B","camulus-reader-browse-groups";"U","camulus-subscriptions"];
+  bind "camulus-subscriptions-mode" ["s","camulus-feed-settings";"S","camulus-feed-settings";"g","camulus-subscriptions-refresh";"B","camulus-reader-browse-groups";"U","camulus-subscriptions"];
   List.iter ["camulus-reader-feed-mode";"camulus-reader-article-mode";"camulus-reader-groups-mode"] ~f:(fun mode ->
     bind mode ["T","camulus-manage-subscriptions"]);
   bind "camulus-reader-groups-mode" ["RET","camulus-directory-open";"TAB","camulus-directory-toggle";"<tab>","camulus-directory-toggle";"n","forward-line";"p","previous-line";"b","camulus-directory-browse";"<backtab>","backward-button";"U","camulus-subscriptions";"s","camulus-reader-group-subscription";"S","camulus-reader-group-subscription";"h","camulus";"g","camulus-reader-groups-refresh";"B","camulus-reader-browse-groups";"C-c e","camulus-reader-edit-groups"]
@@ -1551,6 +1557,7 @@ let install () =
   define0 ~interactive:true "camulus-reader-folders-refresh" folders_load;
   define0 ~interactive:true "camulus-reader-delete-folder" delete_folder;
   define0 ~interactive:true "camulus-reader-subscription" subscription;
+  define0 ~interactive:true "camulus-feed-settings" feed_settings;
   define0 ~interactive:true "camulus-reader-group-subscription" group_subscription;
   define2 "camulus-reader--window-scrolled" (fun window _ -> schedule_visible (Window.buffer_exn (Window.of_value_exn window));nil);
   define1 "camulus-reader--window-changed" (fun window -> schedule_visible (Window.buffer_exn (Window.of_value_exn window));nil);

@@ -22,8 +22,20 @@ type folder_move = {
   list : item:Value.t -> receive:(string list -> unit) -> unit;
   move : item:Value.t -> folder:string -> unit;
 }
+type tracking_columns = { option_name : string; headings : (string * string) list }
+type tracking_layout = {
+  heading : string;
+  units : string;
+  visit : string;
+  shortcuts : control list;
+  columns : tracking_columns;
+}
+let topic_layout ?(shortcuts=[]) columns =
+  {heading="Topic tracking";units="topics";visit="camulus-reader-open";shortcuts;columns}
 type topic_tracking = {
+  layout : string -> tracking_layout;
   filters : (string * string) list;
+  resolve_filter : string -> string;
   (* Request results use subscription-page {rows: [{id; title; setting}]; after}
      and subscription {source; target; setting; choices}. Policy values are opaque
      strings here, converted from the backend's types only at the Emacs boundary. *)
@@ -180,10 +192,45 @@ let data_path env fallback name=
  call "expand-file-name"[s("camulus/"^name);if truth root then root else call "expand-file-name"[s fallback]]
 let customization_group = lazy (Customization.Group.defgroup "camulus" [%here]
   ~docstring:"Read feeds and discussions." ~parents:[Customization.Group.emacs])
-let custom ?(kind=Customization.Type.Sexp) name default docstring =
+let custom ?(kind=Customization.Type.Sexp) ?on_set name default docstring =
   ignore (Customization.defcustom (Symbol.intern name) [%here] ~docstring
     ~group:(Lazy.force customization_group) ~type_:Value.Type.value
-    ~customization_type:kind ~standard_value:default () : Value.t Customization.t)
+    ~customization_type:kind ~standard_value:default ?on_set () : Value.t Customization.t)
+
+let tracking_fields spec value =
+  let invalid reason = invalid_arg (spec.option_name^": "^reason) in
+  let pairs=values value in
+  if List.is_empty pairs then invalid "select at least one field";
+  let seen=Hash_set.create (module String) and last_index=List.length pairs-1 in
+  List.mapi pairs ~f:(fun index pair ->
+    let key=call "car" [pair] and width=call "cdr" [pair] in
+    let name=text(call "symbol-name" [key]) in
+    let field=String.chop_prefix name ~prefix:":" |> Option.value ~default:"" in
+    let label=match List.Assoc.find spec.headings field ~equal:String.equal with
+      | Some label -> label | None -> invalid ("unknown field "^name) in
+    if Hash_set.mem seen field then invalid ("duplicate field "^name);
+    Hash_set.add seen field;
+    let width=if truth width then (
+      let n=integer width in if n<=0 then invalid "width must be positive"; Some n)
+      else if index=last_index then None else invalid "only the last width can be nil" in
+    field,label,width)
+
+let define_tracking_columns option_name defaults =
+  let spec={option_name;headings=List.map defaults ~f:(fun (key,label,_) -> key,label)} in
+  let keyword key=sym (":"^key) in
+  let choices=List.map spec.headings ~f:(fun (key,_) -> Customization.Type.Const(keyword key)) in
+  let kind=Customization.Type.(Repeat (Cons (Choice choices, Option {doc_for_none="Unrestricted";t=Integer}))) in
+  let default=Value.list (List.map defaults ~f:(fun (key,_,width) ->
+    call "cons" [keyword key;Option.value_map width ~default:nil ~f:i])) in
+  let on_set value =
+    ignore(tracking_fields spec value : (string * string * int option) list);
+    run "run-hook-with-args" [sym "camulus-tracking--columns-changed-hook";sym option_name;value] in
+  custom ~kind ~on_set option_name default
+    ("Ordered (FIELD . WIDTH) pairs. Omit a field to hide it. Width is measured in display columns; "
+     ^"nil leaves the final field unrestricted. Available fields: "
+     ^String.concat ~sep:", " (List.map spec.headings ~f:(fun (key,_) -> ":"^key))^".");
+  spec
+
 
 (* Local subscriptions are backend-owned Emacs options. Discovery reads the
    current option on the owner thread; no worker state or second file is involved. *)
