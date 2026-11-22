@@ -23,7 +23,11 @@ let trash ~entry ~row ~complete =
      else complete(Error "Some messages could not be moved; press g to check the remaining mail")));
  message "Queued move to Trash; waiting for mail access if synchronization is running…"[]
 let current ()=Buffer.to_value(Current_buffer.get())
-let group ()=let v=get "camulus-mail--group"in if truth v then v else field "group"(get "camulus-reader--entry")
+let group ()=
+ let maildir=get "camulus-mail--group" in
+ if truth maildir then maildir else
+ let feed=get "camulus-reader--subscription-entry" in
+ field "group" (if truth feed then feed else get "camulus-reader--entry")
 let selected ()=field "id"(call "camulus-reader--selected"[])
 let move_mail ~source ~group ~id ~thread ~folder =
  action(alist["op",s "move";"group",group;"id",id;"thread",thread;"folder",folder])
@@ -99,7 +103,7 @@ let open_composer data window=
 let compose_in group reply=
  let window=Writing.summary_window () in
  let id=if reply then selected()else nil in
- if reply && not(truth group)then user_error "Open a mail group first";
+ if reply && not(truth group)then user_error "Open a mailbox feed first";
  if reply && not(truth id)then user_error "Select a message to reply to";
  action(alist["op",s "draft-new";"group",group;"reply_to",id])(fun data->
    open_composer(field "draft"data)window;
@@ -148,7 +152,7 @@ let install ()=
   (let open Defun.Let_syntax in let%map_open data=required "data"value and window=required "window"value in open_composer data window);
  mode "camulus-mail-drafts-mode""tabulated-list-mode""Mail drafts""RET: resume  g: refresh  C: compose";
  define0 ~interactive:true "camulus-mail-drafts"(fun()->let group=group()in
-  if not(truth group)then user_error "Open a mail group first";
+  if not(truth group)then user_error "Open a mailbox feed first";
   run "switch-to-buffer"[call "get-buffer-create"[s("*Mail drafts "^text group^"*")]];run "camulus-mail-drafts-mode"[];
   set "tabulated-list-format"(call "vector"[Value.list[s "Subject";i 60;sym "t"]]);run "tabulated-list-init-header"[];
   local "camulus-mail--group"group;drafts_refresh());

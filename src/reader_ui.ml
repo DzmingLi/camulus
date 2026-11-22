@@ -453,6 +453,7 @@ let home_actions : Reader_config.home_action list ref = ref []
 let read_home_config () =
   let actions,views=Reader_config.home_config () in
   home_actions:=actions;home_views:=views
+let visible_home_views () = List.filter !home_views ~f:(fun v -> v.show_on_home)
 let find_view name =
   List.find !home_views ~f:(fun view -> String.equal view.name name)
 let feed_key entry = text "backend_key" entry,text "group" entry
@@ -520,7 +521,7 @@ let inbox_cache () =
   set "camulus-reader--list-request" id
 let home_count_queries () =
   let entries=values (get "camulus-reader-home--entries") in
-  List.map !home_views ~f:(fun (view:Reader_config.view) ->
+  List.map (visible_home_views ()) ~f:(fun (view:Reader_config.view) ->
     view.name,(match view.destination with
       | Inbox inbox -> CS.Inbox_view(List.map (view_entries entries inbox) ~f:feed_key,inbox.filter)
       | Feed entry | Group entry -> let source,group=feed_key entry in CS.Group_view(source,group)
@@ -628,6 +629,9 @@ let home_setup () =
   in_buffer target (fun () ->
     if not (derived "camulus-home-mode") then run "camulus-home-mode" []);
   target
+let list_controls map (backend:Reader_backend.t) =
+  List.iter backend.list_controls ~f:(fun control -> Reader_backend.bind map control.key control.command);
+  String.concat (List.map backend.list_controls ~f:(fun c -> "  "^c.hint))
 let show_inbox ~name ~title ~subscription =
   let target=show_buffer name in
   in_buffer target (fun () ->
@@ -639,7 +643,14 @@ let show_inbox ~name ~title ~subscription =
     if not (Value.equal (entry_key subscription) (entry_key (get "camulus-reader--subscription-entry"))) then
       set "camulus-reader--cursor" nil;
     set "camulus-reader--subscription-entry" subscription;
-    timeline_header ();inbox_cache ())
+    set "camulus-reader--backend-key" (field "backend_key" subscription);
+    timeline_header ();
+    let map=call "copy-keymap" [get "camulus-reader-feed-mode-map"] in
+    Option.iter (capability (field "backend_key" subscription)) ~f:(fun backend ->
+      let hints=list_controls map backend in
+      if not (String.is_empty hints) then set "header-line-format" (list [get "header-line-format";s hints]));
+    run "use-local-map" [map];
+    inbox_cache ())
 let open_inbox (view:Reader_config.view) =
   show_inbox ~name:("*Camulus view: "^view.name^"*") ~title:view.name ~subscription:nil
 
@@ -655,11 +666,10 @@ let reader entry =
       run "define-key" [map;call "kbd" [s "S"];if can_subscribe_entry entry then sym "camulus-reader-group-subscription" else nil];
       let categories=Option.is_some (backend.categories entry) in
       if categories then Reader_backend.bind map "c" "camulus-group-categories";
-      List.iter backend.list_controls ~f:(fun control ->
-        run "define-key" [map;call "kbd" [s control.key];sym control.command]);
+      let controls=list_controls map backend in
       run "use-local-map" [map];
       let hints=(if can_subscribe_entry entry then "  S: group subscription settings" else "")^
-        String.concat(List.map backend.list_controls ~f:(fun c->"  "^c.hint))in
+        controls in
       if categories then set "header-line-format"
         (list [s (text "name" entry^"  c: categories  ");get "header-line-format";s hints])
       else if not(String.is_empty hints)then set "header-line-format" (list[get "header-line-format";s hints]));
@@ -1098,7 +1108,8 @@ let delete_folder () =
     ~receive:(callback_unit (fun data -> if String.equal (text "kind" data) "changed" then reader nil))
 let compose ~email =
   run "camulus-reader-start" [];
-  let entry=if email || flag "camulus-reader--inbox" || flag "camulus-reader--archive" then nil
+  let entry=if email || flag "camulus-reader--archive" then nil
+    else if flag "camulus-reader--inbox" then get "camulus-reader--subscription-entry"
     else if derived "camulus-reader-groups-mode" then
       let entry=property (point ()) "camulus-reader-entry" in
       if truth entry then Reader_config.entry entry else nil
@@ -1156,14 +1167,17 @@ let render_home () =
   let action (a:Reader_config.home_action) =
     row ~mnemonic:true (cons (sym "action") (s a.shortcut)) (Some a.shortcut) a.label a.command;
     Point.insert "\n" in
-  let bookmarks,places=List.partition_tf !home_views ~f:(fun v ->
+  let visible=visible_home_views () in
+  let bookmarks,places=List.partition_tf visible ~f:(fun v ->
     match v.destination with Reader_config.Inbox _ | Feed _ -> true | Group _ | Folder _ -> false) in
   let width v=number(call "string-width" [s v.Reader_config.name]) +
     Option.value_map v.key ~default:0 ~f:(fun k -> 3 + number(call "string-width" [s k])) in
-  let widest=List.fold !home_views ~init:0 ~f:(fun n v -> Int.max n (width v)) in
+  let widest=List.fold visible ~init:0 ~f:(fun n v -> Int.max n (width v)) in
+  let view_command v=Function.to_value (Defun.lambda_nullary_nil [%here] ~interactive:No_arg (fun () -> open_view v)) in
+  List.iter !home_views ~f:(fun v -> if not v.show_on_home then
+    Option.iter v.key ~f:(fun key -> run "define-key" [map;call "kbd" [s key];view_command v]));
   let shortcut (v:Reader_config.view) =
-    let name=s v.name in
-    let command=Function.to_value (Defun.lambda_nullary_nil [%here] ~interactive:No_arg (fun () -> open_view v)) in
+    let name=s v.name and command=view_command v in
     row ~mnemonic:false (cons (sym "view") name) v.key v.name command;
     let count=if truth counts then find counts name else nil in
     if truth count then (

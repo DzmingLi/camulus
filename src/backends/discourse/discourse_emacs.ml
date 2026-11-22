@@ -180,8 +180,12 @@ let install ~submit () =
     controls=[{key="l";hint="l: like / C-u l: unlike";command="camulus-reader-discourse-like"}];
     browser=Some ("Discourse", "camulus-reader-discourse");
     entrances=(fun () ->
-      Interaction_emacs.registered_sites () |> List.map ~f:(fun (site,_) ->
-        {label=site^" · latest";open_=(fun () -> run "camulus-reader-discourse" [s site;s "latest"])}));
+      let groups=configured_groups () in
+      Interaction_emacs.registered_sites () |> List.filter_map ~f:(fun (site,_) ->
+        let key=s (Discourse.source_of_site site) in
+        if List.exists groups ~f:(fun entry ->
+          Value.equal key (field "backend_key" entry) && String.equal (string_field "group" entry) "latest")
+        then None else Some {label=site^" · latest";open_=(fun () -> run "camulus-reader-discourse" [s site;s "latest"])}));
     reconcile=(fun ~source ~existing ~request ~archived message ->
       if archived then message else (
         let message=if Value.eq existing Value.nil then message else

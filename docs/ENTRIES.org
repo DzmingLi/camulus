@@ -26,7 +26,7 @@
 (setopt camulus-rss-subscriptions '(("Example Blog" . "https://example.org/feed.xml"))
         camulus-jsonfeed-subscriptions '("https://example.org/feed.json")
         camulus-reddit-subscriptions '("ocaml" "emacs")
-        camulus-mu-subscriptions '("/work/Inbox")
+        camulus-mu-subscriptions '(("Work inbox" . "/work/Inbox"))
         camulus-theatlantic-subscriptions '("author.ian-bogost")
         camulus-janestreet-subscriptions '("posts")
         camulus-blogger-subscriptions '(("Example Blog" . "posts.example.blogspot.com"))
@@ -58,7 +58,7 @@ Discourse 启动时从已注册分组发现有效站点并读取认证信息，�
 
 首页按 =C-c e= 编辑操作和视图，重新打开 =M-x camulus= 即可应用。两类入口共享首页的单键，修改首页快捷键只作用于首页。
 
-=camulus-home-views= 定义首页的书签及组和收藏夹快捷入口。条目右侧用 =未读/总数= 显示本地计数。每项提供 =:name= 和可选的单键 =:key=，并从下表选择一种入口。首页按 =RET= 或点击进入视图，也可直接使用配置的快捷键。=V= 按名称选择视图，=h= 返回首页。
+=camulus-home-views= 定义首页的书签及组和收藏夹快捷入口。条目右侧用 =未读/总数= 显示本地计数。每项提供 =:name= 和可选的单键 =:key=，并从下表选择一种入口。首页按 =RET= 或点击进入视图，也可直接使用配置的快捷键。=V= 按名称选择视图，=h= 返回首页。设置 =:show-on-home nil= 可以保留 =V= 中的入口并隐藏首页对应行。
 
 | 入口                              | 行为                                           |
 |-----------------------------------+------------------------------------------------|

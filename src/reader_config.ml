@@ -14,7 +14,7 @@ type inbox = {
   filter : Reader.Content_state.view_filter;
 }
 type destination = Inbox of inbox | Group of Value.t | Feed of Value.t | Folder of string
-type view = { name : string; key : string option; destination : destination }
+type view = { name : string; key : string option; show_on_home : bool; destination : destination }
 
 let view_string label value =
   if not (truth (call "stringp" [value])) || String.is_empty (String.strip (text value))
@@ -73,7 +73,8 @@ let parse_view value =
    | Group _ | Feed _ | Folder _ ->
      if not (List.is_empty backends && List.is_empty subscriptions) || filter.unread_only || filter.favorite_only || Option.is_some filter.days then
        fail "Subscription and state filters require an inbox view");
-  {name;key;destination}
+  let show_on_home = not (truth (call "plist-member" [value;sym ":show-on-home"])) || truth (get ":show-on-home") in
+  {name;key;show_on_home;destination}
 
 type home_action = { label : string; shortcut : string; command : Value.t }
 
@@ -117,7 +118,8 @@ home page to apply changes. Browse commands appear under Groups and folders, ref
 :key, and exactly one of :inbox t, :group GROUP, :feed ((backend . BACKEND) (feed . ID)), or :folder PATH. Inbox views
 can filter by :backends (backend IDs), :subscriptions (group references),
 :unread-only, :favorite-only, and :days. Group references are alists in the
-same format as camulus-groups; the :group destination can omit its name.";
+same format as camulus-groups; the :group destination can omit its name.
+Set :show-on-home nil to keep a view available by name without listing it on the home page.";
  List.iter["cl-lib";"tabulated-list";"json";"shr";"subr-x";"button"]~f:(fun name->run "require"[sym name]);
  variable "camulus-state-file"(data_path "XDG_STATE_HOME" "~/.local/state" "state.sqlite3");
  custom ~kind:(Customization.Type.Repeat (Alist (Symbol,String))) "camulus-groups" nil

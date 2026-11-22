@@ -3,14 +3,14 @@
 这一版是本地 Maildir 邮件后端，保留 mu 索引和现有 mbsync 同步。=Mu_backend= 使用 Mrmime 解析及生成 MIME，通过 Colombe + tls-eio 直接发送 SMTP；不再绑定 GMime 或调用 msmtp。=process_emacs.ml= 通过 Ecaml 提供 mu 子进程宿主；=compose_emacs.ml= 负责邮件编辑格式、草稿组以及 Mu 操作接入，公共 =src/writing.ml= 管理自动保存、编辑版本、关闭和发送状态。没有以 Gnus 或 mu4e 作为后端，也没有 Elisp 后端扩展接口。
 
 * 运行
-运行 =M-x camulus= 打开首页。在入口配置中声明 Maildir，再从组目录或配置好的视图进入，例如 =/main/Inbox=。默认读取 =~/Maildir= 和 =~/.cache/mu=。
+运行 =M-x camulus= 打开首页。在 =camulus-mu-subscriptions= 中订阅 Maildir，例如 =(("Main inbox" . "/main/Inbox"))=。按 =U=，选中对应 Feed 后按 =RET= 即可阅读邮件。默认读取 =~/Maildir= 和 =~/.cache/mu=。
 
 - =RET=：右侧打开整棵回复树，默认展开。
 - =g=：重新查询本地索引。
 - =n=：下一页。
 - =C= / =R=：新建 / 回复，summary 所在窗口切换为 Message 编辑 buffer，右侧阅读窗口保留。
 - =D=：打开当前账户的草稿组；=RET= 恢复编辑。
-- 在首页按 =C= 使用默认账户，邮件组内按 =C= 使用该组所属的账户。新邮件的 =To:= 留空，可在草稿中填写。
+- 在首页按 =C= 使用默认账户，在单个邮箱 Feed 内按 =C= 使用该邮箱所属的账户。新邮件的 =To:= 留空，可在草稿中填写。
 - =C-c C-a= 在列表中归档当前组内的整条讨论，在阅读窗口中归档当前这一封。
 - 邮件有附件时，在正文窗口下方显示附件面板；随当前邮件切换。=A= 手动打开，面板中 =RET= / =o= 打开附件，=s= 保存当前附件，=S= 保存全部，=q= 关闭。正文不再显示附件按钮。
 
