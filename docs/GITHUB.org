@@ -3,24 +3,19 @@
 GitHub 后端位于 =src/backends/github/=，支持 Issues、Pull Requests、Discussions、会话通知、回复和 PR review。协议请求使用公共 OCaml HTTP 传输；Forge 提供本地仓库关联与仓库操作，不承担 Camulus 的后台 HTTP 任务。
 
 * 入口与订阅
-浏览组是 =owner/repo/issues=、=owner/repo/pulls= 或 =owner/repo/discussions=，来源固定为 =github=。例如：
+仓库浏览从 Watched repositories 面板或当前本地仓库的 Forge 入口开始。选定仓库后，再选择 Issues、PR 或 Discussions。GitHub 会话通知可以作为一个 Feed 订阅。
 
 #+begin_src elisp
-(setopt camulus-groups
-        '(((name . "Camulus Issues") (backend . "github")
-           (group . "DzmingLi/camulus/issues"))
-          ((name . "Camulus PRs") (backend . "github")
-           (group . "DzmingLi/camulus/pulls"))))
 (setopt camulus-github-notifications t)
 #+end_src
 
-注册仓库浏览入口不意味着关注整个仓库。收件箱可汇入 GitHub 自身的会话通知，过滤掉非话题通知；具体话题的 =s= 调用 GitHub 的 =SUBSCRIBED=、=UNSUBSCRIBED=、=IGNORED= 设置。在 =U= 选中 GitHub 通知 Feed 并按 =s=，会在 Emacs 中列出当前账户订阅的 Issue 和 PR，包括已关闭的话题。按 =/= 选择 Discussions 后输入 =owner/repo=，按页检查该仓库各讨论的远端订阅状态。某一页可能没有已订阅的讨论；若提示 more available，按 =n= 继续。选中话题按 =s= 修改 GitHub 上的订阅状态，=g= 重新读取。=camulus-github-notifications= 控制收件箱是否同步通知。可在收件箱视图中使用后端 =github= 和组 =notifications= 筛选。
+收件箱可汇入 GitHub 自身的会话通知，过滤掉非话题通知；具体话题的 =s= 调用 GitHub 的 =SUBSCRIBED=、=UNSUBSCRIBED=、=IGNORED= 设置。在 =U= 选中 GitHub 通知 Feed 并按 =s=，会在 Emacs 中列出当前账户订阅的 Issue 和 PR，包括已关闭的话题。按 =/= 选择 Discussions 后输入 =owner/repo=，按页检查该仓库各讨论的远端订阅状态。某一页可能没有已订阅的讨论；若提示 more available，按 =n= 继续。选中话题按 =s= 修改 GitHub 上的订阅状态，=g= 重新读取。=camulus-github-notifications= 控制收件箱是否同步通知。可在收件箱视图中使用后端  =github= 和 Feed =notifications= 筛选。
 
 在追踪面板按 =W= 打开独立的 Watched repositories 面板，按 =T= 返回话题。也可直接运行 =M-x camulus-github-watched-repositories=。列表读取当前 GitHub 账户关注的仓库，仓库名和描述分列显示。按 =RET= 浏览该仓库的 Issues、PR 或 Discussions，=s= 调整仓库级通知，=+= 输入其他仓库的 =owner/repo= 并选择关注策略。=g= 刷新，=n= 加载下一页。
 
-=M-x camulus-github= 从已注册组中选择。=M-x camulus-github-browse= 可临时输入浏览组。和其他来源一样，进入时刷新，=g= 手动刷新，无定时更新。通知请求遵守 GitHub 的 =X-Poll-Interval=，使用条件请求；断网错误由公共界面报告，已缓存列表保留。
+浏览仓库列表时，进入时刷新，=g= 手动刷新，无定时更新。通知请求遵守 GitHub 的 =X-Poll-Interval=，使用条件请求；断网错误由公共界面报告，已缓存列表保留。
 
-通知条目使用 GitHub 原生话题 node ID，与组浏览、正文、收藏共用身份。同一话题合并展示。文章时间始终来自 =createdAt=；通知的 ID 和 =updated_at= 组成 =activity=，使已移除话题在新通知到来时重新出现。通知组的 =d= 调用 GitHub 的 Done 接口；其他仓库组不提供删除远端话题的操作。
+通知条目使用 GitHub 原生话题 node ID，与仓库列表、正文、收藏共用身份。同一话题合并展示。文章时间始终来自 =createdAt=；通知的 ID 和 =updated_at= 组成 =activity=，使已移除话题在新通知到来时重新出现。通知 Feed 的 =d= 调用 GitHub 的 Done 接口；仓库列表不提供删除远端话题的操作。
 
 ** 追踪面板的列
 话题使用 =:type=、=:repository=、=:number= 和 =:title=，仓库使用 =:repository= 和 =:description=。 列按配置顺序显示，省略字段即可隐藏。宽度为正整数，最后一列可用 =nil= 完整显示。执行 =setopt= 会立即重排已打开的对应面板。

@@ -160,7 +160,7 @@ let install ~submit () =
  let request=request ~submit in
  run "require"[sym "auth-source"];run "require"[sym "diff-mode"];
  custom "camulus-github-auth-user" nil "Optional auth-source login at api.github.com. Nil reuses Forge/ghub's GitHub user and token.";
- custom ~kind:Customization.Type.Boolean "camulus-github-notifications" nil "Include GitHub's conversation notifications in the inbox; repository registration is separate.";
+ custom ~kind:Customization.Type.Boolean "camulus-github-notifications" nil "Include GitHub's conversation notifications in the inbox.";
  custom ~kind:Customization.Type.Directory "camulus-github-drafts-directory" (data_path "XDG_STATE_HOME" "~/.local/state" "github-drafts/") "Local GitHub reply and review drafts.";
  List.iter["camulus-github--draft-meta";"camulus-github--review-data"]~f:(fun name->variable name nil);
  let setup ()=
@@ -178,7 +178,7 @@ let install ~submit () =
    else "" in
   credentials:=G.config token in
  let browse group=ignore(G.group_of_string group:G.group);
-  run "camulus-reader-browse-entry"[alist["name",s("GitHub · "^group);"backend",s "github";"group",s group]]in
+  run "camulus-reader-browse-entry"[alist["name",s("GitHub · "^group);"backend_key",s G.source;"group",s group]]in
  let send_draft ~complete =
   let meta=to_json(get "camulus-github--draft-meta")in
   let id=G.required "id"meta and kind=G.required "kind"meta in
@@ -216,12 +216,16 @@ let install ~submit () =
     Hashtbl.remove completions id;let ok=Value.eq(call "nth"[i 2;event])(sym "completed")in
     if not ok then message "GitHub: %s"[call "nth"[i 3;event]];f ok));nil);
  hook "camulus-probe-event-hook" "camulus-github--event";
+ let notification_feed ~name id =
+   if not (String.equal id "notifications") then invalid_arg "Unknown GitHub feed";
+   alist ["name",s (Option.value name ~default:"GitHub · Notifications");
+          "backend_key",s G.source;"group",s id] in
  register { (base ~id:"github" ~name:"GitHub" ~threaded:true
    ~read:(fun ~source:_ ~id ~thread_id ~group:_->Github(Thread(Option.value thread_id~default:id)))) with
-  start=setup;thread_contains_bodies=true;events=["github"];
+  start=setup;group_key=None;feed_entry=Some notification_feed;thread_contains_bodies=true;events=["github"];
   normalize=(fun row->ignore(G.group_of_string(text(field "group"row)):G.group);row);
   subscribed_feeds=Some(fun()->if truth(get "camulus-github-notifications")then
-   [alist["name",s "GitHub · Notifications";"backend_key",s G.source;"group",s "notifications"]]else []);
+   [notification_feed ~name:None "notifications"]else []);
   topic_tracking=Some {
     layout=(function
       | "repositories" -> {heading="Watched repositories";units="repositories";
@@ -234,12 +238,7 @@ let install ~submit () =
     filters=["issues","Subscribed issues and pull requests";"discussions","Subscribed discussions in a repository";"repositories","Watched repositories"];
     resolve_filter=(function
       | "discussions" ->
-        let repositories=List.filter_map (configured_groups ()) ~f:(fun entry ->
-          if String.equal (string_field "backend_key" entry) G.source then
-            match G.group_of_string (string_field "group" entry) with
-            | Repository(owner,repo,_) -> Some(owner^"/"^repo) | Notifications -> None
-          else None) |> List.dedup_and_sort ~compare:String.compare in
-        let repo=text(call "completing-read" [s "GitHub repository (owner/repo): ";Value.list(List.map repositories ~f:s)]) in
+        let repo=text(call "read-string" [s "GitHub repository (owner/repo): "]) in
         let group=repo^"/discussions" in
         ignore(G.group_of_string group:G.group);group
       | filter -> filter);
@@ -247,7 +246,6 @@ let install ~submit () =
     change=(fun ~source:_ ~target ~setting -> i(submit(Github(Tracking(target,setting))))) };
   subscription_target=Some(fun ~source:_ ~selected->let row=selected()in
    Some(text(let v=field "thread_id"row in if truth v then v else field "id"row)));
-  browser=Some("GitHub","camulus-github");
   controls=[{key="F";hint="F: Forge";command="camulus-github-forge-topic"};{key="M";hint="M: Magit";command="camulus-github-magit"};{key="R";hint="R: reply";command="camulus-github-reply"};{key="v";hint="v: PR review";command="camulus-github-review"}];
   list_controls=[{key="F";hint="F: Forge";command="camulus-github-forge-topic"};{key="M";hint="M: Magit";command="camulus-github-magit"};{key="v";hint="v: PR review";command="camulus-github-review"};{key="D";hint="D: drafts";command="camulus-github-drafts"}];
   delete=Some(fun ~entry ~row ~complete->
@@ -269,13 +267,6 @@ let install ~submit () =
    let repo=text(call "read-string"[s "Watch repository (owner/repo): "]) in
    ignore(G.group_of_string (repo^"/issues"):G.group);
    run "camulus-tracking-change"[s ("repo:"^repo);s "SUBSCRIBED"]);
- define0 ~interactive:true "camulus-github"(fun()->
-  let entries=List.filter(configured_groups ())~f:(fun e->String.equal(text(field "backend_key"e))G.source)in
-  if List.is_empty entries then user_error "Register a GitHub group with C / camulus-groups first";
-  let chosen=call "completing-read"[s "GitHub group: ";Value.list(List.map entries~f:(field "name"));nil;sym "t"]in
-  Option.iter(List.find entries~f:(fun e->Value.equal(field "name"e)chosen))~f:(fun e->run "camulus-reader-browse-entry"[e]));
- Defun.defun(Symbol.intern "camulus-github-browse")[%here]~docstring:"Browse owner/repo/issues, owner/repo/pulls or owner/repo/discussions."
-  ~interactive:(Prompt "GitHub group: ")(Returns Value.Type.unit)(let open Defun.Let_syntax in let%map_open group=required "group"string in browse group);
  define0 ~interactive:true "camulus-github-reply" reply;
  define0 ~interactive:true "camulus-github-review" review;
  mode "camulus-github-review-mode" "diff-mode" "GitHub review" "";

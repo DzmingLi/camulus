@@ -37,6 +37,8 @@
         '("https://list.example.org/list/message-id/"))
 #+end_src
 
+JSON Feed 以 URL 标识，只在订阅后出现在 =U=。它不向 =B= 注册组。
+
 列表默认为 =nil=。具名订阅直接出现在 =U=。显示名称可以更改，已读和收藏仍按原条目标识关联。只写标识时，优先采用对应注册组的名称，否则显示后端名称和标识。=B= 和 =G= 只列出显式注册的浏览组。Mu 根据 =camulus-mail-root= 定位本地索引，Reddit 使用当前配置的账户。
 
 订阅列表中对一条 Feed 按 =s=，由后端提供设置入口。Discourse 打开该站点的会话追踪面板，GitHub 在 Emacs 中打开会话订阅面板，本地订阅打开对应的 Customize 选项。通过 Customize 保存，或在自己的 Emacs / Nix 配置中维护 =setopt=；阅读器不会另外写一份订阅状态。=U= 列出各后端当前已订阅的 Feed，=g= 重新读取选项。
