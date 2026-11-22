@@ -45,8 +45,9 @@ let parse ~url body =
  let input()=Xmlm.make_input ~strip:false (`String(0,body))in
  let articles=if Xml.is Xml.atom "feed" root then fst(atom_page ~url body)
  else if Xml.is "" "rss" root then(
-  let feed=parsed(fun()->R.parse ~xmlbase:(Uri.of_string url)(input()))in
-  let channel=Option.get(Xml.child "" "channel" root)in
+  let channel=match Xml.child "" "channel" root with
+    | Some channel -> channel | None -> failwith "RSS feed has no channel" in
+  let feed=parsed(fun()->R.parse ~xmlbase:(Uri.of_string url)(Xml.rss2_input body channel root))in
   let nodes=Xml.elements "" "item" channel in
   List.map(fun(i:R.item)->
    let title,description=match i.story with R.Title t->t,""|R.Description(_,s)->"",s|R.All(t,_,s)->t,s in

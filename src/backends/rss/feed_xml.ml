@@ -13,6 +13,27 @@ let attr ns name = function Syndic.XML.Node(_,(_,attrs),_)->Option.value(List.as
 let rec text = function Syndic.XML.Data(_,s)->s|n->String.concat ""(List.map text(children n))
 let value ns name n=Option.fold ~none:"" ~some:(fun n->String.trim(text n))(child ns name n)
 
+(* RSS 2.0 permits description-only stories. Some publishers emit an empty
+   item/title instead of omitting it, which Syndic otherwise rejects. *)
+let rss2_input body channel root =
+  let blank_title node =
+    is "" "title" node && List.for_all (function
+      | Syndic.XML.Data (_,s) -> String.trim s = ""
+      | _ -> false) (children node) in
+  let needs_cleanup item = List.exists blank_title (children item) in
+  let map_children f = function
+    | Syndic.XML.Node (pos,tag,xs) -> Syndic.XML.Node (pos,tag,f xs)
+    | node -> node in
+  let clean_item item =
+    if is "" "item" item then map_children (List.filter (fun n -> not (blank_title n))) item
+    else item in
+  let body =
+    if List.exists needs_cleanup (elements "" "item" channel) then
+      map_children (List.map (fun n -> if n == channel then map_children (List.map clean_item) n else n)) root
+      |> Syndic.XML.to_string
+    else body in
+  Xmlm.make_input ~strip:false (`String (0,body))
+
 (* Resolve inherited XML bases and remove XML-only namespaces before giving the
    fragment to the HTML reader. Syndic handles serialization and escaping. *)
 let xhtml ~base nodes =

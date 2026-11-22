@@ -19,6 +19,8 @@ RSS 2.0、RSS 1.0/RDF 和 Atom 1.0 共用 =src/backends/rss/= 中的 OCaml 后�
 
 缺少 ID 和链接时，使用标题和正文摘要生成稳定的备用 ID。这能去除重复拉取，但无法证明修改后的匿名条目仍是原文章。RSS 缺少可选日期时使用固定的 epoch 值，避免每次刷新获得新的时间。Syndic 负责 RFC 3339 和 RFC 822 日期与时区；文档格式或必需字段不合法时报告解析错误并保留旧缓存。
 
+RSS 2.0 条目可以只有描述。空的 =<title/>= 按省略标题处理，正文和 GUID 照常保留。
+
 RSS 优先使用 =content:encoded=，其次 =description=。Atom 支持 text、html、xhtml 正文和 summary 回退；XHTML 保留结构，并解析 =xml:base= 下的相对链接。支持文章链接、RSS enclosure 和 Atom enclosure。外置 Atom =content src= 不另行抓取，使用 summary；摘要型源不会自动抓取网页全文。
 
 正文中普通远端图片不自动下载，附件归档限于源明确列出的 enclosure。HTML 通过 Emacs SHR 呈现，不执行网页脚本；邮件 WebKit 方案不用于这个后端。
