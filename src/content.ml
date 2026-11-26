@@ -1,6 +1,10 @@
 (** The current vote; [No_vote] also cancels an existing vote. *)
 type vote = Upvote | Downvote | No_vote
 
+let crlf = Str.regexp_string "\r\n"
+let normalize_newlines text =
+  if String.contains text '\r' then Str.global_replace crlf "\n" text else text
+
 type message = {
   id : string;
   thread_id : string option;

@@ -287,7 +287,7 @@ let body m indent =
       "shr-width",i (Int.max 20 (number (call "window-body-width" [call "get-buffer-window" [bv (buffer ());b true]])-indent-2));
       "shr-base",or_ (field "link_url" m) (field "url" m)]
       (fun () -> with_image_downloads (fun () -> run "shr-insert-document" [dom])))
-  else Point.insert (text "body" m)
+  else Point.insert (Reader.Content.normalize_newlines (text "body" m))
 
 let render () =
   let current_anchor = anchor (point ()) in

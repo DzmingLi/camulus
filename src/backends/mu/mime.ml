@@ -140,7 +140,8 @@ let inspect raw =
       ~some:(fun ct -> R.Content_type.Subtype.to_string ct.R.Content_type.subty="attachment") disp in
     if not attached && (mime="text/plain" || mime="text/html") then begin
       let charset=Option.value(parameter (R.Header.content_type h) "charset") ~default:"UTF-8" in
-      texts:=(mime,utf8 charset bytes)::!texts
+      let text = Reader.Content.normalize_newlines (utf8 charset bytes) in
+      texts := (mime, text) :: !texts
     end else begin
       let cid=header_value h "Content-ID" in
       let cid=match ids cid with [s]->s | _->cid in
