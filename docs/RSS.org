@@ -1,13 +1,13 @@
 #+title: RSS / Atom 后端
 
-RSS 2.0、RSS 1.0/RDF 和 Atom 1.0 共用 =src/backends/rss/= 中的 OCaml 后端。使用 Syndic 1.8.0 解析标准字段和日期，格式自动识别，无需账户配置；实现 =Backend.S= 的列表，以及单篇读取和附件下载，不实现 =Backend.Threading=。
+RSS 2.0、RSS 1.0/RDF 和 Atom 1.0 共用 =src/backends/rss/= 中的 OCaml 后端。使用 Syndic 1.8.0 解析标准字段和日期，格式自动识别，无需账户配置；实现 =Backend.S= 的列表，以及单篇读取和媒体链接，不实现 =Backend.Threading=。
 
 * 使用
 通过 =setopt camulus-rss-subscriptions= 声明进入个人收件箱的 URL 列表，=camulus-groups= 单独配置各后端的浏览入口。也可以 =M-x camulus-reader-rss= 输入地址浏览，按 =s= 打开后端的 Customize 订阅选项。没有独立订阅文件。首页 =g= 刷新来源。
 
 - 每篇文章独立一行；=RET= 在右侧打开正文，支持文本及 SHR HTML 阅读。
-- =m= 选择收藏文件夹，=x= 确认保存文章和所有声明的 enclosure 附件；支持多个文件夹及嵌套目录。
-- 附件按钮位于文章下面，可以下载；收藏中的附件直接从本地数据库保存，不访问网络。
+- =m= 选择收藏文件夹，=x= 确认保存文章和所有声明的 enclosure 媒体；支持多个文件夹及嵌套目录。
+- 正文已有的图片随文显示。仅由 enclosure 提供的媒体通过链接打开；已归档的媒体从本地副本打开。
 - 收件箱视图按 =d= 后按 =x=，删除本地文章、所属收藏和已保存的 enclosure。Camulus 只留下来源和条目 ID 的删除记录，以后收到同 ID 的修订也会略过。在浏览组内执行移除标记只从该组列表移除当前修订。
 - 从 =camulus-rss-subscriptions= 移除 URL 即取消订阅；浏览入口和既有收藏保留。
 - 在首页按 =f= 打开收藏夹，读取持久副本。

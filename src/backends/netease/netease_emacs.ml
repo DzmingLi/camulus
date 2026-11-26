@@ -8,9 +8,9 @@ let prepare ~notify:_ =
     Rss_emacs.publication_worker ~source
       ~group:(fun id requested -> match requested with Some group -> group | None -> groups ~source ~id |> List.hd |> Option.value_exn ~message:"Open the feed before reading its article")
       ~page:(fun group ~after -> B.Live.list backend group ~after,[])
-      ~read:(B.Live.read backend) ~archive:(B.Live.archive backend) ~attachment:(B.Live.attachment backend)
+      ~read:(B.Live.read backend) ~archive:(B.Live.archive backend)
       ~refresh:(fun group _ -> ignore(B.Live.list backend group ~after:None : Reader.Content.page)) ())}
-let install ~submit () =
+let install ~submit:_ () =
   worker_factories := prepare :: !worker_factories;
-  let backend=Rss_emacs.publication_backend ~submit ~source:"netease" ~threaded:false in
+  let backend=Rss_emacs.publication_backend ~source:"netease" ~threaded:false in
   register_local_feeds ~groups:false ~feed_name:(fun id -> B.user id^" · 动态") ~option:"camulus-netease-subscriptions" ~accepts:all_groups backend

@@ -48,7 +48,7 @@ type t = {
   name : string;
   start : unit -> unit;
   on_refresh : unit -> unit;
-  inline_attachments : bool;
+  render_media : Value.t -> Value.t list -> unit;
   normalize : Value.t -> Value.t;
   group_key : (Value.t -> string) option;
   feed_entry : (name:string option -> string -> Value.t) option;
@@ -57,7 +57,7 @@ type t = {
   available : string -> bool;
   (* Describe a read; the common runtime serves/persists bodies before dispatch. *)
   read : source:string -> id:string -> thread_id:string option -> group:string option -> Reader.Protocol.work;
-  attachment : (source:string -> id:string -> group:string option -> part:int -> destination:string -> Value.t) option;
+  mail_attachment : (source:string -> id:string -> group:string option -> part:int -> destination:string -> Value.t) option;
   controls : control list;
   list_controls : control list;
   categories : Value.t -> categories option;
@@ -93,9 +93,9 @@ let run name args = ignore (call name args : Value.t)
 let s = Value.of_utf8_bytes
 let alist fields = Value.list (List.map fields ~f:(fun (k,v) -> call "cons" [Value.intern k;v]))
 let base ~id ~name ~threaded ~read = {
-  id;storage_prefix=id;name;start=(fun()->());on_refresh=(fun()->());inline_attachments=true;
+  id;storage_prefix=id;name;start=(fun()->());on_refresh=(fun()->());render_media=(fun _ _ -> ());
   normalize=Fn.id;group_key=Some (fun _ -> id);feed_entry=None;threaded;read;thread_contains_bodies=false;
-  available=(fun _ -> true);attachment=None;controls=[];list_controls=[];categories=(fun _ -> None);composer=None;refile=(fun ~item:_ -> None);article_marks=(fun _->"");row_title=(fun row->Value.funcallN(Value.intern "alist-get")[Value.intern "title";row]);browser=None;entrances=(fun () -> []);subscribed_feeds=None;
+  available=(fun _ -> true);mail_attachment=None;controls=[];list_controls=[];categories=(fun _ -> None);composer=None;refile=(fun ~item:_ -> None);article_marks=(fun _->"");row_title=(fun row->Value.funcallN(Value.intern "alist-get")[Value.intern "title";row]);browser=None;entrances=(fun () -> []);subscribed_feeds=None;
   subscription_target=None;topic_tracking=None;subscription_option=None;can_subscribe_group=(fun ~source:_ ~group:_ -> false);delete=None;folder_move=None;events=[];
   reconcile=(fun ~source:_ ~existing:_ ~request:_ ~archived:_ message -> message)
 }

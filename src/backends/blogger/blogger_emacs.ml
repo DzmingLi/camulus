@@ -8,12 +8,12 @@ let prepare ~notify:_ =
     Rss_emacs.publication_worker ~all_pages:true ~source
       ~group:(fun id requested -> match requested with Some group -> group | None -> groups ~source ~id |> List.hd |> Option.value_exn ~message:"Open this source group before reading its article")
       ~page:(fun group ~after -> B.Live.list backend group ~after,[])
-      ~read:(B.Live.read backend) ~archive:(B.Live.archive backend) ~attachment:(B.Live.attachment backend)
+      ~read:(B.Live.read backend) ~archive:(B.Live.archive backend)
       ~refresh:(fun group _ -> ignore(B.Live.refresh backend group : Reader.Content.page)) ())}
-let install ~submit () =
+let install ~submit:_ () =
   worker_factories := prepare :: !worker_factories;
-  let backend=Rss_emacs.publication_backend ~submit ~source:"blogger" ~threaded:false in
-  register_local_feeds ~option:"camulus-blogger-subscriptions" ~accepts:all_groups {backend with name="Blogger";browser=Some("Blogger","camulus-blogger")};
+  let backend=Rss_emacs.publication_backend ~source:"blogger" ~threaded:false in
+  register_local_feeds ~option:"camulus-blogger-subscriptions" ~accepts:all_groups {backend with render_media=Rss_emacs.render_media;name="Blogger";browser=Some("Blogger","camulus-blogger")};
   Defun.defun (Symbol.intern "camulus-blogger") [%here] ~docstring:"Browse a source without adding it to the timeline."
     ~interactive:(Prompt "Blogger host: ") (Returns Value.Type.unit)
     (let open Defun.Let_syntax in let%map_open target=required "target" string in

@@ -99,8 +99,8 @@ Discourse 启动时从已注册分组发现有效站点并读取认证信息，�
 | Reddit                              | OAuth、subreddit、回复及提及、渐进回复树、投票；支持撰写新的文字帖                                                                                                     |
 | [[file:GITHUB.org][GitHub / Forge]] | Issues、PR、Discussions、会话通知、远端话题订阅、回复及 PR review；复用 Forge 认证与本地 worktree 关联                                                                 |
 | Discourse                           | 最新讨论、分类、远端通知、会话追踪管理、渐进回复树、点赞与追踪设置；支持撰写新话题                                                                                     |
-| RSS / Atom                          | Syndic 格式解析、后端订阅列表、正文与 enclosure 附件归档                                                                                                               |
-| JSON Feed 1.1                       | 自动跟随 =next_url= 加载全部列表、逐批显示、正文与附件归档                                                                                                             |
+| RSS / Atom                          | Syndic 格式解析、后端订阅列表、正文与 enclosure 媒体归档                                                                                                               |
+| JSON Feed 1.1                       | 自动跟随 =next_url= 加载全部列表、逐批显示、正文与媒体归档                                                                                                             |
 | Blogger                             | 不指定每批数量，自动加载全部 Atom 列表、打开时提取公开网页全文、图片归档                                                                                               |
 | The Atlantic / Jane Street          | 作者 feed 或文章列表、网页正文与图片                                                                                                                                   |
 | 知乎 / 豆瓣                         | 作者或个人入口、正文与图片；豆瓣支持渐进评论树及[[file:DOUBAN.org][广播、帖子和评论点赞]]；两者均使用 Camulus 的[[file:FIREFOX_COOKIES.org][公共 Firefox Cookie 能力]] |

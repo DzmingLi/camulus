@@ -169,7 +169,7 @@ let install ~submit () =
     normalize=(fun entry ->
       let source=Discourse_backend.source_of_site(String.drop_prefix(text(field "backend_key" entry))10) in
       Interaction_emacs.assign "backend_key" (s source) (call "copy-alist" [entry]));
-    attachment=Some (fun ~source ~id ~group ~part ~destination -> ignore group; Value.of_int_exn (submit (String.drop_prefix source 10) (Discourse_backend.Attachment(id,part,destination))));
+
     events=["discourse"];subscription_target=Some (fun ~source:_ ~selected ->
       let id=text(field "id"(selected ()))in
       if String.is_prefix id ~prefix:"topic:"then Some id else None);

@@ -56,7 +56,7 @@ module Make(H:R.Http.S)=struct
   ignore(list t group ~after:None);
   match Hashtbl.find_opt t.cache id with Some a->a|None->failwith "This event is no longer in the current page; open its original URL or archived copy"
  let download url=Download.download_url url
- let archive t group id=R.Article.archive ~download(read t group id)
+ let archive t group id=R.Article.archive_html ~download(read t group id)
  let attachment t group id part destination=R.Article.attachment ~download(read t group id)part destination
 end
 module Live=Make(R.Transport)

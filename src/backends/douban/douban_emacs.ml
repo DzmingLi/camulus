@@ -5,7 +5,7 @@ module D=Douban_backend
 module P=Reader.Protocol
 module C=Reader.Content_state
 
-type operation = Read of string | Attachment of string * int * string | Like of string * bool
+type operation = Read of string | Like of string * bool
  | Categories of string
  | Publish of D.destination * string * string
 type P.work += Douban of operation
@@ -37,8 +37,6 @@ let prepare ~notify:_ =
           ~emit_article:(fun a->observe[a.message];emit(Presentation("rss",D.Live.article_json backend a)))
           ~emit:(fun b->emit(Presentation("rss",`Assoc["kind",`String "thread";"thread",`String b.thread;
             "messages",`List(List.map b.messages ~f:(D.Live.message_json backend));"complete",`Bool b.complete])))
-        | Attachment(id,part,destination)->D.Live.attachment backend "" id part destination;
-          emit(Presentation("rss",`Assoc["kind",`String "saved";"path",`String destination]))
         | Like(id,liked)->D.Live.set_like backend ~id ~liked;
           emit(Douban_liked(id,Option.value_exn(D.Live.reaction backend id)))
         | Categories slug ->
@@ -168,7 +166,7 @@ let install ~submit () =
     {all_topics={listing=root;name="豆瓣小组 · "^slug};load=(fun complete ->
       load_categories ~submit slug (fun result -> complete (Result.map result ~f:(fun rows ->
         List.map rows ~f:(fun (name,id) -> {name;listing=root^".category."^id})))))}));
-  attachment=Some(fun ~source:_ ~id ~group:_ ~part ~destination->i(submit (Douban(Attachment(id,part,destination)))));
+
   controls=[{key="l";hint="赞 · l";command="camulus-douban-like"};{key="L";hint="取消赞 · L";command="camulus-douban-unlike"}];
   article_marks=(fun item->if truth(field "like-count" item) then " · "^text(call "number-to-string"[field "like-count" item])^" 赞" else "");
   reconcile=(fun ~source:_ ~existing:_ ~request ~archived item->

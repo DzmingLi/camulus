@@ -318,15 +318,8 @@ let render () =
           let body_start=point () in
           if truth (find (get "camulus-reader--loaded") id) then body m indent else Point.insert "Loading article…";
           Point.insert "\n";
-          if Option.value_map (capability (get "camulus-reader--backend-key")) ~default:true
-              ~f:(fun backend -> backend.inline_attachments) then (
-          List.iter (values (find (get "camulus-reader--attachments") id)) ~f:(fun a ->
-            run "insert-text-button" [s (Printf.sprintf "[Save %s · %d bytes]" (text "name" a) (number (field "size" a)));
-              sym "action";sym "camulus-reader--attachment";sym "follow-link";b true;sym "backend_key";get "camulus-reader--backend-key";
-              sym "message-id";id;sym "part";field "part" a;sym "filename";field "name" a;sym "archived";
-              b (flag "camulus-reader--archive" && not (truth (field "download_from_source" a)))];
-            Point.insert "\n");
-          );
+          Option.iter (capability (get "camulus-reader--backend-key")) ~f:(fun backend ->
+            backend.render_media m (values (find (get "camulus-reader--attachments") id)));
           Point.insert "\n";
           let prefix n=styled (String.make n ' ') "fixed-pitch" in
           properties start (point ()) [sym "camulus-reader-id";id;sym "camulus-reader-depth";i depth;
@@ -1285,19 +1278,6 @@ let subscription () =
       choose_subscription ~label:(if Option.is_some tracking then "Topic notification level" else "Subscription policy") (fun setting -> match tracking with
         | Some tracking -> tracking.change ~source:(str source) ~target ~setting
         | None -> i (Runtime_ui.request_subscription (str source) target setting)))
-let attachment button =
-  let prop name=call "button-get" [button;sym name] in
-  let source=prop "backend_key" and id=prop "message-id" and part=prop "part" in
-  let destination=call "read-file-name" [s "Save attachment: ";nil;nil;nil;call "file-name-nondirectory" [prop "filename"]] in
-  if truth (prop "archived") then
-    request_ignore (CS.Attachment(str source,str id,number part,str destination))
-  else match Option.bind (capability source) ~f:(fun backend -> backend.attachment) with
-    | None -> user_error "This backend does not offer attachment downloads"
-    | Some download ->
-      let group=field "group" (get "camulus-reader--entry") in
-      let id=download ~source:(str source) ~id:(str id) ~part:(number part) ~destination:(str destination)
-        ~group:(optional_string group) in
-      put (get "camulus-reader--requests") id (sym "ignore")
 let mark_visible target =
   if alive target && not (String.equal (str (call "camulus-probe-status" [])) "idle") then in_buffer target (fun () ->
     set "camulus-reader--visibility-timer" nil;
@@ -1516,7 +1496,6 @@ let install () =
   define0 ~interactive:true "camulus-mail-new" (fun () -> compose ~email:true);
   define0 ~interactive:true "camulus-reader-compose" (fun () -> compose ~email:false);
   define0 ~interactive:true "camulus-reader-next-unread" next_unread;
-  define1 "camulus-reader--attachment" (fun button -> attachment button;nil);
   define1 "camulus-reader--refresh-backend-key" (fun source -> refresh_source source;nil);
   define0 "camulus-reader-home-open" home_open;
   define0 "camulus-reader--render-home" render_home;

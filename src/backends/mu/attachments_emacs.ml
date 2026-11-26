@@ -26,7 +26,7 @@ let filename part =
   if String.is_empty name || List.mem [".";".."] name ~equal:String.equal then
     "attachment-"^Int.to_string(integer(field "part" part)) else name
 let save x part destination open_after =
-  let request= !download ~archived:x.archived ~source:x.source ~id:x.id
+  let request= !download ~archived:(x.archived && not (truth (field "download_from_source" part))) ~source:x.source ~id:x.id
     ~part:(integer(field "part" part)) ~destination in
   let finished=Function.to_value(Defun.lambda [%here] (Returns Value.Type.value)
     (let open Defun.Let_syntax in let%map_open event=required "event" value in
@@ -64,7 +64,7 @@ let refresh ?(force=false) () =
     let source=text(get "camulus-reader--backend-key") in
     let id=call "get-text-property" [call "point" [];sym "camulus-reader-id"] in
     let id=if truth id then id else call "get-text-property" [call "point-min" [];sym "camulus-reader-id"] in
-    let parts=if String.is_prefix source ~prefix:"maildir:" && truth id then
+    let parts=if Option.is_some (Option.bind (Reader_backend.find source) ~f:(fun b -> b.mail_attachment)) && truth id then
       values(call "gethash" [id;get "camulus-reader--attachments"]) else [] in
     if List.is_empty parts then (
       (match !selected with Some x when Value.equal owner x.owner -> selected:=None;close_windows () | _ -> ()))

@@ -29,10 +29,8 @@ let full_post (a:D.article) html =
  List.iter(Soup.append_root fragment)nodes;
  let tree=Soup.coerce fragment |> Html.clean ~base:a.message.url |> Option.get in
  if String.trim(Html.text tree)="" then failwith "Jane Street returned an empty post";
- let enclosures=Html.media tree |> List.mapi(fun part url ->
-   {D.part;url;name=Uri.path(Uri.of_string url)|>Filename.basename|>Uri.pct_decode;size=0;mime=""}) in
  {D.message={a.message with html=Some(Html.render tree);body="";
-   author=(if authors=[] then a.message.author else String.concat ", " authors)};enclosures}
+   author=(if authors=[] then a.message.author else String.concat ", " authors)};enclosures=a.enclosures}
 module Make(H:R.Http.S)=struct
  module Feed=R.Make(H)
  type t={feed:Feed.t;full:(string,D.article) Hashtbl.t;lock:Eio.Mutex.t}
@@ -49,7 +47,7 @@ module Make(H:R.Http.S)=struct
      | Some cached when cached.message.activity=a.message.activity -> cached
      | _ -> let html=Feed.download_url (post_url a.message.url) in
        let full=full_post a html in Hashtbl.replace t.full id full;full)
- let archive t group id = R.Article.archive ~download:Feed.download_url (read t group id)
+ let archive t group id = R.Article.archive_html ~download:Feed.download_url (read t group id)
  let attachment t group id part destination =
    R.Article.attachment ~download:Feed.download_url (read t group id) part destination
 end

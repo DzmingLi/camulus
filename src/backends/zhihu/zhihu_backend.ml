@@ -75,7 +75,7 @@ module Make(H:R.Http.S)=struct
   Hashtbl.replace t.cache id a;a
  let invalidate t id=Hashtbl.remove t.cache id
  let download url=Download.download_url url
- let archive t group id=R.Article.archive ~download (read t group id)
+ let archive t group id=R.Article.archive_html ~download (read t group id)
  let attachment t group id part destination=R.Article.attachment ~download(read t group id)part destination
 end
 module Live=Make(R.Transport)

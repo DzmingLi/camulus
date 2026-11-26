@@ -150,8 +150,10 @@ let install ~submit ~configured ~request_state () =
   Process_emacs.install ();
   Compose_emacs.install ();
   Attachments_emacs.install ~save_attachment:(fun ~archived ~source ~id ~part ~destination ->
-    Value.of_int_exn (if archived then request_state (CS.Attachment(source,id,part,destination))
-      else submit (Mu_backend.Attachment(id,part,destination))));
+    if archived then i (request_state (CS.Attachment(source,id,part,destination)))
+    else
+      let download=Option.value_exn (Option.bind (Reader_backend.find source) ~f:(fun b -> b.mail_attachment)) in
+      download ~source ~id ~group:None ~part ~destination);
   custom ~kind:Customization.Type.Directory "camulus-mail-root" (call "expand-file-name" [s "~/Maildir"]) "Backend configuration option.";
   custom ~kind:Customization.Type.Directory "camulus-mail-muhome" (call "expand-file-name" [s "~/.cache/mu"]) "Backend configuration option.";
   custom ~kind:(Customization.Type.Option {doc_for_none="Unconfigured";t=String}) "camulus-mail-sender" nil "Default sender address.";
@@ -172,10 +174,10 @@ let install ~submit ~configured ~request_state () =
        (let mu=call "executable-find"[s "mu"]in if truth mu then mu else s "mu");get "camulus-mail-account"];
       List.iter(values(get "camulus-mail-smtp-profiles"))~f:(fun row->run "apply"[sym "camulus-mail-configure-smtp";row]);
       List.iter(values(get "camulus-mail-accounts"))~f:(fun row->run "apply"[sym "camulus-mail-configure-account";row])));
-    storage_prefix="maildir";inline_attachments=false;
+    storage_prefix="maildir";
     on_refresh=(fun () -> if truth(get "camulus-mail-sender") then
       try sync ~submit ~manual:false () with ex -> message "Mail sync: %s" [s(Exn.to_string ex)]);
-    attachment=Some (fun ~source:_ ~id ~group:_ ~part ~destination -> Value.of_int_exn (submit (Mu_backend.Attachment(id,part,destination))));
+    mail_attachment=Some (fun ~source:_ ~id ~group:_ ~part ~destination -> Value.of_int_exn (submit (Mu_backend.Attachment(id,part,destination))));
     events=["mail"];available=configured;
     composer=Some(Compose_emacs.composer ~configured);
     folder_move=Some {

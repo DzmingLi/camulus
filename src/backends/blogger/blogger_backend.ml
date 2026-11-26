@@ -22,9 +22,7 @@ let full_post (a:D.article) body =
  let cleaned=Html.clean ~base:a.message.url node |> Option.get in
  if String.trim(Html.text cleaned)="" && Html.media cleaned=[] then failwith "Blogger article body is empty";
  let full=R.Article.of_html a.message (Html.render cleaned) in
- let enclosures=List.sort_uniq(fun (a:D.enclosure) b->String.compare a.url b.url)(a.enclosures@full.enclosures)
-   |> List.mapi(fun part e->{e with D.part}) in
- {full with enclosures}
+ {full with enclosures=a.enclosures}
 module Make(H:R.Http.S)=struct
  module Feed=R.Make(H)
  type t={feed:(D.article list * int option) Feed.cache; articles:((group*string),D.article)Hashtbl.t;
@@ -69,7 +67,7 @@ module Make(H:R.Http.S)=struct
    |_->let body=Feed.download_url (R.Http.validate a.message.url) in
      let full=full_post a body in Hashtbl.replace t.full(group,id)full;full)
  let download url=Feed.download_url url
- let archive t group id=R.Article.archive ~download(read t group id)
+ let archive t group id=R.Article.archive_html ~download(read t group id)
  let attachment t group id part path=R.Article.attachment ~download(read t group id)part path
 end
 module Live=Make(R.Transport)

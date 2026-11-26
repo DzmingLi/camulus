@@ -17,12 +17,9 @@ let prepare ~notify:_ =
       ~archive:(fun group id -> match cached id with
         | Some article -> B.Live.archive_local article
         | None -> B.Live.archive backend group id)
-      ~attachment:(fun group id part destination -> match cached id with
-        | Some article -> B.Live.attachment_local article part destination
-        | None -> B.Live.attachment backend group id part destination)
       ~refresh:(fun group _ -> ignore(B.Live.list backend group ~after:None : Reader.Content.page)) ())}
-let install ~submit () =
+let install ~submit:_ () =
   worker_factories := prepare :: !worker_factories;
-  let backend=Rss_emacs.publication_backend ~submit ~source:"atlantic" ~threaded:false in
+  let backend=Rss_emacs.publication_backend ~source:"atlantic" ~threaded:false in
   register_local_feeds ~option:"camulus-theatlantic-subscriptions" ~accepts:all_groups
-    {backend with inline_attachments=false}
+    backend

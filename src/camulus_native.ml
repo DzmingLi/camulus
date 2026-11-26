@@ -48,7 +48,7 @@ let () =
       Reddit_emacs.install ~submit:request_reddit ~configured ();
       Github_emacs.install ~submit:submit_work ();
       Discourse_emacs.install ~submit:submit_work ();
-      Rss_emacs.install ~submit:submit_work ();
+      Rss_emacs.install ~request_state:Runtime_ui.request_state ();
       Jsonfeed_emacs.install ~submit:submit_work ();
       Mu_emacs.install ~submit:request_mail ~configured ~request_state:Runtime_ui.request_state ();
       Atlantic_emacs.install ~submit:submit_work ();Janestreet_emacs.install ~submit:submit_work ();

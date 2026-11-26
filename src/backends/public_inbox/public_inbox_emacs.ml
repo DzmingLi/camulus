@@ -13,5 +13,8 @@ let prepare ~notify:_ =
       ~thread:(B.Live.stream_thread backend,B.Live.archive_article backend) ())}
 let install ~submit () =
   worker_factories := prepare :: !worker_factories;
-  let backend=Rss_emacs.publication_backend ~submit ~source:"public-inbox" ~threaded:true in
-  register_local_feeds ~option:"camulus-public-inbox-subscriptions" ~accepts:all_groups backend
+  let backend=Rss_emacs.publication_backend ~source:"public-inbox" ~threaded:true in
+  register_local_feeds ~option:"camulus-public-inbox-subscriptions" ~accepts:all_groups
+    {backend with mail_attachment=Some(fun ~source ~id ~group ~part ~destination ->
+        i(submit (Rss_emacs.Publication_attachment(source,id,group,part,destination))));
+      controls=[{key="A";hint="A: attachments";command="camulus-mail-attachments"}]}
