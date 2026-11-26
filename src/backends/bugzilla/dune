@@ -1,0 +1,4 @@
+(library
+ (name bugzilla_emacs)
+ (modules bugzilla_emacs bugzilla)
+ (libraries reader_emacs_backend rss_emacs rss_backend ecaml))

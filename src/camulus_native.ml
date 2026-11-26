@@ -54,6 +54,7 @@ let () =
       Atlantic_emacs.install ~submit:submit_work ();Janestreet_emacs.install ~submit:submit_work ();
       Zhihu_emacs.install ~submit:submit_work ();Douban_emacs.install ~submit:submit_work ();
       Netease_emacs.install ~submit:submit_work ();Public_inbox_emacs.install ~submit:submit_work ();
+      Bugzilla_emacs.install ();
       Blogger_emacs.install ~submit:submit_work ());
   Reader_config.setup_variables ();
   Reader_config.register ~idle:(fun()->String.equal(Runtime_ui.status())"idle");
