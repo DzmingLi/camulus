@@ -33,10 +33,12 @@ type message = {
       not parse them. [None] makes the timeline use [id] as the token, so changes
       to that same message cannot by themselves create another activity.
 
-      This is neither a fetch timestamp nor a sorting key: [created] supplies
+      This is neither a fetch timestamp nor a sorting key: [activity_at] or [created] supplies
       source time, and storage assigns its own sequence for dismissal bounds.
       Some backends also compare this token to invalidate cached full bodies. *)
   activity : string option;
+  (** When the feed activity occurred, if distinct from message creation. *)
+  activity_at : float option;
 }
 
 type page = {

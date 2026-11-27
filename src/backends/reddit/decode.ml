@@ -59,7 +59,7 @@ let message ~root thing =
     url = "https://www.reddit.com" ^ (Option.value (optional "permalink" d)
       ~default:("/comments/" ^ String.sub thread 3 (String.length thread-3) ^ "/"));
     link_url = (if kind = "t3" then optional "url" d else None);
-    created; unavailable; score = integer (get "score" d);
+    created; activity_at=None; unavailable; score = integer (get "score" d);
     references = [];
     activity = (if kind = "t3" then Some (id ^ ":" ^ string_of_int (integer (get "num_comments" d))) else None);
     my_vote = (match get "likes" d with `Bool true -> M.Upvote | `Bool false -> M.Downvote | _ -> M.No_vote) }
@@ -73,5 +73,5 @@ let inbox_messages j =
       title=Option.value (optional "link_title" d) ~default:(string "subject" d);
       author="";body="";html=None;
       url="https://www.reddit.com/comments/"^String.sub thread 3 (String.length thread-3)^"/";
-      link_url=None;created=number (get "created_utc" d);unavailable=false;
+      link_url=None;created=number (get "created_utc" d);activity_at=None;unavailable=false;
       score=0;my_vote=M.No_vote;activity=Some id })

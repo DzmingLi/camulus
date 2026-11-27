@@ -76,7 +76,7 @@ let header j =
   {path;refs;maildir=str(get j "maildir");message={
     M.id;thread_id=None;references=refs;parent_id=(match List.rev refs with p::_ when p<>id -> Some p | _ -> None);
     title=str(get j "subject");author;body="";html=None;url="";link_url=None;
-    created=number(get j "date-unix");unavailable=false;score=0;activity=None;my_vote=M.No_vote}}
+    created=number(get j "date-unix");activity_at=None;unavailable=false;score=0;activity=None;my_vote=M.No_vote}}
 
 let find t ?(related=false) query =
   let argv=[t.config.mu;"find";"--muhome";t.config.muhome;"--format=json2";

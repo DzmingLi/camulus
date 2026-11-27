@@ -18,7 +18,7 @@ let article ~id ~title ~author ~body ~html ~url ~created ~updated enclosures =
  let id=if id=""then(if url<>""then url else "fallback:"^hash(title^"\000"^body^Option.value html ~default:""))else id in
  let revision=hash(Yojson.Safe.to_string(`List[`String title;`String body;`String(Option.value html ~default:"");`String updated;`List(List.map enclosure_json enclosures)]))in
  {message={C.id;thread_id=None;parent_id=None;references=[];title;author;body;html;url;
-   link_url=(if url=""then None else Some url);created;unavailable=false;score=0;my_vote=No_vote;activity=Some revision};enclosures}
+   link_url=(if url=""then None else Some url);created;activity_at=None;unavailable=false;score=0;my_vote=No_vote;activity=Some revision};enclosures}
 let uri=Option.fold ~none:"" ~some:Uri.to_string
 let text_construct : A.text_construct -> string * string option = function
  |A.Text s->s,None|A.Html(_,s)->"",Some s

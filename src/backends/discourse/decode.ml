@@ -47,7 +47,7 @@ let parse_id id = match String.split_on_char '/' id with
 let date s = match Ptime.of_rfc3339 s with Ok(t,_,_) -> Ptime.to_float_s t | Error _ -> 0.
 let base_message ~site ~topic ~floor ~title ~author ~created =
   {C.id=article_id topic floor;thread_id=Some(topic_id topic);parent_id=(if floor=1 then None else Some(article_id topic 1));references=[];
-   title;author;body="";html=None;url=Printf.sprintf "%s/t/%d/%d" site topic floor;link_url=None;created;unavailable=false;score=0;my_vote=C.No_vote;activity=None}
+   title;author;body="";html=None;url=Printf.sprintf "%s/t/%d/%d" site topic floor;link_url=None;created;activity_at=None;unavailable=false;score=0;my_vote=C.No_vote;activity=None}
 let summary ~site j =
   let topic=positive(num "id" j) in
   let title=str "title" j in if title="" then failwith "Discourse topic title is missing";

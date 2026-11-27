@@ -35,7 +35,7 @@ let decode kind j =
  let html=Html.parse(str "content" j)|>images|>Html.render in
  let message={C.id;thread_id=None;parent_id=None;references=[];title;author=str "name" author;
  body="";html=None;url;link_url=None;created=number (if article then "created" else "created_time") j;
- unavailable=false;score=0;my_vote=C.No_vote;activity=Some(Digest.to_hex(Digest.string(title^html)))} in
+ activity_at=None;unavailable=false;score=0;my_vote=C.No_vote;activity=Some(Digest.to_hex(Digest.string(title^html)))} in
  R.Article.of_html message html
 module Make(H:R.Http.S)=struct
  module Download=R.Make(H)

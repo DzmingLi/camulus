@@ -30,42 +30,45 @@ let decode ~url body =
   let tree=match (if String.trim image="" then None else Html.safe_link ~base "src" image) with
     | Some image ->
       let is_cover node=Html.tag node="img" && Html.attr "src" node=image in
-      let tree=if Html.find is_cover tree=None then
+      if Html.find is_cover tree=None then
         clean ("<figure><img src=\"" ^ Html.escape image ^ "\"></figure>" ^ html)
-        else tree in
-      Option.iter (Html.set_attr "data-camulus-image-url" image) (Html.find is_cover tree);
-      tree
+      else tree
     | _ -> tree in
   let enclosures=(List.map(fun (e:D.enclosure)->e.url)a.enclosures @ Html.media tree) |> List.sort_uniq String.compare |> List.mapi(fun part url ->
     {D.part;url;name=Uri.path(Uri.of_string url)|>Filename.basename|>Uri.pct_decode;size=0;mime=""}) in
   {D.message={a.message with title=String.trim(Html.text(Html.parse a.message.title));html=Some(Html.render tree);body=""};enclosures}) articles
-let cover tree =
- Html.find (fun node -> Html.tag node="img" && Html.attr "data-camulus-image-url" node<>"") tree
-let preserve_cover ~download ~previous (article:D.article) =
- let html=Option.get article.message.html in
- let tree=Html.parse html in
- match cover tree with
- | None -> article
- | Some node ->
-   let url=Html.attr "data-camulus-image-url" node in
-   let revision=Option.value article.message.activity ~default:"" in
-   let saved=Option.bind (previous article.message.id) (fun cached ->
-    let open Yojson.Safe.Util in
-    match cached |> member "message" |> member "html" with
-    | `String html -> Html.embedded_image ~url html
-    | _ -> None) in
-   let image=match saved with
-    | Some (_,cached_revision) when cached_revision=revision -> saved
-    | _ ->
-      (try match Html.image_data_uri (download url) with
-       | Some data -> Some(data,revision)
-       | None -> saved
-       with Failure _ | R.Http.Transport_error _ -> saved) in
-   match image with
-   | None -> article
-   | Some (data,revision) ->
-     Html.set_attr "data-camulus-cover-revision" revision node;
-     {article with message={article.message with html=Some(Html.render_with_cover tree node data)}}
+let preserve_images ~download ~previous (article:D.article) =
+ let tree=Html.parse (Option.get article.message.html) in
+ let images=Html.select (fun node -> Html.tag node="img" && Html.attr "src" node<>"") tree in
+ if images=[] then article else
+ let revision=Option.value article.message.activity ~default:"" in
+ let saved=match previous article.message.id with
+   | Some cached ->
+     (match Yojson.Safe.Util.(cached |> member "message" |> member "html") with
+      | `String html -> Html.embedded_images html
+      | _ -> Hashtbl.create 0)
+   | None -> Hashtbl.create 0 in
+ let fetch url =
+   let old=Hashtbl.find_opt saved url in
+   match old with
+   | Some (_,cached_revision) when cached_revision=revision -> old
+   | _ ->
+     (try match Html.image_data_uri (download url) with
+      | Some data -> Some (data,revision)
+      | None -> old
+      with Failure _ | R.Http.Transport_error _ -> old) in
+ let fetched=Hashtbl.create 8 in
+ List.iter (fun node ->
+   let url=Html.attr "src" node in
+   let image=match Hashtbl.find_opt fetched url with
+     | Some result -> result
+     | None -> let result=fetch url in Hashtbl.add fetched url result;result in
+   Option.iter (fun (data,revision) ->
+     Html.set_attr "data-camulus-image-url" url node;
+     Html.set_attr "data-camulus-image-revision" revision node;
+     Html.set_attr "src" data node) image) images;
+ {article with message={article.message with html=Some (Html.render tree)}}
+
 module Make(H:R.Http.S)=struct
  module Feed=R.Make(H)
  type t=Feed.t
@@ -75,10 +78,10 @@ module Make(H:R.Http.S)=struct
  let list t group ~after=Feed.list t (feed_url group) ~after
  let local_articles t group ~after ~previous =
   Feed.list_articles t (feed_url group) ~after
-  |> Eio.Fiber.List.map ~max_fibers:4 (preserve_cover ~download:Feed.download_url ~previous)
+  |> Eio.Fiber.List.map ~max_fibers:4 (preserve_images ~download:Feed.download_url ~previous)
  let read t group id=Feed.read t (feed_url group) id
  let read_local t group id ~previous =
-  read t group id |> preserve_cover ~download:Feed.download_url ~previous
+  read t group id |> preserve_images ~download:Feed.download_url ~previous
  let archive t group id=Feed.archive t (feed_url group) id
  let attachment t group id part path=Feed.attachment t (feed_url group) id part path
 

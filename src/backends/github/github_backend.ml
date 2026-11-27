@@ -56,7 +56,7 @@ let message ?parent ?thread ?title j : C.message =
  {id;thread_id=Some(Option.value thread ~default:id);parent_id=parent;references=[];
   title=Option.value title ~default:(str "title" j);author=str "login"(field "author" j);
   body=str "body" j;html=(match str "bodyHTML" j with ""->None|s->Some s);
-  url=str "url" j;link_url=None;created=time(str "createdAt" j);unavailable=false;
+  url=str "url" j;link_url=None;created=time(str "createdAt" j);activity_at=None;unavailable=false;
   score=0;my_vote=No_vote;activity=(match str "updatedAt" j with ""->None|s->Some s)}
 type config = {token:string}
 let config token =
@@ -153,7 +153,10 @@ module Make(H:Http.S) = struct
       let ids=Option.value(Hashtbl.find_opt t.notification_ids m.id)~default:[] in
       Hashtbl.replace t.notification_ids m.id (List.sort_uniq String.compare(event_id::ids));
       let updated=required "updated_at" n in
-      Some {m with C.activity=Some(event_id^":"^updated)})
+      let activity_at=match Ptime.of_rfc3339 updated with
+        | Ok (timestamp,_,_) -> Some (Ptime.to_float_s timestamp)
+        | Error _ -> None in
+      Some {m with C.activity=Some(event_id^":"^updated);activity_at})
    | _ -> None) (array data) in
   {C.messages=rows;
    after=(if more then Some(cursor "notifications" (string_of_int(p+1)))else None)}

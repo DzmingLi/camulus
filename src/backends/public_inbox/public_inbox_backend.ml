@@ -58,7 +58,7 @@ let parse_mbox ~url body=
    let parent_id=match List.rev(if parents=[] then references else parents) with []->None|p::_->Some p in
    let html=match Mime.body "text/html" p with ""->None|s->Some s in
    let message={C.id;thread_id=None;parent_id;references;title=p.subject;author=p.author;
-    body=Mime.body "text/plain" p;html;url=id;link_url=None;created=D.date p.date;unavailable=false;
+    body=Mime.body "text/plain" p;html;url=id;link_url=None;created=D.date p.date;activity_at=None;unavailable=false;
     score=0;my_vote=C.No_vote;activity=Some p.message_id} in
    let enclosures=List.map(fun(a:Mime.attachment)->{D.part=a.part;name=a.name;mime=a.mime;size=a.size;url=id})p.attachments in
    Some{article={D.message;enclosures};raw}

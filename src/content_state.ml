@@ -35,202 +35,38 @@ let rss_source = String.starts_with ~prefix:"rss:"
 let atlantic_source = String.equal "atlantic"
 (* Standalone feeds can publish a new version even after the article was archived. *)
 let refreshable_article source = rss_source source || atlantic_source source
-let state_path db =
-  query db "PRAGMA database_list" []
-  |> List.find (fun row -> s row.(1)="main")
-  |> fun row -> s row.(2)
-let article_path db ~directory ~extension ~source ~id =
-  let identity = Yojson.Safe.to_string (`List [`String source;`String id]) in
-  Filename.concat (state_path db ^ directory) (Digest.to_hex (Digest.string identity) ^ extension)
-let legacy_rss_path db = article_path db ~directory:".rss" ~extension:".json"
-let legacy_atlantic_path db = article_path db ~directory:".html" ~extension:".html"
-let article_bytes path =
-  try Some (In_channel.with_open_bin path In_channel.input_all)
-  with Sys_error _ when not (Sys.file_exists path) -> None
-let set_json key value fields =
-  let open Yojson.Safe.Util in
-  `Assoc ((key,value) :: List.remove_assoc key (to_assoc fields))
-let with_html article html =
-  let message=Yojson.Safe.Util.member "message" article in
-  set_json "message" (set_json "html" html (set_json "body" (`String "") message)) article
 (* Archive blobs are indexed by enclosure part number. Keep their manifest
    consistent with the presentation when revisions change the attachment list. *)
 let resource_manifest article =
   Yojson.Safe.Util.member "attachments" article |> Yojson.Safe.to_string
   |> Digest.string |> Digest.to_hex
-(* A missing old RSS file still leaves a digest of its archived enclosures.
-   Keep it so a later refresh can recover the body without discarding resources. *)
-let legacy_rss_payload payload =
-  String.length payload = 32 &&
-  String.for_all (function '0'..'9' | 'a'..'f' -> true | _ -> false) payload
-let article_html article =
-  let open Yojson.Safe.Util in
-  article |> member "message" |> member "html" |> to_string_option
-let read_article ~source row =
-  let payload=s row.(1) in
-  if rss_source source && legacy_rss_payload payload then None else
-  let article=Yojson.Safe.from_string payload in
-  (* File-era Atlantic rows without their HTML file still have their enclosure
-     index. Let a later feed refresh recover the body. *)
-  if atlantic_source source && Option.is_none (article_html article) &&
-     Yojson.Safe.Util.(article |> member "message" |> member "body")=`String "" then None
-  else Some article
-let stored_manifest ~source row =
-  let payload=s row.(1) in
-  if rss_source source && legacy_rss_payload payload then payload
-  else resource_manifest (Yojson.Safe.from_string payload)
-let resources_complete ~source row article =
-  n row.(2)=1 && stored_manifest ~source row=resource_manifest article
+let read_article row = Yojson.Safe.from_string (s row.(1))
 let rss_deleted db ~source ~id =
   rss_source source &&
   query db "SELECT 1 FROM rss_deletions WHERE backend_key=? AND id=?" [text source;text id] <> []
-let finish_rss_delete db ~source ~id =
-  (try Unix.unlink (legacy_rss_path db ~source ~id)
-   with Unix.Unix_error (Unix.ENOENT,_,_) -> ());
-  run db "UPDATE rss_deletions SET pending=0 WHERE backend_key=? AND id=?" [text source;text id]
-let schema_version db =
-  match query db "PRAGMA user_version" [] with [r] -> n r.(0) | _ -> -1
-let clean_migrated_files db suffix migrated =
-  List.iter (fun (path,digest) ->
-    try if Option.map Digest.string (article_bytes path)=Some digest then Unix.unlink path
-    with Unix.Unix_error _ | Sys_error _ -> ()) migrated;
-  (try Unix.rmdir (state_path db ^ suffix) with Unix.Unix_error _ -> ())
-
-let embed_archived_images db ~source ~id article html =
-  let tree=Html.parse html in
-  let open Yojson.Safe.Util in
-  let attachments=member "attachments" article |> to_list in
-  List.iter (fun img ->
-    let url=Html.attr "src" img in
-    List.find_opt (fun part -> member "url" part = `String url) attachments
-    |> Option.iter (fun part ->
-      let part=member "part" part |> to_int in
-      match query db "SELECT data FROM archive_files WHERE source=? AND id=? AND part=?"
-        [text source;text id;int part] with
-      | [r] -> Option.iter (fun data ->
-          Html.set_attr "data-camulus-image-url" url img;
-          Html.set_attr "src" data img) (Html.image_data_uri (s r.(0)))
-      | _ -> ())) (Html.select (fun node -> Html.tag node="img") tree);
-  with_html article (`String (Html.render tree))
-
 let initialize db =
   Q.busy_timeout db 2000;
   exec db "PRAGMA foreign_keys=ON";
-  let version = schema_version db in
-  if version < 0 || version > 10 then failwith "Unsupported content-state schema version";
-  if version = 0 then transaction db (fun () ->
-    exec db "CREATE TABLE IF NOT EXISTS items(source TEXT NOT NULL,id TEXT NOT NULL,parent TEXT,thread TEXT,title TEXT NOT NULL,author TEXT NOT NULL,url TEXT NOT NULL,created REAL NOT NULL,is_read INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(source,id));
-CREATE TABLE IF NOT EXISTS item_links(source TEXT NOT NULL,child TEXT NOT NULL,ancestor TEXT NOT NULL,PRIMARY KEY(source,child,ancestor));
-CREATE TABLE IF NOT EXISTS subscriptions(source TEXT NOT NULL,grp TEXT NOT NULL,PRIMARY KEY(source,grp));
-CREATE TABLE IF NOT EXISTS activities(seq INTEGER PRIMARY KEY AUTOINCREMENT,source TEXT NOT NULL,id TEXT NOT NULL,revision TEXT NOT NULL,occurred REAL NOT NULL,UNIQUE(source,id,revision));
-CREATE TABLE IF NOT EXISTS dismissals(source TEXT NOT NULL,id TEXT NOT NULL,through_seq INTEGER NOT NULL,PRIMARY KEY(source,id));
-CREATE TABLE IF NOT EXISTS folders(path TEXT PRIMARY KEY,parent TEXT REFERENCES folders(path) ON DELETE CASCADE);
-INSERT OR IGNORE INTO folders VALUES('',NULL);
-CREATE TABLE IF NOT EXISTS favorites(folder TEXT NOT NULL REFERENCES folders(path) ON DELETE CASCADE,source TEXT NOT NULL,kind TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(folder,source,kind,id));
-CREATE TABLE IF NOT EXISTS archives(source TEXT NOT NULL,id TEXT NOT NULL,payload TEXT NOT NULL,raw BLOB,PRIMARY KEY(source,id));
-PRAGMA user_version=1");
-  if version < 2 then transaction db (fun () ->
-    exec db "CREATE TABLE IF NOT EXISTS archive_files(source TEXT NOT NULL,id TEXT NOT NULL,part INTEGER NOT NULL,data BLOB NOT NULL,PRIMARY KEY(source,id,part),FOREIGN KEY(source,id) REFERENCES archives(source,id) ON DELETE CASCADE); PRAGMA user_version=2");
-  if version < 3 then transaction db (fun () ->
-    (* Preserve old data for explicit export; it no longer drives any feed. *)
-    exec db "ALTER TABLE subscriptions RENAME TO legacy_subscriptions;
-ALTER TABLE activities RENAME TO legacy_activities;
-ALTER TABLE dismissals RENAME TO legacy_dismissals;
-CREATE TABLE activities(seq INTEGER PRIMARY KEY AUTOINCREMENT,source TEXT NOT NULL,grp TEXT NOT NULL,id TEXT NOT NULL,revision TEXT NOT NULL,occurred REAL NOT NULL,UNIQUE(source,grp,id,revision));
-CREATE TABLE entry_members(source TEXT NOT NULL,grp TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(source,grp,id));
-CREATE TABLE dismissals(source TEXT NOT NULL,grp TEXT NOT NULL,id TEXT NOT NULL,through_seq INTEGER NOT NULL,PRIMARY KEY(source,grp,id));
-INSERT INTO activities(source,grp,id,revision,occurred)
- SELECT a.source,s.grp,a.id,a.revision,a.occurred FROM legacy_activities a
- JOIN legacy_subscriptions s ON s.source=a.source ORDER BY a.seq,s.grp;
-INSERT INTO dismissals(source,grp,id,through_seq)
- SELECT d.source,s.grp,d.id,coalesce(max(n.seq),0) FROM legacy_dismissals d
- JOIN legacy_subscriptions s ON s.source=d.source
- LEFT JOIN legacy_activities a ON a.source=d.source AND a.seq<=d.through_seq
- LEFT JOIN activities n ON n.source=a.source AND n.grp=s.grp AND n.id=a.id AND n.revision=a.revision
- GROUP BY d.source,s.grp,d.id;
-PRAGMA user_version=3");
-  if version < 4 then transaction db (fun () ->
-    (* v3 substituted fetch time for a changed revision. Repair cached display
-       times from source metadata without changing activity IDs or dismissals.
-       The next group refresh replaces these with its exact source timestamp. *)
-    exec db "UPDATE activities SET occurred=coalesce((SELECT i.created FROM items i WHERE i.source=activities.source AND i.id=activities.id),0);
-PRAGMA user_version=4");
-  if version < 5 then transaction db (fun () ->
-    (* Ordinary reads share body storage with archives, but only an explicit
-       archive guarantees that every resource has been downloaded. *)
-    exec db "ALTER TABLE archives ADD COLUMN resources_complete INTEGER NOT NULL DEFAULT 1;
-CREATE TABLE cached_threads(source TEXT NOT NULL,id TEXT NOT NULL,complete INTEGER NOT NULL,PRIMARY KEY(source,id));
-INSERT INTO cached_threads SELECT DISTINCT source,id,1 FROM favorites WHERE kind='thread';
-PRAGMA user_version=5");
-  if version < 6 then transaction db (fun () ->
-    exec db "CREATE TABLE rss_deletions(source TEXT NOT NULL,id TEXT NOT NULL,pending INTEGER NOT NULL,PRIMARY KEY(source,id));
-CREATE INDEX rss_deletions_pending ON rss_deletions(pending) WHERE pending=1;";
-    exec db "PRAGMA user_version=6");
-  if version < 8 then begin
-    let migrated=transaction db (fun () ->
-      if schema_version db >= 8 then [] else begin
-        let migrated=query db "SELECT source,id,payload FROM archives WHERE source GLOB 'rss:*'" []
-          |> List.filter_map (fun row ->
-            let source=s row.(0) and id=s row.(1) and manifest=s row.(2) in
-            if not (legacy_rss_payload manifest) then None else
-            let file=legacy_rss_path db ~source ~id in
-            Option.bind (article_bytes file) (fun bytes ->
-              let article=Yojson.Safe.from_string bytes in
-              let open Yojson.Safe.Util in
-              if member "id" (member "message" article) <> `String id then
-                failwith ("RSS article identity does not match its cache file: " ^ file);
-              let args=[text source;text id] in
-              if resource_manifest article <> manifest then begin
-                run db "DELETE FROM archive_files WHERE source=? AND id=?" args;
-                run db "UPDATE archives SET resources_complete=0 WHERE source=? AND id=?" args
-              end;
-              run db "UPDATE archives SET payload=? WHERE source=? AND id=?"
-                (text (Yojson.Safe.to_string article) :: args);
-              Some(file,Digest.string bytes))) in
-        exec db "PRAGMA user_version=8";
-        migrated
-      end) in
-    (* Remove a legacy file only after its body has been committed to SQLite. *)
-    clean_migrated_files db ".rss" migrated
-  end;
-  if version < 9 then begin
-    let migrated=transaction db (fun () ->
-      if schema_version db >= 9 then [] else begin
-        let source="atlantic" in
-        let migrated=query db "SELECT id,payload FROM archives WHERE source=?" [text source]
-          |> List.filter_map (fun row ->
-            let id=s row.(0) and payload=s row.(1) in
-            let article=Yojson.Safe.from_string payload in
-            let file=legacy_atlantic_path db ~source ~id in
-            let save article =
-              run db "UPDATE archives SET payload=? WHERE source=? AND id=?"
-                [text (Yojson.Safe.to_string article);text source;text id] in
-            match article_html article with
-            | None ->
-              Option.map (fun html ->
-                save (with_html article (`String html));
-                file,Digest.string html) (article_bytes file)
-            | Some html ->
-              save (embed_archived_images db ~source ~id article html);
-              None) in
-        exec db "PRAGMA user_version=9";
-        migrated
-      end) in
-    clean_migrated_files db ".html" migrated
-  end;
-  if version < 10 then transaction db (fun () ->
-    if schema_version db < 10 then begin
-      List.iter (fun table ->
-        exec db ("ALTER TABLE " ^ table ^ " RENAME COLUMN source TO backend_key"))
-        ["items";"item_links";"activities";"entry_members";"dismissals";"favorites";
-         "archives";"archive_files";"cached_threads";"rss_deletions";
-         "legacy_subscriptions";"legacy_activities";"legacy_dismissals"];
-      exec db "PRAGMA user_version=10"
-    end);
-  List.iter (fun row ->
-    try finish_rss_delete db ~source:(s row.(0)) ~id:(s row.(1))
-    with Unix.Unix_error _ -> ())
-    (query db "SELECT backend_key,id FROM rss_deletions WHERE pending=1" [])
+  transaction db (fun () ->
+    match query db "PRAGMA user_version" [], query db "PRAGMA application_id" [] with
+    | [version],[app] when n version.(0)=1 && n app.(0)=0x43414D55 -> ()
+    | [version],[app] when n version.(0)=0 && n app.(0)=0 &&
+        query db "SELECT 1 FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' LIMIT 1" []=[] ->
+      exec db "CREATE TABLE items(backend_key TEXT NOT NULL,id TEXT NOT NULL,parent TEXT,thread TEXT,title TEXT NOT NULL,author TEXT NOT NULL,url TEXT NOT NULL,created REAL NOT NULL,is_read INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(backend_key,id));
+CREATE TABLE item_links(backend_key TEXT NOT NULL,child TEXT NOT NULL,ancestor TEXT NOT NULL,PRIMARY KEY(backend_key,child,ancestor));
+CREATE TABLE activities(seq INTEGER PRIMARY KEY AUTOINCREMENT,backend_key TEXT NOT NULL,grp TEXT NOT NULL,id TEXT NOT NULL,revision TEXT NOT NULL,occurred REAL NOT NULL,UNIQUE(backend_key,grp,id,revision));
+CREATE TABLE entry_members(backend_key TEXT NOT NULL,grp TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(backend_key,grp,id));
+CREATE TABLE dismissals(backend_key TEXT NOT NULL,grp TEXT NOT NULL,id TEXT NOT NULL,through_seq INTEGER NOT NULL,PRIMARY KEY(backend_key,grp,id));
+CREATE TABLE folders(path TEXT PRIMARY KEY,parent TEXT REFERENCES folders(path) ON DELETE CASCADE);
+CREATE TABLE favorites(folder TEXT NOT NULL REFERENCES folders(path) ON DELETE CASCADE,backend_key TEXT NOT NULL,kind TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(folder,backend_key,kind,id));
+CREATE TABLE archives(backend_key TEXT NOT NULL,id TEXT NOT NULL,payload TEXT NOT NULL,raw BLOB, resources_complete INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(backend_key,id));
+CREATE TABLE archive_files(backend_key TEXT NOT NULL,id TEXT NOT NULL,part INTEGER NOT NULL,data BLOB NOT NULL,PRIMARY KEY(backend_key,id,part),FOREIGN KEY(backend_key,id) REFERENCES archives(backend_key,id) ON DELETE CASCADE);
+CREATE TABLE cached_threads(backend_key TEXT NOT NULL,id TEXT NOT NULL,complete INTEGER NOT NULL,PRIMARY KEY(backend_key,id));
+CREATE TABLE rss_deletions(backend_key TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(backend_key,id));
+INSERT INTO folders VALUES('',NULL);
+PRAGMA application_id=0x43414D55;
+PRAGMA user_version=1"
+    | _ -> failwith "Unsupported Camulus database format")
 let close_db db = ignore (Q.db_close db)
 let open_db path =
   if Filename.is_relative path then invalid_arg "State database path must be absolute";
@@ -262,10 +98,10 @@ let observe ?(replace=false) db ~source ~group messages =
              so refreshing an already dismissed update cannot resurrect it. A new
              token creates another sequence that can fall beyond the dismissal
              boundary. With no token, the message ID identifies its only activity.
-             Display order uses m.created (source time), never this sequence or
+             Display order uses the remote activity or creation time, never this sequence or
              the time at which we fetched the message. *)
           run db "INSERT INTO activities(backend_key,grp,id,revision,occurred) VALUES(?,?,?,?,?) ON CONFLICT(backend_key,grp,id,revision) DO UPDATE SET occurred=excluded.occurred"
-            [text source;text group;text m.id;text (Option.value m.activity ~default:m.id);Q.Data.FLOAT m.created]
+            [text source;text group;text m.id;text (Option.value m.activity ~default:m.id);Q.Data.FLOAT (Option.value m.activity_at ~default:m.created)]
         ) group
       end) messages)
 let mark_read db ~source ids value =
@@ -416,17 +252,16 @@ let stored_article db ~source ~id =
 let local_article db ~source ~id =
   if rss_deleted db ~source ~id then failwith "Article was deleted";
   match stored_article db ~source ~id with
-  | [row] -> read_article ~source row
+  | [row] -> Some (read_article row)
   | _ -> None
 let delete_rss_article db ~source ~id =
   if not (rss_source source) then invalid_arg "Expected an RSS article";
   validate source;validate id;
   transaction db (fun () ->
     let args=[text source;text id] in
-    run db "INSERT OR IGNORE INTO rss_deletions VALUES(?,?,1)" args;
+    run db "INSERT OR IGNORE INTO rss_deletions VALUES(?,?)" args;
     List.iter (fun table -> run db ("DELETE FROM " ^ table ^ " WHERE backend_key=? AND id=?") args)
-      ["archives";"favorites";"entry_members";"activities";"dismissals";"items"]);
-  finish_rss_delete db ~source ~id
+      ["archives";"favorites";"entry_members";"activities";"dismissals";"items"])
 let write_archive db source a =
   let id=a.message.id in
   let article=`Assoc["message",message_json a.message;"attachments",a.attachments] in
@@ -445,9 +280,7 @@ let write_archive db source a =
   write_files db source a
 let archived_resources_match db ~source ~id =
   match stored_article db ~source ~id with
-  | [row] -> (match read_article ~source row with
-      | Some article -> resources_complete ~source row article
-      | None -> false)
+  | [row] -> n row.(2)=1
   | _ -> false
 let embedded_attachment article part =
   let open Yojson.Safe.Util in
@@ -522,14 +355,13 @@ let load_archive db ~source ~target ~id =
   let root,_=components db in let members=memberships db in
   stored_content db ~source ~target ~id
   |> List.filter(fun r -> (n r.(2)=1 || refreshable_article source) && covered root members source (s r.(0)))
-  |> List.filter_map(fun r ->
-    Option.map (fun article ->
-      if not (refreshable_article source) || resources_complete ~source r article then article else
+  |> List.map(fun r ->
+      let article=read_article r in
+      if n r.(2)=1 then article else
       let open Yojson.Safe.Util in
       let attachments=member "attachments" article |> to_list
         |> List.map (fun part -> `Assoc (("download_from_source",`Bool true) :: to_assoc part)) in
-      `Assoc (("attachments",`List attachments) :: List.remove_assoc "attachments" (to_assoc article)))
-      (read_article ~source r)) |> fun xs -> `List xs
+      `Assoc (("attachments",`List attachments) :: List.remove_assoc "attachments" (to_assoc article))) |> fun xs -> `List xs
 let export_articles db ~source ~target ~id =
   match target with
   | Article -> Option.to_list (local_article db ~source ~id)
@@ -546,7 +378,7 @@ let store_article ~refresh db ~source article =
     if refresh || Option.is_none (local_article db ~source ~id) then begin
       let manifest=resource_manifest article in
       let preserve_resources=match stored_article db ~source ~id with
-        | [row] -> n row.(2)=1 && stored_manifest ~source row=manifest
+        | [row] -> n row.(2)=1 && resource_manifest (read_article row)=manifest
         | _ -> false in
       if not preserve_resources then
         run db "DELETE FROM archive_files WHERE backend_key=? AND id=?" [text source;text id];
@@ -572,7 +404,7 @@ let cache_thread db ~source ~id complete =
     [text source;text id;int(if complete then 1 else 0)]
 let cached_content db ~source ~target ~id =
   if rss_deleted db ~source ~id then failwith "Article was deleted";
-  let articles=stored_content db ~source ~target ~id |> List.filter_map (read_article ~source) in
+  let articles=stored_content db ~source ~target ~id |> List.map read_article in
   let complete=match target with
     | Article -> articles<>[]
     | Thread ->

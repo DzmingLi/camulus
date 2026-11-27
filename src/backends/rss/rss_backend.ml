@@ -22,7 +22,7 @@ let article_of_json article =
   let message={C.id=string "id";title=string "title";author=string "author";
     body=string "body";html=optional "html";url=string "url";link_url=optional "link_url";
     created=to_number (field "created");thread_id=None;parent_id=None;references=[];
-    unavailable=false;score=0;my_vote=No_vote;activity=None} in
+    activity_at=None;unavailable=false;score=0;my_vote=No_vote;activity=None} in
   let enclosures=member "attachments" article |> to_list |> List.map (fun field ->
     let get name=member name field in
     {Decode.part=to_int (get "part");url=to_string (get "url");name=to_string (get "name");

@@ -68,7 +68,7 @@ let date s=
 let message ~id ~title ~author ~created ~html =
  let root=root_id id in
  {C.id;thread_id=Some root;parent_id=None;references=[];title;author;body="";html=Some html;
- url=root_url root;link_url=None;created;unavailable=false;score=0;my_vote=C.No_vote;
+ url=root_url root;link_url=None;created;activity_at=None;unavailable=false;score=0;my_vote=C.No_vote;
  activity=Some(Digest.to_hex(Digest.string(title^html)))}
 let image j=let url=str "url" (field "large" j) in if url="" then "" else "<img src=\""^Html.escape url^"\">"
 let text s=String.split_on_char '\n' s|>List.map Html.escape|>String.concat "<br>"

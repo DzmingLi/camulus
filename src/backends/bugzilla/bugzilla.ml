@@ -38,7 +38,7 @@ let load number =
     let parent_id = if id = number then None else Some number in
     {C.id; thread_id=Some number; parent_id; references=Option.to_list parent_id;
      title; author; body; html=None; url=link; link_url=None; created=R.Decode.date date;
-     unavailable=false; score=0; my_vote=C.No_vote; activity} in
+     activity_at=None;unavailable=false; score=0; my_vote=C.No_vote; activity} in
   let description, replies = List.partition (fun c -> J.member "count" c = `Int 0) comments in
   let body = String.concat "\n\n" (string "status" bug :: List.map (string "text") description) in
   let root = message ~id:number ~title:("#" ^ number ^ " · " ^ string "summary" bug)

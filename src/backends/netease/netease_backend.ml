@@ -29,7 +29,7 @@ let decode event=
   String.concat ""(List.filter_map(fun p->match str "originUrl" p with ""->None|url->Some("<img src=\""^Html.escape(https url)^"\">"))(array "pics" event)) in
  let message={C.id="event:"^raw;thread_id=None;parent_id=None;references=[];title;author;body="";html=None;
  url="https://music.163.com/#/event?id="^raw^"&uid="^uid;link_url=None;created=float(num "eventTime" event)/.1000.;
- unavailable=false;score=0;my_vote=C.No_vote;activity=Some(Digest.to_hex(Digest.string(title^html)))} in
+ activity_at=None;unavailable=false;score=0;my_vote=C.No_vote;activity=Some(Digest.to_hex(Digest.string(title^html)))} in
  R.Article.of_html message html
 module Make(H:R.Http.S)=struct
  module Download=R.Make(H)

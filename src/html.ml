@@ -54,31 +54,29 @@ let image_data_uri bytes =
   else None in
  Option.map (fun mime -> "data:" ^ mime ^ ";base64," ^ Base64.encode_string bytes) mime
 
-(* Cached covers are already encoded for a quoted src attribute. Keep their
+(* Cached images are already encoded for a quoted src attribute. Keep their
    binary-sized payload out of the HTML tokenizer and serializer. *)
 let cached_image_src = Str.regexp " src=\"\\(data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]*\\)\""
-let embedded_image ~url html =
- let images=Hashtbl.create 1 in
+let embedded_images html =
+ let payloads=Hashtbl.create 8 in
  let compact=Str.global_substitute cached_image_src (fun input ->
    let data=Str.matched_group 1 input in
-   let key="camulus-cover:" ^ string_of_int (Hashtbl.length images) in
-   Hashtbl.add images key data;
+   let key="camulus-image:" ^ string_of_int (Hashtbl.length payloads) in
+   Hashtbl.add payloads key data;
    " src=\"" ^ key ^ "\"") html in
- if Hashtbl.length images=0 then None else
- find (fun node -> tag node="img" && attr "data-camulus-image-url" node=url &&
-   Hashtbl.mem images (attr "src" node)) (parse compact)
- |> Option.map (fun node -> Hashtbl.find images (attr "src" node),attr "data-camulus-cover-revision" node)
+ let images=Hashtbl.create 8 in
+ if Hashtbl.length payloads > 0 then
+   select (fun node -> tag node="img") (parse compact) |> List.iter (fun node ->
+     let url=attr "data-camulus-image-url" node in
+     if url<>"" then Option.iter (fun data ->
+       let revision=match attr "data-camulus-image-revision" node with
+         | "" -> attr "data-camulus-cover-revision" node
+         | value -> value in
+       Hashtbl.replace images url (data,revision))
+       (Hashtbl.find_opt payloads (attr "src" node)));
+ images
 
-let render_with_cover tree node data =
- let rec insert marker =
-   set_attr "src" marker node;
-   let html=render tree and attribute=Str.regexp_string (" src=\"" ^ marker ^ "\"") in
-   let start=Str.search_forward attribute html 0 in
-   let stop=Str.match_end () in
-   if (try ignore (Str.search_forward attribute html stop);true with Not_found -> false)
-   then insert (marker ^ "-")
-   else String.concat "" [String.sub html 0 (start+6);data;String.sub html (stop-1) (String.length html-stop+1)] in
- insert "camulus-cover:embedded"
+let embedded_image ~url html = Hashtbl.find_opt (embedded_images html) url
 
 let embedded_image_bytes (src,_) =
  Option.bind (String.index_opt src ',') (fun comma ->

@@ -45,7 +45,7 @@ let parse ~url:base input =
     let activity=Jsont_bytesrw.encode_string I.jsont item |> result |> Digest.string |> Digest.to_hex in
     {R.Decode.message={C.id;thread_id=None;parent_id=None;references=[];title;author;body;html;
       url=permalink;link_url=Option.map (resolve base) (I.external_url item);created;
-      unavailable=false;score=0;my_vote=No_vote;activity=Some activity};enclosures}) items in
+      activity_at=None;unavailable=false;score=0;my_vote=No_vote;activity=Some activity};enclosures}) items in
   let next=match text (Jsonfeed.next_url feed) with "" -> None | value -> Some (resolve base value) in
   articles,next
 
